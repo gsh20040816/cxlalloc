@@ -1,0 +1,78 @@
+pub(crate) mod region;
+
+pub(crate) use region::Region;
+
+use std::io;
+
+use region::Id;
+
+// Note: we use an enum here to avoid dynamic allocation
+// of a `Box<dyn Backend>` trait object. This is fine
+// because the set of backends should not be extensible
+// by downstream consumers.
+#[derive(Clone, Debug)]
+pub enum Backend {
+    Mmap(backend::Mmap),
+    #[cfg(feature = "backend-shm")]
+    Shm(backend::Shm),
+}
+
+impl Backend {
+    pub(crate) fn allocate(&self, id: Id, size: usize) -> io::Result<Region> {
+        self.as_backend().allocate(id, size).map(|region| {
+            log::info!(
+                "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
+                region.size(),
+                region.base().as_ptr(),
+                unsafe { region.base().as_ptr().byte_add(region.size()) },
+                std::any::type_name::<Self>(),
+            );
+
+            region
+        })
+    }
+
+    #[cfg_attr(not(feature = "operation-expand"), allow(dead_code))]
+    pub(crate) fn expand(&self, region: &Region) -> io::Result<()> {
+        self.as_backend().expand(region)
+    }
+
+    pub(crate) fn free(&self, region: &Region) -> io::Result<()> {
+        self.as_backend().free(region)
+    }
+
+    fn as_backend(&self) -> &dyn backend::Backend {
+        match self {
+            Backend::Mmap(mmap) => mmap,
+            #[cfg(feature = "backend-shm")]
+            Backend::Shm(shm) => shm,
+        }
+    }
+}
+
+/// Specific backend implementations.
+#[path = "raw"]
+pub mod backend {
+    mod mmap;
+    #[cfg(feature = "backend-shm")]
+    mod shm;
+
+    pub use mmap::Mmap;
+    #[cfg(feature = "backend-shm")]
+    pub use shm::Shm;
+
+    use std::io;
+
+    use crate::raw::region;
+    use crate::raw::Region;
+
+    // This trait is an implementation detail for requiring
+    // our backend implementations to expose the same interface.
+    pub(super) trait Backend: Send + Sync {
+        fn allocate(&self, id: region::Id, size: usize) -> io::Result<Region>;
+
+        fn expand(&self, region: &Region) -> io::Result<()>;
+
+        fn free(&self, region: &Region) -> io::Result<()>;
+    }
+}

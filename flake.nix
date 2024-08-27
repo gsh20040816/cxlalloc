@@ -24,9 +24,14 @@
       with pkgs; {
         devShells.default = mkShell {
           nativeBuildInputs = [
+            numactl
+            pkg-config
             rustToolchain
             taplo
           ];
+
+          # https://discourse.nixos.org/t/libclang-path-and-rust-bindgen-in-nixpkgs-unstable/13264
+          LIBCLANG_PATH = "${llvmPackages_latest.libclang.lib}/lib";
         };
       }
     );

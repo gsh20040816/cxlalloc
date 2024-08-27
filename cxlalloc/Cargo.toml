@@ -3,4 +3,16 @@ name = "cxlalloc"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+backend-shm = ["numa-sys"]
+operation-expand = []
+
 [dependencies]
+arrayvec.workspace = true
+libc.workspace = true
+log.workspace = true
+
+[dependencies.numa-sys]
+git = "https://github.com/nwtnni/numa.git"
+optional = true
+features = ["dynamic"]

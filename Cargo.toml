@@ -1,4 +1,8 @@
 [workspace]
-members = [
-    "cxlalloc",
-]
+members = ["cxlalloc"]
+resolver = "2"
+
+[workspace.dependencies]
+arrayvec = "0.7"
+libc = "0.2"
+log = "0.4"
