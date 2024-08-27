@@ -25,6 +25,7 @@
         devShells.default = mkShell {
           nativeBuildInputs = [
             rustToolchain
+            taplo
           ];
         };
       }
