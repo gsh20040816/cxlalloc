@@ -1,0 +1,33 @@
+use core::alloc::Layout;
+use core::marker::PhantomData;
+use core::num::NonZeroUsize;
+use core::ptr::NonNull;
+
+use crate::raw;
+use crate::SIZE_SLAB;
+
+pub(crate) struct Data<'raw> {
+    base: NonNull<u64>,
+    _raw: PhantomData<&'raw raw::Region>,
+}
+
+impl<'raw> Data<'raw> {
+    pub(crate) fn layout(slab_count: usize) -> Layout {
+        Layout::array::<[u8; SIZE_SLAB]>(slab_count).unwrap()
+    }
+
+    pub(crate) fn from_raw(region: &'raw raw::heap::Inner) -> Self {
+        Self {
+            base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
+            _raw: PhantomData,
+        }
+    }
+
+    pub(crate) fn offset_to_pointer<T>(&self, offset: Offset) -> NonNull<T> {
+        unsafe { self.base.byte_add(offset.0.get()).cast() }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Offset(NonZeroUsize);

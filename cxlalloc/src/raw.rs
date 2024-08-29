@@ -1,3 +1,4 @@
+pub(crate) mod heap;
 pub(crate) mod region;
 
 pub(crate) use region::Region;
