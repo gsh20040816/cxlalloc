@@ -7,8 +7,8 @@ use crate::thread;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Owned<'raw> {
-    pub(crate) thread: &'raw mut Thread,
-    pub(crate) slabs: slab::Array<slab::Owned>,
+    threads: thread::Slice<'raw, Thread>,
+    slabs: slab::Slice<'raw, slab::Owned>,
 }
 
 impl<'raw> Owned<'raw> {
@@ -22,21 +22,15 @@ impl<'raw> Owned<'raw> {
             .pad_to_align()
     }
 
-    /// # Safety
-    ///
-    /// Caller must ensure that no other thread is concurrently using `id`.
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: &mut thread::Id) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner) -> Self {
         // FIXME: deduplicate with `layout`
-        let offset = Layout::new::<thread::Array<Thread>>()
+        let (_, offset) = Layout::new::<thread::Array<Thread>>()
             .extend(Layout::array::<slab::Owned>(1).unwrap())
-            .unwrap()
-            .1;
+            .unwrap();
 
         Self {
-            thread: unsafe {
-                thread::Array::get(raw.owned.base().cast::<thread::Array<Thread>>(), id).as_mut()
-            },
-            slabs: unsafe { slab::Array::from_raw(raw.owned.base().byte_add(offset).cast()) },
+            threads: thread::Slice::from_raw(&raw.owned, 0),
+            slabs: slab::Slice::from_raw(&raw.owned, offset),
         }
     }
 }

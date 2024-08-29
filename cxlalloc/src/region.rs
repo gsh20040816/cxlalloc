@@ -1,9 +1,5 @@
 pub(crate) mod data;
-// TODO: move to top-level and remove old heap?
-pub(crate) mod heap;
-
 pub(crate) use data::Data;
-pub(crate) use heap::Heap;
 
 // Namespace modules under `meta`, but avoid another
 // layer of nesting in the file hierarchy.

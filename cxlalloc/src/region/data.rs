@@ -16,7 +16,7 @@ impl<'raw> Data<'raw> {
         Layout::array::<[u8; SIZE_SLAB]>(slab_count).unwrap()
     }
 
-    pub(crate) fn from_raw(region: &'raw raw::heap::Inner) -> Self {
+    pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Inner) -> Self {
         Self {
             base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
             _raw: PhantomData,
@@ -24,7 +24,14 @@ impl<'raw> Data<'raw> {
     }
 
     pub(crate) fn offset_to_pointer<T>(&self, offset: Offset) -> NonNull<T> {
-        unsafe { self.base.byte_add(offset.0.get()).cast() }
+        NonNull::new(
+            self.base
+                .as_ptr()
+                .wrapping_byte_add(SIZE_SLAB)
+                .wrapping_byte_add(offset.0.get())
+                .cast(),
+        )
+        .unwrap()
     }
 }
 

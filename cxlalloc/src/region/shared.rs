@@ -9,7 +9,7 @@ use crate::SIZE_PAGE;
 pub(crate) struct Shared<'raw> {
     capacity: usize,
     meta: &'raw Meta,
-    slabs: slab::Array<slab::Shared>,
+    slabs: slab::Slice<'raw, slab::Shared>,
 }
 
 impl<'raw> Shared<'raw> {
@@ -23,7 +23,7 @@ impl<'raw> Shared<'raw> {
             .pad_to_align()
     }
 
-    pub(crate) fn from_raw(raw: &'raw raw::heap::Inner) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner) -> Self {
         // FIXME: deduplicate with `layout`
         let offset = Layout::new::<Meta>()
             .extend(Layout::array::<slab::Shared>(1).unwrap())
@@ -32,13 +32,9 @@ impl<'raw> Shared<'raw> {
 
         Self {
             capacity: raw.capacity,
-            meta: unsafe { raw.shared.base().cast::<Meta>().as_ref() },
-            slabs: unsafe { slab::Array::from_raw(raw.shared.base().byte_add(offset).cast()) },
+            meta: raw.shared.base().cast::<Meta>().as_ref(),
+            slabs: slab::Slice::from_raw(&raw.shared, offset),
         }
-    }
-
-    pub(crate) fn meta(&self) -> &Meta {
-        self.meta
     }
 }
 

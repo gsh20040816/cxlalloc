@@ -1,23 +1,27 @@
-use core::ops::Index;
+use core::marker::PhantomData;
 use core::ptr::NonNull;
 
+use crate::raw;
 use crate::COUNT_THREAD;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Id(usize);
 
 #[repr(C)]
 pub(crate) struct Array<T>([T; COUNT_THREAD]);
 
-impl<T> Array<T> {
-    pub(crate) unsafe fn get(pointer: NonNull<Array<T>>, id: &mut Id) -> NonNull<T> {
-        pointer.byte_add(id.0).cast()
-    }
+pub(crate) struct Slice<'raw, T> {
+    base: NonNull<T>,
+    _raw: PhantomData<&'raw raw::Region>,
 }
 
-impl<T> Index<Id> for Array<T> {
-    type Output = T;
-    fn index(&self, index: Id) -> &Self::Output {
-        &self.0[index.0]
+impl<T> Slice<'_, T> {
+    pub(crate) unsafe fn from_raw(region: &raw::Region, offset: usize) -> Self {
+        let base = region.base().byte_add(offset).as_ptr().cast::<T>();
+
+        Self {
+            base: NonNull::new(base).unwrap(),
+            _raw: PhantomData,
+        }
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Id(usize);
