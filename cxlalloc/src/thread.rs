@@ -1,10 +1,12 @@
 use core::marker::PhantomData;
+use core::ops::Index;
+use core::ops::IndexMut;
 use core::ptr::NonNull;
 
 use crate::raw;
 use crate::COUNT_THREAD;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Id(usize);
 
 #[repr(C)]
@@ -23,5 +25,25 @@ impl<T> Slice<'_, T> {
             base: NonNull::new(base).unwrap(),
             _raw: PhantomData,
         }
+    }
+}
+
+impl<T> Index<&Id> for Slice<'_, T> {
+    type Output = T;
+    fn index(&self, index: &Id) -> &Self::Output {
+        unsafe { self.base.add(index.0).as_ref() }
+    }
+}
+
+impl<T> Index<&mut Id> for Slice<'_, T> {
+    type Output = T;
+    fn index(&self, index: &mut Id) -> &Self::Output {
+        unsafe { self.base.add(index.0).as_ref() }
+    }
+}
+
+impl<T> IndexMut<&mut Id> for Slice<'_, T> {
+    fn index_mut(&mut self, index: &mut Id) -> &mut Self::Output {
+        unsafe { self.base.add(index.0).as_mut() }
     }
 }
