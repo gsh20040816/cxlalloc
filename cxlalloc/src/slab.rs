@@ -7,7 +7,7 @@ use crate::block;
 use crate::raw;
 use crate::size;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[repr(C)]
 pub(crate) struct Index(NonZeroU32);
 
@@ -86,6 +86,29 @@ pub(crate) struct Shared {
 #[repr(C)]
 pub(crate) struct LocalStack {
     head: Option<Index>,
+}
+
+impl LocalStack {
+    pub(crate) fn peek(&self) -> Option<&Index> {
+        self.head.as_ref()
+    }
+
+    pub(crate) fn peek_mut(&mut self) -> Option<&mut Index> {
+        self.head.as_mut()
+    }
+
+    pub(crate) fn r#move(slice: &Slice<Owned>, from: &mut Self, to: &mut Self) -> bool {
+        assert_eq!(to.peek(), None);
+
+        let Some(index) = from.peek() else {
+            return false;
+        };
+        let next = slice[index].next.as_ref().map(|Index(index)| Index(*index));
+
+        to.head = Some(Index(index.0));
+        from.head = next;
+        true
+    }
 }
 
 #[repr(C)]

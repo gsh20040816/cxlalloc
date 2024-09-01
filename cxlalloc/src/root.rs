@@ -1,13 +1,21 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
+use crate::region;
+use crate::COUNT_ROOT;
 use crate::COUNT_THREAD;
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct Root<'heap, T> {
+pub struct Root<'raw, T> {
     index: Index,
-    _heap: PhantomData<&'heap ()>,
+    _heap: PhantomData<&'raw ()>,
     _type: PhantomData<T>,
+}
+
+impl<'raw, T> Root<'raw, T> {
+    pub(crate) fn index(&self) -> Index {
+        self.index
+    }
 }
 
 /// Type-erased root representation for heap internals.
@@ -36,5 +44,14 @@ impl Index {
 impl From<Index> for usize {
     fn from(index: Index) -> Self {
         index.0
+    }
+}
+
+pub(crate) struct Array([Option<region::data::Offset>; COUNT_ROOT]);
+
+impl core::ops::Index<Index> for Array {
+    type Output = Option<region::data::Offset>;
+    fn index(&self, index: Index) -> &Self::Output {
+        &self.0[index.0]
     }
 }

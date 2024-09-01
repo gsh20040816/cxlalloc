@@ -33,6 +33,12 @@ impl<'raw> Data<'raw> {
         )
         .unwrap()
     }
+
+    pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Offset {
+        NonZeroUsize::new(pointer.as_ptr() as usize - self.base.as_ptr() as usize)
+            .map(Offset)
+            .unwrap()
+    }
 }
 
 #[repr(C)]

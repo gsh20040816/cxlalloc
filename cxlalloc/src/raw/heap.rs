@@ -1,18 +1,3 @@
-//! This module implements backing storage for the heap.
-//!
-//! # Example
-//!
-//! ```ignore
-//! let raw = cxlalloc::RawBuilder::default()
-//!     // .backend(...)
-//!     // .size(...)
-//!     // .thread_count(...)
-//!     // .process_id(...)
-//!     // .process_count(...)
-//!     .build("id")
-//!     .unwrap();
-//! ```
-
 use std::io;
 
 use crate::raw;
@@ -20,6 +5,8 @@ use crate::raw::backend;
 use crate::raw::Backend;
 use crate::raw::Region;
 use crate::region;
+use crate::thread;
+use crate::Allocator;
 use crate::SIZE_SLAB;
 
 #[cfg(not(feature = "operation-expand"))]
@@ -119,6 +106,16 @@ impl Inner {
             process_count,
         }
         .into())
+    }
+
+    pub fn allocator(&self, id: thread::Id) -> Allocator {
+        // TODO: safety?
+        unsafe { Allocator::from_raw(self, id) }
+    }
+
+    pub fn heap(&self) -> crate::Heap {
+        // TODO: safety?
+        unsafe { crate::Heap::from_raw(self) }
     }
 }
 

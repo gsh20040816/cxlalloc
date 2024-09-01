@@ -9,6 +9,12 @@ use crate::COUNT_THREAD;
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Id(usize);
 
+impl Id {
+    pub unsafe fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
 #[repr(C)]
 pub(crate) struct Array<T>([T; COUNT_THREAD]);
 

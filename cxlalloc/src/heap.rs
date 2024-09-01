@@ -2,11 +2,12 @@ use core::ptr::NonNull;
 
 use crate::raw;
 use crate::region;
+use crate::Root;
 
 pub struct Heap<'raw> {
-    shared: region::meta::Shared<'raw>,
-    owned: region::meta::Owned<'raw>,
-    data: region::Data<'raw>,
+    pub(crate) shared: region::meta::Shared<'raw>,
+    pub(crate) owned: region::meta::Owned<'raw>,
+    pub(crate) data: region::Data<'raw>,
 }
 
 impl<'raw> Heap<'raw> {
@@ -20,5 +21,24 @@ impl<'raw> Heap<'raw> {
 
     pub fn offset_to_pointer<T>(&self, offset: region::data::Offset) -> NonNull<T> {
         self.data.offset_to_pointer(offset)
+    }
+
+    pub fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> region::data::Offset {
+        self.data.pointer_to_offset(pointer)
+    }
+
+    pub unsafe fn root<'root, T>(&self, root: &'root Root<'raw, T>) -> Option<&'root T> {
+        let index = root.index();
+        let offset = self.shared.meta.roots[index]?;
+        Some(self.offset_to_pointer(offset).as_ref())
+    }
+
+    pub unsafe fn root_mut<'root, T>(
+        &self,
+        root: &'root mut Root<'raw, T>,
+    ) -> Option<&'root mut T> {
+        let index = root.index();
+        let offset = self.shared.meta.roots[index]?;
+        Some(self.offset_to_pointer(offset).as_mut())
     }
 }

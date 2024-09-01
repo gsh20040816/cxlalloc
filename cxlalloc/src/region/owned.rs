@@ -7,8 +7,8 @@ use crate::thread;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Owned<'raw> {
-    threads: thread::Slice<'raw, Thread>,
-    slabs: slab::Slice<'raw, slab::Owned>,
+    pub(crate) threads: thread::Slice<'raw, Thread>,
+    pub(crate) slabs: slab::Slice<'raw, slab::Owned>,
 }
 
 impl<'raw> Owned<'raw> {

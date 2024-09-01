@@ -1,15 +1,14 @@
 use core::alloc::Layout;
 
 use crate::raw;
-use crate::region::data;
+use crate::root;
 use crate::slab;
-use crate::COUNT_ROOT;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Shared<'raw> {
-    capacity: usize,
-    meta: &'raw Meta,
-    slabs: slab::Slice<'raw, slab::Shared>,
+    pub(crate) capacity: usize,
+    pub(crate) meta: &'raw Meta,
+    pub(crate) slabs: slab::Slice<'raw, slab::Shared>,
 }
 
 impl<'raw> Shared<'raw> {
@@ -40,9 +39,9 @@ impl<'raw> Shared<'raw> {
 
 #[repr(C)]
 pub(crate) struct Meta {
-    roots: [Option<data::Offset>; COUNT_ROOT],
-    free: slab::GlobalStack,
-    extent: Extent,
+    pub(crate) roots: root::Array,
+    pub(crate) free: slab::GlobalStack,
+    pub(crate) extent: Extent,
 }
 
 #[derive(Copy, Clone, Debug)]

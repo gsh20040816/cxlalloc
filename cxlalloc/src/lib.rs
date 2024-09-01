@@ -1,14 +1,19 @@
 mod allocator;
 mod block;
+mod r#box;
 mod heap;
+mod link;
 pub mod raw;
 mod region;
-mod root;
+pub mod root;
 mod size;
 mod slab;
-mod thread;
+pub mod thread;
 
+pub use allocator::Allocator;
 pub use heap::Heap;
+pub use r#box::Box;
+pub use root::Root;
 
 pub(crate) const SIZE_PAGE: usize = 4096;
 pub(crate) const SIZE_SLAB: usize = SIZE_PAGE;
