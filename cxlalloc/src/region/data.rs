@@ -3,7 +3,10 @@ use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
+use crate::block;
 use crate::raw;
+use crate::size;
+use crate::slab;
 use crate::SIZE_SLAB;
 
 pub(crate) struct Data<'raw> {
@@ -44,3 +47,16 @@ impl<'raw> Data<'raw> {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Offset(NonZeroUsize);
+
+impl Offset {
+    // TOOD: safer interface?
+    pub(crate) unsafe fn from_slab_block(
+        slab: slab::Index,
+        block: block::Index,
+        class: size::Small,
+    ) -> Self {
+        NonZeroUsize::new(slab.to_offset().get() + block.to_offset(class))
+            .map(Offset)
+            .unwrap()
+    }
+}

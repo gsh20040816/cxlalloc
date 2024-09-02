@@ -16,3 +16,6 @@ log.workspace = true
 git = "https://github.com/nwtnni/numa.git"
 optional = true
 features = ["dynamic"]
+
+[dev-dependencies]
+env_logger.workspace = true

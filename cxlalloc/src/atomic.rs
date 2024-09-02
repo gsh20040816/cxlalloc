@@ -1,6 +1,8 @@
 use core::convert::Infallible;
+use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::num::NonZeroU16;
+use core::num::Wrapping;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
@@ -56,7 +58,6 @@ unsafe impl Packed for Infallible {
 unsafe impl NonZero for Infallible {}
 
 #[repr(C)]
-#[derive(Debug)]
 pub struct Atomic<T> {
     value: AtomicU64,
     _type: PhantomData<T>,
@@ -80,7 +81,6 @@ impl<T: Packed> Atomic<T> {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 pub struct Versioned<T> {
     value: u64,
     _type: PhantomData<T>,
@@ -98,6 +98,15 @@ unsafe impl<T: Packed> Packed for Versioned<T> {
             value,
             _type: PhantomData,
         }
+    }
+}
+
+impl<T: Packed + Debug> Debug for Versioned<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Versioned")
+            .field("version", &self.version())
+            .field("value", &self.inner())
+            .finish()
     }
 }
 
@@ -140,11 +149,11 @@ impl<T: Packed + NonZero> Versioned<Option<T>> {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Version(NonZeroU16);
+pub struct Version(Wrapping<u16>);
 
 impl Version {
     fn next(&self) -> Self {
-        Self(self.0.checked_add(1).unwrap_or(NonZeroU16::MIN))
+        Self(self.0 + Wrapping(1))
     }
 }
 
@@ -152,11 +161,10 @@ unsafe impl Packed for Version {
     const BITS: u8 = 16;
 
     fn pack(&self) -> u64 {
-        self.0.get() as u64
+        self.0 .0 as u64
     }
 
     fn unpack(value: u64) -> Self {
-        debug_assert!(value & (1 << Self::BITS) > 0);
-        Self(unsafe { NonZeroU16::new_unchecked(value as u16) })
+        Self(Wrapping(value as u16))
     }
 }

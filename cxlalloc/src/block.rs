@@ -1,4 +1,7 @@
+use core::sync::atomic::Ordering;
 use std::sync::atomic::AtomicU64;
+
+use crate::size;
 
 /// Fixed-size bitset implementation.
 ///
@@ -13,43 +16,49 @@ impl<const SIZE: usize> Default for Set<SIZE> {
 }
 
 impl<const SIZE: usize> Set<SIZE> {
-    pub(crate) fn peek(&mut self) -> Option<Index> {
+    pub(crate) fn peek(&self) -> Option<Index> {
         self.0
-            .iter_mut()
-            .map(AtomicU64::get_mut)
+            .iter()
+            .map(|row| row.load(Ordering::Acquire))
             .enumerate()
-            .filter(|(_, row)| **row != 0)
+            .find(|(_, row)| *row != 0)
             .map(|(i, row)| (i, row.trailing_zeros() as usize))
-            .map(Index::from_row_column)
-            .next()
+            .map(Index::from_row_col)
     }
 
-    pub(crate) fn set(&mut self, index: Index) {
-        let (row, column) = index.into_row_column();
-        *self.0[row].get_mut() |= 1 << column;
+    pub(crate) fn set(&self, index: Index) {
+        let (row, col) = index.into_row_col();
+        let old = self.0[row].load(Ordering::Acquire);
+        let new = old | (1 << col);
+        self.0[row].store(new, Ordering::Release);
     }
 
-    pub(crate) fn clear(&mut self, index: Index) {
-        let (row, column) = index.into_row_column();
-        *self.0[row].get_mut() &= !(1 << column);
+    pub(crate) fn clear(&self, index: Index) {
+        let (row, col) = index.into_row_col();
+        let old = self.0[row].load(Ordering::Acquire);
+        let new = old & !(1 << col);
+        self.0[row].store(new, Ordering::Release);
     }
 
     pub(crate) fn is_empty(&mut self) -> bool {
         self.len() == 0
     }
 
-    pub(crate) fn fill(&mut self, value: bool) {
+    pub(crate) fn fill(&self, count: usize, value: bool) {
         let value = -(value as i64) as u64;
+
+        // FIXME: handle trailing ones
+        assert_eq!(count % 64, 0);
         self.0
-            .iter_mut()
-            .map(AtomicU64::get_mut)
-            .for_each(|row| *row = value);
+            .iter()
+            .take(count / 64)
+            .for_each(|row| row.store(value, Ordering::Release));
     }
 
-    pub(crate) fn len(&mut self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.0
-            .iter_mut()
-            .map(AtomicU64::get_mut)
+            .iter()
+            .map(|row| row.load(Ordering::Acquire))
             .map(|chunk| chunk.count_ones())
             .sum::<u32>() as usize
     }
@@ -59,21 +68,25 @@ impl<const SIZE: usize> Set<SIZE> {
 pub(crate) struct Index(usize);
 
 impl Index {
-    fn from_row_column((i, j): (usize, usize)) -> Self {
+    pub(crate) fn to_offset(self, class: size::Small) -> usize {
+        self.0 * class.size()
+    }
+
+    fn from_row_col((i, j): (usize, usize)) -> Self {
         Self((i << 6) + j)
     }
 
-    fn into_row_column(self) -> (usize, usize) {
+    fn into_row_col(self) -> (usize, usize) {
         (self.0 >> 6, self.0 & ((1 << 6) - 1))
     }
 }
 
 #[test]
 fn clear_next() {
-    let mut set: Set<8> = Set::default();
-    set.fill(true);
+    let set: Set<8> = Set::default();
+    set.fill(512, true);
 
-    for index in (0..64).map(Index) {
+    for index in (0..512).map(Index) {
         assert_eq!(set.peek(), Some(index));
         set.clear(index);
     }

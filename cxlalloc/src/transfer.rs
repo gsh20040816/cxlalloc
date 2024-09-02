@@ -57,30 +57,23 @@ pub trait TransferExt: Transfer {
         &self,
         context: &<Self as Transfer>::Context,
         stages: &thread::Array<Stage>,
-        thread_id: &mut thread::Id,
+        id: &mut thread::Id,
         operation: <Self as Transfer>::Read,
         version: Option<Version>,
     ) -> Result<<Self as Transfer>::Output, <Self as Transfer>::Abort> {
         if let Some(version) = version {
-            return self::read(self, context, stages, thread_id, operation, version);
+            return self::read(self, context, stages, id, operation, version);
         }
 
         if let Some(current) = self.claim().0.load().transpose() {
             complete(self, context, stages, current);
         }
 
-        let staged = stages[thread_id].load_versioned::<<Self as Transfer>::Output>();
+        let staged = stages[id].load_versioned::<<Self as Transfer>::Output>();
 
         match staged.inner() {
             Some(output) => Ok(output),
-            None => self::read(
-                self,
-                context,
-                stages,
-                thread_id,
-                operation,
-                staged.version(),
-            ),
+            None => self::read(self, context, stages, id, operation, staged.version()),
         }
     }
 
@@ -88,19 +81,19 @@ pub trait TransferExt: Transfer {
         &self,
         context: &<Self as Transfer>::Context,
         stages: &thread::Array<Stage>,
-        thread_id: &mut thread::Id,
+        id: &mut thread::Id,
         operation: <Self as Transfer>::Write,
         staged: Option<Versioned<<Self as Transfer>::Input>>,
     ) {
         if let Some(staged) = staged {
-            return self::write(self, context, stages, thread_id, operation, staged);
+            return self::write(self, context, stages, id, operation, staged);
         }
 
         if let Some(current) = self.claim().0.load().transpose() {
             self::complete(self, context, stages, current);
         }
 
-        let staged = stages[thread_id].load_versioned::<<Self as Transfer>::Input>();
+        let staged = stages[id].load_versioned::<<Self as Transfer>::Input>();
 
         match staged.inner() {
             None => (),
@@ -108,7 +101,7 @@ pub trait TransferExt: Transfer {
                 self,
                 context,
                 stages,
-                thread_id,
+                id,
                 operation,
                 Versioned::new(input, staged.version()),
             ),
@@ -131,14 +124,10 @@ impl<T: Packed> State<T> {
 pub struct Stage(Atomic<u64>);
 
 #[repr(transparent)]
-#[derive(Debug)]
 pub struct Claim<R, W>(Atomic<Versioned<Option<ClaimInner<R, W>>>>);
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 struct ClaimInner<R, W> {
-    // pub(crate) version_local: Wrapping<u16>,
-    // pub(crate) thread_id: usize,
-    // pub(crate) operation: Operation<R, W>,
     value: u64,
     _read: PhantomData<R>,
     _write: PhantomData<W>,
@@ -161,9 +150,9 @@ unsafe impl<R: Packed, W: Packed> Packed for ClaimInner<R, W> {
 }
 
 impl<R: Packed, W: Packed> ClaimInner<R, W> {
-    fn new(version_local: Version, operation: Operation<R, W>, thread_id: &mut thread::Id) -> Self {
+    fn new(version_local: Version, operation: Operation<R, W>, id: &mut thread::Id) -> Self {
         Self {
-            value: (version_local.pack() << 32) | (operation.pack() << 16) | thread_id.pack(),
+            value: (version_local.pack() << 32) | (operation.pack() << 16) | id.pack(),
             _read: PhantomData,
             _write: PhantomData,
         }
@@ -177,7 +166,7 @@ impl<R: Packed, W: Packed> ClaimInner<R, W> {
         Operation::<R, W>::unpack(self.value >> 16)
     }
 
-    fn thread_id(&self) -> thread::Id {
+    fn id(&self) -> thread::Id {
         thread::Id::unpack(self.value)
     }
 }
@@ -186,6 +175,16 @@ impl<R: Packed, W: Packed> ClaimInner<R, W> {
 ///
 /// Bits 0..16 are `thread::Id: NonZero`.
 unsafe impl<R, W> NonZero for ClaimInner<R, W> {}
+
+impl<R: Packed + Debug, W: Packed + Debug> Debug for ClaimInner<R, W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Claim")
+            .field("version_local", &self.version_local())
+            .field("operation", &self.operation())
+            .field("id", &self.id())
+            .finish()
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Operation<R, W> {
@@ -220,11 +219,11 @@ fn read<T: Transfer + ?Sized>(
     global: &T,
     context: &T::Context,
     stages: &thread::Array<Stage>,
-    thread_id: &mut thread::Id,
+    id: &mut thread::Id,
     operation: T::Read,
     version: Version,
 ) -> Result<T::Output, T::Abort> {
-    let claim = ClaimInner::new(version, Operation::Read(operation), thread_id);
+    let claim = ClaimInner::new(version, Operation::Read(operation), id);
 
     let output = loop {
         let state = global.state().0.load();
@@ -252,12 +251,12 @@ fn write<T: Transfer + ?Sized>(
     global: &T,
     context: &T::Context,
     stages: &thread::Array<Stage>,
-    thread_id: &mut thread::Id,
+    id: &mut thread::Id,
     operation: T::Write,
     staged: Versioned<T::Input>,
 ) {
     let input = staged.inner();
-    let claim = ClaimInner::new(staged.version(), Operation::Write(operation), thread_id);
+    let claim = ClaimInner::new(staged.version(), Operation::Write(operation), id);
 
     loop {
         let state = global.state().0.load();
@@ -318,13 +317,13 @@ fn complete<T: Transfer + ?Sized>(
     let version_global = current.version();
     let claim = current.inner();
     let version_local = claim.version_local();
-    let thread_id = claim.thread_id();
+    let id = claim.id();
     let operation = claim.operation();
 
     'early: {
         match operation {
             Operation::Write(operation) => {
-                let staged = stages[&thread_id].load_versioned::<T::Input>();
+                let staged = stages[&id].load_versioned::<T::Input>();
 
                 // Staging area has already been cleared
                 if staged.version() != version_local {
@@ -341,7 +340,7 @@ fn complete<T: Transfer + ?Sized>(
                     let _ = global.state().0.compare_exchange(old, new);
                 }
 
-                let _ = stages[&thread_id].compare_exchange(staged, None);
+                let _ = stages[&id].compare_exchange(staged, None);
             }
             Operation::Read(operation) => {
                 let old = global.state().0.load();
@@ -352,8 +351,8 @@ fn complete<T: Transfer + ?Sized>(
                 }
 
                 let output = global.try_read(context, operation, old.inner()).unwrap();
-                let _ = stages[&thread_id]
-                    .compare_exchange(Versioned::new(None, version_local), Some(output));
+                let _ =
+                    stages[&id].compare_exchange(Versioned::new(None, version_local), Some(output));
 
                 let new = global.finish_read(context, operation, old.inner());
                 let new = Versioned::new(new, old.next_version());
@@ -379,10 +378,10 @@ impl Stage {
     }
 
     /// Unconditionally store `value` in staging area, returning the new version.
-    pub fn store_versioned<T: Packed>(&self, value: T) -> Versioned<T> {
+    pub fn store_versioned<T: Packed + NonZero>(&self, value: Option<T>) -> Versioned<Option<T>> {
         let version = Versioned::<T>::unpack(self.0.load()).next_version();
         // FIXME: hack to avoid requiring Copy or Clone
-        let saved = T::unpack(value.pack());
+        let saved = Option::<T>::unpack(value.pack());
         self.0.store(Versioned::new(value, version).pack());
         Versioned::new(saved, version)
     }

@@ -41,3 +41,25 @@ pub(crate) struct Meta {
     pub(crate) r#unsized: slab::LocalStack,
     pub(crate) r#sized: size::Array<slab::LocalStack>,
 }
+
+impl Meta {
+    pub(crate) fn size(
+        &mut self,
+        slabs: &mut slab::Slice<slab::Owned>,
+        class: size::Small,
+    ) -> bool {
+        let Some(index) = self.r#unsized.peek() else {
+            return false;
+        };
+
+        let slab = &slabs[index];
+        let next = slab.meta.load().next();
+        slab.meta.store(slab::Owned::new(None, class));
+        slab.free.fill(class.count(), true);
+
+        self.r#sized[class].set(Some(index));
+        self.r#unsized.set(next);
+
+        true
+    }
+}

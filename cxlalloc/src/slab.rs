@@ -1,15 +1,40 @@
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
-use core::num::Wrapping;
+use core::num::NonZeroUsize;
+use core::ops::Range;
 use core::ptr::NonNull;
 
+use crate::atomic::NonZero;
+use crate::atomic::Packed;
 use crate::block;
 use crate::raw;
 use crate::size;
+use crate::Atomic;
+use crate::SIZE_SLAB;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub(crate) struct Index(NonZeroU32);
+
+impl Index {
+    pub(crate) fn to_offset(self) -> NonZeroUsize {
+        NonZeroUsize::new((self.0.get() as usize) * SIZE_SLAB).unwrap()
+    }
+}
+
+unsafe impl Packed for Index {
+    const BITS: u8 = 32;
+
+    fn pack(&self) -> u64 {
+        self.0.get() as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(unsafe { NonZeroU32::new_unchecked(value as u32) })
+    }
+}
+
+unsafe impl NonZero for Index {}
 
 pub(crate) struct Slice<'raw, M> {
     base: NonNull<Slab<M>>,
@@ -33,54 +58,84 @@ impl<M> Slice<'_, M> {
     }
 }
 
-impl<'raw> core::ops::Index<&Index> for Slice<'raw, Owned> {
-    type Output = Owned;
-    fn index(&self, index: &Index) -> &Self::Output {
-        unsafe { self.base.add(index.0.get() as usize).cast().as_ref() }
-    }
-}
+impl Slice<'_, Owned> {
+    // FIXME: type of `range` for integration with `meta::Shared::allocate`
+    pub(crate) unsafe fn link(&self, range: Range<u32>) {
+        let range = range
+            .map(|index| index.checked_add(1))
+            .map(Option::unwrap)
+            .map(NonZeroU32::new)
+            .map(Option::unwrap)
+            .map(Index);
 
-impl<'raw> core::ops::Index<&mut Index> for Slice<'raw, Owned> {
-    type Output = block::Set<7>;
-    fn index(&self, index: &mut Index) -> &Self::Output {
-        unsafe {
-            self.base
-                .add(index.0.get() as usize)
-                .byte_add(8)
-                .cast()
-                .as_ref()
+        for (i, j) in core::iter::zip(
+            range.clone(),
+            range.clone().skip(1).map(Option::Some).chain(Option::None),
+        ) {
+            self[i].meta.store(Owned::new(j, size::Small::default()));
         }
     }
 }
 
-impl<'raw> core::ops::IndexMut<&mut Index> for Slice<'raw, Owned> {
-    fn index_mut(&mut self, index: &mut Index) -> &mut Self::Output {
-        unsafe {
-            self.base
-                .add(index.0.get() as usize)
-                .byte_add(8)
-                .cast()
-                .as_mut()
-        }
+impl<'raw, M> core::ops::Index<Index> for Slice<'raw, M> {
+    type Output = Slab<M>;
+    fn index(&self, index: Index) -> &Self::Output {
+        unsafe { self.base.add(index.0.get() as usize).as_ref() }
     }
 }
 
 #[repr(C, align(64))]
 pub(crate) struct Slab<M> {
-    meta: M,
-    free: block::Set<7>,
+    pub(crate) meta: Atomic<M>,
+    pub(crate) free: block::Set<7>,
 }
 
 #[repr(C)]
-pub(crate) struct Owned {
-    next: Option<Index>,
-    class: size::Small,
+pub(crate) struct Owned(u64);
+// next: Option<Index>,
+// class: size::Small,
+
+impl Owned {
+    pub(crate) fn new(next: Option<Index>, class: size::Small) -> Self {
+        Self(next.pack() << 32 | class.pack())
+    }
+
+    pub(crate) fn next(&self) -> Option<Index> {
+        Packed::unpack(self.0 >> 32)
+    }
+
+    pub(crate) fn class(&self) -> size::Small {
+        Packed::unpack(self.0)
+    }
+}
+
+unsafe impl Packed for Owned {
+    const BITS: u8 = 64;
+
+    fn pack(&self) -> u64 {
+        self.0
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 #[repr(C)]
-pub(crate) struct Shared {
-    version: Wrapping<u16>,
-    class: size::Small,
+pub(crate) struct Shared(u64);
+// version: Wrapping<u16>,
+// class: size::Small,
+
+unsafe impl Packed for Shared {
+    const BITS: u8 = 64;
+
+    fn pack(&self) -> u64 {
+        self.0
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 #[repr(C)]
@@ -89,25 +144,24 @@ pub(crate) struct LocalStack {
 }
 
 impl LocalStack {
-    pub(crate) fn peek(&self) -> Option<&Index> {
-        self.head.as_ref()
+    pub(crate) fn peek(&self) -> Option<Index> {
+        self.head
     }
 
-    pub(crate) fn peek_mut(&mut self) -> Option<&mut Index> {
-        self.head.as_mut()
+    pub(crate) fn set(&mut self, head: Option<Index>) {
+        self.head = head;
     }
 
-    pub(crate) fn r#move(slice: &Slice<Owned>, from: &mut Self, to: &mut Self) -> bool {
-        assert_eq!(to.peek(), None);
+    // FIXME: type of `head` for integration with `meta::Shared::allocate`
+    pub(crate) unsafe fn set_raw(&mut self, head: u32) {
+        let head = head
+            .checked_add(1)
+            .map(NonZeroU32::new)
+            .unwrap()
+            .map(Index)
+            .unwrap();
 
-        let Some(index) = from.peek() else {
-            return false;
-        };
-        let next = slice[index].next.as_ref().map(|Index(index)| Index(*index));
-
-        to.head = Some(Index(index.0));
-        from.head = next;
-        true
+        self.head = Some(head);
     }
 }
 

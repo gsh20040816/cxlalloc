@@ -4,17 +4,19 @@ use core::ops::Index;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
+use crate::atomic::Version;
 use crate::raw;
 use crate::region;
 use crate::root;
 use crate::slab;
 use crate::thread;
 use crate::transfer;
+use crate::transfer::TransferExt;
 use crate::Transfer;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Shared<'raw> {
-    capacity: usize,
+    capacity: u32,
     meta: &'raw Meta,
     slabs: slab::Slice<'raw, slab::Shared>,
 }
@@ -43,12 +45,34 @@ impl<'raw> Shared<'raw> {
             slabs: slab::Slice::from_raw(&raw.shared, offset),
         }
     }
+
+    pub(crate) fn allocate(
+        &self,
+        thread_id: &mut thread::Id,
+        count: u16,
+        version: Option<Version>,
+    ) -> Result<Extent, Epoch> {
+        self.meta.read(
+            &self.capacity,
+            &self.meta.stages,
+            thread_id,
+            Read::Allocate(count),
+            version,
+        )
+    }
 }
 
 impl Index<root::Index> for Shared<'_> {
     type Output = Option<region::data::Offset>;
     fn index(&self, index: root::Index) -> &Self::Output {
         &self.meta.roots[index]
+    }
+}
+
+impl Index<&thread::Id> for Shared<'_> {
+    type Output = transfer::Stage;
+    fn index(&self, index: &thread::Id) -> &Self::Output {
+        &self.meta.stages[index]
     }
 }
 
@@ -65,16 +89,16 @@ pub(crate) struct Meta {
 pub(crate) struct Extent(u64);
 
 impl Extent {
-    fn new(epoch: Epoch, length: usize) -> Self {
-        todo!()
+    fn new(epoch: Epoch, length: u32) -> Self {
+        Self(((epoch.0 as u64) << 32) | length as u64)
     }
 
     pub(crate) fn epoch(&self) -> Epoch {
-        Epoch(self.0 as u8)
+        Epoch((self.0 >> 32) as u8)
     }
 
-    pub(crate) fn length(&self) -> usize {
-        todo!()
+    pub(crate) fn length(&self) -> u32 {
+        self.0 as u32
     }
 }
 
@@ -96,14 +120,14 @@ unsafe impl NonZero for Extent {}
 pub(crate) struct Epoch(u8);
 
 impl Epoch {
-    fn capacity(&self, initial: usize) -> usize {
-        2usize.pow(self.0 as u32) * initial
+    fn capacity(&self, initial: u32) -> u32 {
+        2u32.pow(self.0 as u32) * initial
     }
 }
 
 impl Transfer for Meta {
     type State = Extent;
-    type Context = usize;
+    type Context = u32;
 
     type Write = Infallible;
     type Input = Infallible;
@@ -122,8 +146,8 @@ impl Transfer for Meta {
         let epoch = extent.epoch();
         let length = extent.length();
         match operation {
-            Read::Allocate(count) if length + count as usize <= epoch.capacity(*initial) => {
-                Ok(Extent::new(epoch, length + count as usize))
+            Read::Allocate(count) if length + count as u32 <= epoch.capacity(*initial) => {
+                Ok(Extent::new(epoch, length + count as u32))
             }
             Read::Allocate(_) => Err(epoch),
             Read::Extend(_) => todo!(),
@@ -139,7 +163,7 @@ impl Transfer for Meta {
         let epoch = extent.epoch();
         let length = extent.length();
         match operation {
-            Read::Allocate(count) => Extent::new(epoch, length + count as usize),
+            Read::Allocate(count) => Extent::new(epoch, length + count as u32),
             Read::Extend(_) => todo!(),
         }
     }
@@ -171,10 +195,17 @@ unsafe impl Packed for Read {
     const BITS: u8 = 15;
 
     fn pack(&self) -> u64 {
-        todo!()
+        match self {
+            #[allow(clippy::identity_op)]
+            Self::Allocate(count) => (0 << 14) | *count as u64,
+            Self::Extend(_) => todo!(),
+        }
     }
 
     fn unpack(value: u64) -> Self {
-        todo!()
+        match value & (1 << 14) > 0 {
+            false => Read::Allocate((value & ((1 << 14) - 1)) as u16),
+            true => todo!(),
+        }
     }
 }

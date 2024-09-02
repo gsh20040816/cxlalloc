@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::region;
+use crate::Allocator;
 use crate::COUNT_ROOT;
 use crate::COUNT_THREAD;
 
@@ -15,6 +16,14 @@ pub struct Root<'raw, T> {
 impl<'raw, T> Root<'raw, T> {
     pub(crate) fn index(&self) -> Index {
         self.index
+    }
+
+    pub(crate) unsafe fn new(_: &Allocator<'raw>, index: Index) -> Self {
+        Self {
+            index,
+            _heap: PhantomData,
+            _type: PhantomData,
+        }
     }
 }
 

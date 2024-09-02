@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use crate::atomic::Packed;
 use crate::SIZE_PAGE;
 
 #[repr(transparent)]
@@ -98,11 +99,27 @@ impl Small {
     pub(crate) fn size(&self) -> usize {
         CLASSES[self.0 as usize] as usize
     }
+
+    pub(crate) fn count(&self) -> usize {
+        crate::SIZE_SLAB / self.size()
+    }
 }
 
 impl Default for Small {
     fn default() -> Self {
         Self(0)
+    }
+}
+
+unsafe impl Packed for Small {
+    const BITS: u8 = 32;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value as u8)
     }
 }
 

@@ -26,7 +26,7 @@ pub struct Inner {
     pub(crate) data: Region,
 
     /// Initial capacity
-    pub(crate) capacity: usize,
+    pub(crate) capacity: u32,
 
     /// The process identifier and count are used to coordinate
     /// between heap expansion threads, which must mmap exactly
@@ -101,7 +101,7 @@ impl Inner {
             shared,
             owned,
             data,
-            capacity: slab_count,
+            capacity: slab_count.try_into().unwrap(),
             process_id,
             process_count,
         }

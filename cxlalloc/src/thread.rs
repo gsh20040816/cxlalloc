@@ -27,7 +27,7 @@ unsafe impl Packed for Id {
     }
 
     fn unpack(value: u64) -> Self {
-        unsafe { Self::new(value as u16) }
+        unsafe { Id(NonZeroU16::new_unchecked(value as u16)) }
     }
 }
 

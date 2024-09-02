@@ -2,10 +2,12 @@ use core::alloc::Layout;
 
 use crate::link;
 use crate::raw;
+use crate::region;
+use crate::root;
 use crate::size;
-use crate::slab;
 use crate::thread;
 use crate::Heap;
+use crate::Root;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
@@ -20,7 +22,11 @@ impl<'raw> Allocator<'raw> {
         }
     }
 
-    pub fn allocate_at<'root, T: Default, L: link::Erase<'raw, 'root>>(
+    pub unsafe fn root<T>(&self, index: root::Index) -> Root<'raw, T> {
+        Root::new(self, index)
+    }
+
+    pub fn allocate_at<'root, T: Default, L: link::Erase<'raw, 'root, T>>(
         &mut self,
         link: L,
     ) -> &'root mut T {
@@ -32,29 +38,54 @@ impl<'raw> Allocator<'raw> {
             size::Class::Large(_) => unimplemented!(),
         };
 
-        let site = link.erase(&self.heap);
         let thread = &mut self.heap.owned.meta[&mut self.id];
-
-        let (slab, block) = loop {
-            if let Some(slab) = thread.r#sized[class].peek_mut() {
-                let free = &mut self.heap.owned.slabs[&mut *slab];
-                let block = free.peek().unwrap();
-                break (slab, block);
+        let index = loop {
+            if let Some(index) = thread.r#sized[class].peek() {
+                break index;
             }
 
-            if slab::LocalStack::r#move(
-                &self.heap.owned.slabs,
-                &mut thread.r#unsized,
-                &mut thread.r#sized[class],
-            ) {
+            if thread.size(&mut self.heap.owned.slabs, class) {
                 continue;
             }
 
-            // Transfer from global stack to sized stack
+            // TODO: Transfer from global stack to sized stack
 
             // Transfer from length expansion to unsized stack
+            let stage = &self.heap.shared[&self.id];
+            let version = stage
+                .store_versioned::<region::meta::shared::Extent>(None)
+                .version();
+
+            // TODO: log capsule boundary
+
+            const COUNT: u16 = 4;
+            let length = self
+                .heap
+                .shared
+                .allocate(&mut self.id, COUNT, Some(version))
+                .unwrap()
+                .length();
+
+            unsafe {
+                self.heap.owned.slabs.link(length - COUNT as u32..length);
+                thread.r#unsized.set_raw(length - COUNT as u32);
+            }
         };
 
-        todo!()
+        let slab = &self.heap.owned.slabs[index];
+        let block = slab.free.peek().unwrap();
+        let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
+        let mut pointer = self.heap.offset_to_pointer::<T>(offset);
+
+        unsafe {
+            pointer.write(T::default());
+        }
+
+        // match link.erase(&self.heap) {
+        //     link::Site::Root(index) => todo!(),
+        //     link::Site::Data(offset) => todo!(),
+        // }
+
+        unsafe { pointer.as_mut() }
     }
 }
