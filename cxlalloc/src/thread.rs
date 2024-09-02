@@ -34,7 +34,7 @@ unsafe impl Packed for Id {
 unsafe impl NonZero for Id {}
 
 #[repr(C)]
-pub(crate) struct Array<T>([T; COUNT_THREAD]);
+pub struct Array<T>([T; COUNT_THREAD]);
 
 impl<T> Index<&Id> for Array<T> {
     type Output = T;

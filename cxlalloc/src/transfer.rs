@@ -121,6 +121,12 @@ impl<T: Transfer + ?Sized> TransferExt for T {}
 #[repr(transparent)]
 pub struct State<T>(Atomic<Versioned<T>>);
 
+impl<T: Packed> State<T> {
+    pub fn load(&self) -> T {
+        self.0.load().inner()
+    }
+}
+
 #[repr(C)]
 pub struct Stage(Atomic<u64>);
 
@@ -188,17 +194,18 @@ enum Operation<R, W> {
 }
 
 unsafe impl<R: Packed, W: Packed> Packed for Operation<R, W> {
-    const BITS: u8 = Self::INNER + 1;
+    const BITS: u8 = 16;
 
     fn pack(&self) -> u64 {
         match self {
-            Operation::Read(read) => (0 << Self::INNER) | read.pack(),
-            Operation::Write(write) => (1 << Self::INNER) | write.pack(),
+            #[allow(clippy::identity_op)]
+            Operation::Read(read) => (0 << 15) | read.pack(),
+            Operation::Write(write) => (1 << 15) | write.pack(),
         }
     }
 
     fn unpack(value: u64) -> Self {
-        match value & (1 << Self::INNER) > 0 {
+        match value & (1 << 15) > 0 {
             false => Operation::Read(R::unpack(value)),
             true => Operation::Write(W::unpack(value)),
         }
@@ -206,7 +213,7 @@ unsafe impl<R: Packed, W: Packed> Packed for Operation<R, W> {
 }
 
 impl<R: Packed, W: Packed> Operation<R, W> {
-    const INNER: u8 = if R::BITS > W::BITS { R::BITS } else { W::BITS };
+    const ASSERT: () = assert!(R::BITS <= 15 && W::BITS <= 15);
 }
 
 fn read<T: Transfer + ?Sized>(

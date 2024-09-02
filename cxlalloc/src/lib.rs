@@ -10,13 +10,14 @@ pub mod root;
 mod size;
 mod slab;
 pub mod thread;
-mod transfer;
+pub mod transfer;
 
 pub use allocator::Allocator;
 pub use atomic::Atomic;
 pub use heap::Heap;
 pub use r#box::Box;
 pub use root::Root;
+pub use transfer::Transfer;
 
 pub(crate) const SIZE_PAGE: usize = 4096;
 pub(crate) const SIZE_SLAB: usize = SIZE_PAGE;

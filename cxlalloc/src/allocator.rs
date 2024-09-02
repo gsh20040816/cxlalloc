@@ -33,7 +33,7 @@ impl<'raw> Allocator<'raw> {
         };
 
         let site = link.erase(&self.heap);
-        let thread = &mut self.heap.owned.threads[&mut self.id];
+        let thread = &mut self.heap.owned.meta[&mut self.id];
 
         let (slab, block) = loop {
             if let Some(slab) = thread.r#sized[class].peek_mut() {

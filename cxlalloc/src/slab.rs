@@ -36,7 +36,7 @@ impl<M> Slice<'_, M> {
 impl<'raw> core::ops::Index<&Index> for Slice<'raw, Owned> {
     type Output = Owned;
     fn index(&self, index: &Index) -> &Self::Output {
-        unsafe { self.base.add(1 + index.0.get() as usize).cast().as_ref() }
+        unsafe { self.base.add(index.0.get() as usize).cast().as_ref() }
     }
 }
 
@@ -45,7 +45,7 @@ impl<'raw> core::ops::Index<&mut Index> for Slice<'raw, Owned> {
     fn index(&self, index: &mut Index) -> &Self::Output {
         unsafe {
             self.base
-                .add(1 + index.0.get() as usize)
+                .add(index.0.get() as usize)
                 .byte_add(8)
                 .cast()
                 .as_ref()
@@ -57,7 +57,7 @@ impl<'raw> core::ops::IndexMut<&mut Index> for Slice<'raw, Owned> {
     fn index_mut(&mut self, index: &mut Index) -> &mut Self::Output {
         unsafe {
             self.base
-                .add(1 + index.0.get() as usize)
+                .add(index.0.get() as usize)
                 .byte_add(8)
                 .cast()
                 .as_mut()

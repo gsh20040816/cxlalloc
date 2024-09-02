@@ -1,3 +1,4 @@
+use core::convert::Infallible;
 use core::marker::PhantomData;
 use core::num::NonZeroU16;
 use core::sync::atomic::AtomicU64;
@@ -41,6 +42,18 @@ unsafe impl Packed for u64 {
         value
     }
 }
+
+unsafe impl Packed for Infallible {
+    const BITS: u8 = 0;
+    fn pack(&self) -> u64 {
+        unreachable!()
+    }
+    fn unpack(_: u64) -> Self {
+        unreachable!()
+    }
+}
+
+unsafe impl NonZero for Infallible {}
 
 #[repr(C)]
 #[derive(Debug)]

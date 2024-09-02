@@ -29,7 +29,7 @@ impl<'raw> Heap<'raw> {
 
     pub unsafe fn root<'root, T>(&self, root: &'root Root<'raw, T>) -> Option<&'root T> {
         let index = root.index();
-        let offset = self.shared.meta.roots[index]?;
+        let offset = self.shared[index]?;
         Some(self.offset_to_pointer(offset).as_ref())
     }
 
@@ -38,7 +38,7 @@ impl<'raw> Heap<'raw> {
         root: &'root mut Root<'raw, T>,
     ) -> Option<&'root mut T> {
         let index = root.index();
-        let offset = self.shared.meta.roots[index]?;
+        let offset = self.shared[index]?;
         Some(self.offset_to_pointer(offset).as_mut())
     }
 }
