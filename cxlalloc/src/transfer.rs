@@ -69,7 +69,7 @@ pub trait TransferExt: Transfer {
             complete(self, context, stages, current);
         }
 
-        let staged = stages[thread_id].load_versioned::<Option<<Self as Transfer>::Output>>();
+        let staged = stages[thread_id].load_versioned::<<Self as Transfer>::Output>();
 
         match staged.inner() {
             Some(output) => Ok(output),
@@ -100,7 +100,7 @@ pub trait TransferExt: Transfer {
             self::complete(self, context, stages, current);
         }
 
-        let staged = stages[thread_id].load_versioned::<Option<<Self as Transfer>::Input>>();
+        let staged = stages[thread_id].load_versioned::<<Self as Transfer>::Input>();
 
         match staged.inner() {
             None => (),
@@ -317,7 +317,7 @@ fn complete<T: Transfer + ?Sized>(
     'early: {
         match operation {
             Operation::Write(operation) => {
-                let staged = stages[&thread_id].load_versioned::<Option<T::Input>>();
+                let staged = stages[&thread_id].load_versioned::<T::Input>();
 
                 // Staging area has already been cleared
                 if staged.version() != version_local {
@@ -334,7 +334,7 @@ fn complete<T: Transfer + ?Sized>(
                     let _ = global.state().0.compare_exchange(old, new);
                 }
 
-                let _ = stages[&thread_id].compare_exchange(staged, Option::<T::Input>::None);
+                let _ = stages[&thread_id].compare_exchange(staged, None);
             }
             Operation::Read(operation) => {
                 let old = global.state().0.load();
@@ -345,10 +345,8 @@ fn complete<T: Transfer + ?Sized>(
                 }
 
                 let output = global.try_read(context, operation, old.inner()).unwrap();
-                let _ = stages[&thread_id].compare_exchange(
-                    Versioned::<Option<T::Output>>::new(None, version_local),
-                    Some(output),
-                );
+                let _ = stages[&thread_id]
+                    .compare_exchange(Versioned::new(None, version_local), Some(output));
 
                 let new = global.finish_read(context, operation, old.inner());
                 let new = Versioned::new(new, old.next_version());
@@ -365,12 +363,12 @@ fn complete<T: Transfer + ?Sized>(
 }
 
 impl Stage {
-    pub fn load<T: Packed>(&self) -> T {
+    pub fn load<T: Packed + NonZero>(&self) -> Option<T> {
         self.load_versioned().inner()
     }
 
-    fn load_versioned<T: Packed>(&self) -> Versioned<T> {
-        Versioned::<T>::unpack(self.0.load())
+    fn load_versioned<T: Packed + NonZero>(&self) -> Versioned<Option<T>> {
+        Packed::unpack(self.0.load())
     }
 
     /// Unconditionally store `value` in staging area, returning the new version.
@@ -382,7 +380,11 @@ impl Stage {
         Versioned::new(saved, version)
     }
 
-    fn compare_exchange<T: Packed>(&self, old: Versioned<T>, new: T) -> Result<(), ()> {
+    fn compare_exchange<T: Packed + NonZero>(
+        &self,
+        old: Versioned<Option<T>>,
+        new: Option<T>,
+    ) -> Result<(), ()> {
         let new = Versioned::new(new, old.next_version()).pack();
         let old = old.pack();
         self.0
