@@ -46,7 +46,7 @@ impl<const SIZE: usize> Set<SIZE> {
         self.0[row].load(Ordering::Acquire) & (1 << col) > 0
     }
 
-    pub(crate) fn is_empty(&mut self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
     }
 

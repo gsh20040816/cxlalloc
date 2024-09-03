@@ -183,6 +183,14 @@ impl LocalStack {
         self.head = Some(head);
     }
 
+    pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) {
+        let Some(index) = self.head else {
+            return;
+        };
+
+        self.head = slabs[index].meta.load().next();
+    }
+
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
         slabs[index]
             .meta

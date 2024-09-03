@@ -86,9 +86,8 @@ impl<'raw> Allocator<'raw> {
         let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
         slab.free.clear(block);
 
-        match slab.free.len() {
-            0 => todo!("pop from sized"),
-            _ => (),
+        if slab.free.is_empty() {
+            self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
         }
 
         self.heap.offset_to_pointer::<ffi::c_void>(offset)
