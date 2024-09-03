@@ -59,7 +59,7 @@ impl Offset {
     }
 
     pub(crate) fn to_block(self, slab: slab::Index, class: size::Small) -> block::Index {
-        let offset = slab.to_offset().get() - self.0.get();
+        let offset = self.0.get() - slab.to_offset().get();
         debug_assert_eq!(offset % class.size(), 0);
         block::Index::new(offset / class.size())
     }
