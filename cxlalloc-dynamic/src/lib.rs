@@ -9,15 +9,12 @@
 
 #![allow(unused_variables)]
 
-use std::alloc::Layout;
 use std::cell::RefCell;
 use std::ffi;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::LazyLock;
-
-use cxlalloc::root;
 
 // Note: it would be nice to initialize this with an initialization
 // function, but that doesn't work well with `LD_PRELOAD`.
@@ -158,15 +155,14 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
         return;
     };
 
-    todo!()
-    // ALLOCATOR.with_borrow_mut(|allocator| allocator.free_untyped(pointer.cast()))
+    ALLOCATOR.with_borrow_mut(|allocator| allocator.free_untyped(pointer))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
     log::trace!("malloc {size}");
 
-    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size))
+    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size).as_ptr())
     // todo!()
 }
 

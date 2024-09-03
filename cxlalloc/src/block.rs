@@ -40,6 +40,11 @@ impl<const SIZE: usize> Set<SIZE> {
         self.0[row].store(new, Ordering::Release);
     }
 
+    pub(crate) fn get(&self, index: Index) -> bool {
+        let (row, col) = index.into_row_col();
+        self.0[row].load(Ordering::Acquire) & (1 << col) > 0
+    }
+
     pub(crate) fn is_empty(&mut self) -> bool {
         self.len() == 0
     }
@@ -70,6 +75,11 @@ impl<const SIZE: usize> Set<SIZE> {
 pub(crate) struct Index(usize);
 
 impl Index {
+    // TODO: only used for ownership bitmap, maybe decouple?
+    pub(crate) fn new(index: usize) -> Self {
+        Self(index)
+    }
+
     pub(crate) fn to_offset(self, class: size::Small) -> usize {
         self.0 * class.size()
     }
