@@ -22,6 +22,10 @@ impl<'raw> Allocator<'raw> {
         }
     }
 
+    pub fn heap(&self) -> &Heap<'raw> {
+        &self.heap
+    }
+
     pub unsafe fn root<T>(&self, index: root::Index) -> Root<'raw, T> {
         Root::new(self, index)
     }

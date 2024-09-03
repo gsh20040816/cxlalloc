@@ -1,0 +1,11 @@
+[package]
+name = "cxlalloc-dynamic"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cxlalloc = { path = "../cxlalloc" }
+log = { workspace = true, features = ["release_max_level_off"] }

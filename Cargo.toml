@@ -1,5 +1,5 @@
 [workspace]
-members = ["cxlalloc"]
+members = ["cxlalloc", "cxlalloc-dynamic"]
 resolver = "2"
 
 [workspace.dependencies]

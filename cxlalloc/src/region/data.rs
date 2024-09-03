@@ -1,5 +1,6 @@
 use core::alloc::Layout;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
@@ -58,5 +59,9 @@ impl Offset {
         NonZeroUsize::new(slab.to_offset().get() + block.to_offset(class))
             .map(Offset)
             .unwrap()
+    }
+
+    pub(crate) fn to_slab(self) -> slab::Index {
+        slab::Index::from_offset(self.0)
     }
 }

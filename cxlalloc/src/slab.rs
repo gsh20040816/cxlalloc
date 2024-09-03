@@ -17,6 +17,14 @@ use crate::SIZE_SLAB;
 pub(crate) struct Index(NonZeroU32);
 
 impl Index {
+    pub(crate) fn from_offset(offset: NonZeroUsize) -> Self {
+        u32::try_from(offset.get() / SIZE_SLAB)
+            .map(NonZeroU32::new)
+            .unwrap()
+            .map(Self)
+            .unwrap()
+    }
+
     pub(crate) fn to_offset(self) -> NonZeroUsize {
         NonZeroUsize::new((self.0.get() as usize) * SIZE_SLAB).unwrap()
     }
