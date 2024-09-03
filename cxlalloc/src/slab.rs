@@ -183,6 +183,13 @@ impl LocalStack {
         self.head = Some(head);
     }
 
+    pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
+        slabs[index]
+            .meta
+            .store(Owned::new(self.head, size::Small::default()));
+        self.set(Some(index));
+    }
+
     pub(crate) fn trace<'a>(&self, slabs: &'a Slice<Owned>) -> impl Iterator<Item = Index> + 'a {
         let mut head = self.head;
         iter::from_fn(move || {

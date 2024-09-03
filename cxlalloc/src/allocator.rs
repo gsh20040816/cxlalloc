@@ -103,7 +103,7 @@ impl<'raw> Allocator<'raw> {
                 break index;
             }
 
-            if thread.size(&mut self.heap.owned.slabs, class) {
+            if thread.unsized_to_sized(&self.heap.owned.slabs, class) {
                 continue;
             }
 
@@ -150,7 +150,13 @@ impl<'raw> Allocator<'raw> {
             slab.free.set(block);
             match slab.free.len() {
                 1 => todo!("push to sized"),
-                len if len == class.count() => todo!("transfer to unsized"),
+                len if len == class.count() => {
+                    self.heap.owned.meta[&mut self.id].sized_to_unsized(
+                        &self.heap.owned.slabs,
+                        class,
+                        index,
+                    );
+                }
                 _ => (),
             }
         } else {

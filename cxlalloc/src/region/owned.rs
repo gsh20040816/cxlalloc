@@ -43,9 +43,9 @@ pub(crate) struct Meta {
 }
 
 impl Meta {
-    pub(crate) fn size(
+    pub(crate) fn unsized_to_sized(
         &mut self,
-        slabs: &mut slab::Slice<slab::Owned>,
+        slabs: &slab::Slice<slab::Owned>,
         class: size::Small,
     ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
@@ -61,5 +61,32 @@ impl Meta {
         self.r#unsized.set(next);
 
         true
+    }
+
+    pub(crate) fn sized_to_unsized(
+        &mut self,
+        slabs: &slab::Slice<slab::Owned>,
+        class: size::Small,
+        index: slab::Index,
+    ) {
+        let next = slabs[index].meta.load().next();
+
+        let mut walk = self.r#sized[class].peek().unwrap();
+
+        if walk == index {
+            self.r#sized[class].set(next);
+        } else {
+            let prev = loop {
+                match slabs[walk].meta.load().next() {
+                    None => panic!("Removing non-existent slab"),
+                    Some(next) if next == index => break walk,
+                    Some(next) => walk = next,
+                }
+            };
+
+            slabs[prev].meta.store(slab::Owned::new(next, class));
+        };
+
+        self.r#unsized.push(slabs, index);
     }
 }
