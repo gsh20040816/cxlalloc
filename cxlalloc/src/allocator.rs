@@ -1,10 +1,12 @@
 use core::alloc::Layout;
+use core::ffi;
 
 use crate::link;
 use crate::raw;
 use crate::region;
 use crate::root;
 use crate::size;
+use crate::slab;
 use crate::thread;
 use crate::Heap;
 use crate::Root;
@@ -35,15 +37,48 @@ impl<'raw> Allocator<'raw> {
         link: L,
     ) -> &'root mut T {
         let layout = Layout::new::<T>();
-        let class = size::Class::new(layout.pad_to_align().size());
-
-        let class = match class {
+        let class = match size::Class::new(layout.pad_to_align().size()) {
             size::Class::Small(small) => small,
             size::Class::Large(_) => unimplemented!(),
         };
 
+        let index = self.allocate(class);
+        let slab = &self.heap.owned.slabs[index];
+        let block = slab.free.peek().unwrap();
+        let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
+        let mut pointer = self.heap.offset_to_pointer::<T>(offset);
+
+        unsafe {
+            pointer.write(T::default());
+        }
+
+        // match link.erase(&self.heap) {
+        //     link::Site::Root(index) => todo!(),
+        //     link::Site::Data(offset) => todo!(),
+        // }
+
+        unsafe { pointer.as_mut() }
+    }
+
+    pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
+        let class = match size::Class::new(size) {
+            size::Class::Small(small) => small,
+            size::Class::Large(_) => unimplemented!(),
+        };
+
+        let index = self.allocate(class);
+        let slab = &self.heap.owned.slabs[index];
+        let block = slab.free.peek().unwrap();
+        let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
+        slab.free.clear(block);
+        self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
+
+        // TODO: link
+    }
+
+    fn allocate(&mut self, class: size::Small) -> slab::Index {
         let thread = &mut self.heap.owned.meta[&mut self.id];
-        let index = loop {
+        loop {
             if let Some(index) = thread.r#sized[class].peek() {
                 break index;
             }
@@ -74,22 +109,6 @@ impl<'raw> Allocator<'raw> {
                 self.heap.owned.slabs.link(length - COUNT as u32..length);
                 thread.r#unsized.set_raw(length - COUNT as u32);
             }
-        };
-
-        let slab = &self.heap.owned.slabs[index];
-        let block = slab.free.peek().unwrap();
-        let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
-        let mut pointer = self.heap.offset_to_pointer::<T>(offset);
-
-        unsafe {
-            pointer.write(T::default());
         }
-
-        // match link.erase(&self.heap) {
-        //     link::Site::Root(index) => todo!(),
-        //     link::Site::Data(offset) => todo!(),
-        // }
-
-        unsafe { pointer.as_mut() }
     }
 }

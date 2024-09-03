@@ -44,15 +44,17 @@ impl<const SIZE: usize> Set<SIZE> {
         self.len() == 0
     }
 
-    pub(crate) fn fill(&self, count: usize, value: bool) {
-        let value = -(value as i64) as u64;
-
-        // FIXME: handle trailing ones
-        assert_eq!(count % 64, 0);
+    pub(crate) fn fill(&self, count: usize) {
+        let rows = count / 64;
         self.0
             .iter()
-            .take(count / 64)
-            .for_each(|row| row.store(value, Ordering::Release));
+            .take(rows)
+            .for_each(|row| row.store(u64::MAX, Ordering::Release));
+
+        match count % 64 {
+            0 => (),
+            remainder => self.0[rows].store((1 << remainder) - 1, Ordering::Release),
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -84,10 +86,20 @@ impl Index {
 #[test]
 fn clear_next() {
     let set: Set<8> = Set::default();
-    set.fill(512, true);
+    set.fill(512);
 
     for index in (0..512).map(Index) {
         assert_eq!(set.peek(), Some(index));
         set.clear(index);
+    }
+}
+
+#[test]
+fn fill() {
+    for i in 0..1024 {
+        let set: Set<16> = Set::default();
+        assert_eq!(set.len(), 0);
+        set.fill(i);
+        assert_eq!(set.len(), i);
     }
 }

@@ -17,6 +17,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::LazyLock;
 
+use cxlalloc::root;
+
 // Note: it would be nice to initialize this with an initialization
 // function, but that doesn't work well with `LD_PRELOAD`.
 //
@@ -124,7 +126,7 @@ thread_local! {
         let id = THREAD_ID.with(ThreadId::get);
 
         // let allocator = unsafe { RAW.allocator_assume_init(id) };
-        let allocator = RAW.allocator(unsafe { cxlalloc::thread::Id::new( id as u16) });
+        let allocator = RAW.allocator(unsafe { cxlalloc::thread::Id::new(id as u16) });
 
         log::info!("Initialized allocator: {id}");
         RefCell::new(allocator)
@@ -163,8 +165,9 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
     log::trace!("malloc {size}");
-    // ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size).as_ptr().cast())
-    todo!()
+
+    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size))
+    // todo!()
 }
 
 #[no_mangle]
