@@ -52,15 +52,28 @@ impl<const SIZE: usize> Set<SIZE> {
 
     pub(crate) fn fill(&self, count: usize) {
         let rows = count / 64;
+
+        // Full rows of 1s
         self.0
             .iter()
             .take(rows)
             .for_each(|row| row.store(u64::MAX, Ordering::Release));
 
-        match count % 64 {
-            0 => (),
-            remainder => self.0[rows].store((1 << remainder) - 1, Ordering::Release),
-        }
+        // Partial row of 1s
+        let skip = match count % 64 {
+            0 => 0,
+            remainder => {
+                self.0[rows].store((1 << remainder) - 1, Ordering::Release);
+                1
+            }
+        };
+
+        // Full rows of 0s
+        self.0
+            .iter()
+            .skip(rows)
+            .skip(skip)
+            .for_each(|row| row.store(0, Ordering::Release));
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -72,7 +85,7 @@ impl<const SIZE: usize> Set<SIZE> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Index(usize);
 
 impl Index {

@@ -191,10 +191,10 @@ impl LocalStack {
         self.head = slabs[index].meta.load().next();
     }
 
-    pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
+    pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index, class: Option<size::Small>) {
         slabs[index]
             .meta
-            .store(Owned::new(self.head, size::Small::default()));
+            .store(Owned::new(self.head, class.unwrap_or_default()));
         self.set(Some(index));
     }
 

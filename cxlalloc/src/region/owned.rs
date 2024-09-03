@@ -87,6 +87,6 @@ impl Meta {
             slabs[prev].meta.store(slab::Owned::new(next, class));
         };
 
-        self.r#unsized.push(slabs, index);
+        self.r#unsized.push(slabs, index, None);
     }
 }

@@ -148,8 +148,12 @@ impl<'raw> Allocator<'raw> {
             let block = offset.to_block(index, class);
             slab.free.set(block);
             match slab.free.len() {
-                1 => todo!("push to sized"),
-                len if len == class.count() => {
+                1 => self.heap.owned.meta[&mut self.id].r#sized[class].push(
+                    &self.heap.owned.slabs,
+                    index,
+                    Some(class),
+                ),
+                len if len == core::cmp::min(class.count(), 448) => {
                     self.heap.owned.meta[&mut self.id].sized_to_unsized(
                         &self.heap.owned.slabs,
                         class,
