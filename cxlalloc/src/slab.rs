@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
@@ -76,7 +78,7 @@ impl Slice<'_, Owned> {
             .map(Option::unwrap)
             .map(Index);
 
-        for (i, j) in core::iter::zip(
+        for (i, j) in iter::zip(
             range.clone(),
             range.clone().skip(1).map(Option::Some).chain(Option::None),
         ) {
@@ -114,6 +116,15 @@ impl Owned {
 
     pub(crate) fn class(&self) -> size::Small {
         Packed::unpack(self.0)
+    }
+}
+
+impl Debug for Owned {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Owned")
+            .field("next", &self.next())
+            .field("class", &self.class())
+            .finish()
     }
 }
 
@@ -170,6 +181,15 @@ impl LocalStack {
             .unwrap();
 
         self.head = Some(head);
+    }
+
+    pub(crate) fn trace<'a>(&self, slabs: &'a Slice<Owned>) -> impl Iterator<Item = Index> + 'a {
+        let mut head = self.head;
+        iter::from_fn(move || {
+            let next = head?;
+            head = slabs[next].meta.load().next();
+            Some(next)
+        })
     }
 }
 

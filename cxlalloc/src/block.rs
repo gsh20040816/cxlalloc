@@ -7,6 +7,7 @@ use crate::size;
 ///
 /// `SIZE` is in units of 8 bytes.
 #[repr(C, align(8))]
+#[derive(Debug)]
 pub(crate) struct Set<const SIZE: usize>([AtomicU64; SIZE]);
 
 impl<const SIZE: usize> Default for Set<SIZE> {

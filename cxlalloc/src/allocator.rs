@@ -22,12 +22,20 @@ pub struct Allocator<'raw> {
 }
 
 impl<'raw> Allocator<'raw> {
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
-        Self {
-            id,
-            owned: block::Set::default(),
-            heap: Heap::from_raw(raw),
-        }
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, mut id: thread::Id) -> Self {
+        let owned = block::Set::default();
+        let heap = Heap::from_raw(raw);
+        let thread = &heap.owned.meta[&mut id];
+
+        //Recover state of owned set
+        size::Small::all()
+            .flat_map(|class| thread.r#sized[class].trace(&heap.owned.slabs))
+            .chain(thread.r#unsized.trace(&heap.owned.slabs))
+            .for_each(|index| {
+                owned.set(block::Index::new(index.to_offset().get() / SIZE_SLAB));
+            });
+
+        Self { id, owned, heap }
     }
 
     pub fn heap(&self) -> &Heap<'raw> {
@@ -121,7 +129,7 @@ impl<'raw> Allocator<'raw> {
                 self.heap.owned.slabs.link(length - COUNT as u32..length);
                 thread.r#unsized.set_raw(length - COUNT as u32);
                 for i in length - COUNT as u32..length {
-                    self.owned.set(block::Index::new(i as usize));
+                    self.owned.set(block::Index::new(i as usize + 1));
                 }
             }
         }

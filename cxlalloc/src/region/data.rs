@@ -28,14 +28,7 @@ impl<'raw> Data<'raw> {
     }
 
     pub(crate) fn offset_to_pointer<T>(&self, offset: Offset) -> NonNull<T> {
-        NonNull::new(
-            self.base
-                .as_ptr()
-                .wrapping_byte_add(SIZE_SLAB)
-                .wrapping_byte_add(offset.0.get())
-                .cast(),
-        )
-        .unwrap()
+        NonNull::new(self.base.as_ptr().wrapping_byte_add(offset.0.get()).cast()).unwrap()
     }
 
     pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Offset {
