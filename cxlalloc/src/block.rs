@@ -1,3 +1,4 @@
+use core::cmp;
 use core::sync::atomic::Ordering;
 use std::sync::atomic::AtomicU64;
 
@@ -27,18 +28,20 @@ impl<const SIZE: usize> Set<SIZE> {
             .map(Index::from_row_col)
     }
 
-    pub(crate) fn set(&self, index: Index) {
+    pub(crate) fn set(&self, index: Index) -> u32 {
         let (row, col) = index.into_row_col();
         let old = self.0[row].load(Ordering::Acquire);
         let new = old | (1 << col);
         self.0[row].store(new, Ordering::Release);
+        new.count_ones()
     }
 
-    pub(crate) fn clear(&self, index: Index) {
+    pub(crate) fn clear(&self, index: Index) -> bool {
         let (row, col) = index.into_row_col();
         let old = self.0[row].load(Ordering::Acquire);
         let new = old & !(1 << col);
         self.0[row].store(new, Ordering::Release);
+        new == 0
     }
 
     pub(crate) fn get(&self, index: Index) -> bool {
@@ -47,7 +50,15 @@ impl<const SIZE: usize> Set<SIZE> {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.0.iter().all(|row| row.load(Ordering::Acquire) == 0)
+    }
+
+    pub(crate) fn is_empty_except(&self, index: Index) -> bool {
+        self.0
+            .iter()
+            .enumerate()
+            .filter(|(row, _)| *row != index.0 >> 6)
+            .all(|(_, row)| row.load(Ordering::Acquire) == 0)
     }
 
     pub(crate) fn fill(&self, count: usize) {
@@ -76,6 +87,26 @@ impl<const SIZE: usize> Set<SIZE> {
             .for_each(|row| row.store(0, Ordering::Release));
     }
 
+    pub(crate) fn is_full(&self, class: size::Small) -> bool {
+        let count = cmp::min(class.count(), 448);
+        let rows = count / 64;
+
+        // Full rows of 1s
+        self.0
+            .iter()
+            .take(rows)
+            .all(|row| row.load(Ordering::Acquire) == u64::MAX)
+        &&
+        // Partial row of 1s
+        match count % 64 {
+            0 => true,
+            remainder => {
+                self.0[rows].load(Ordering::Acquire).count_ones() as usize == remainder
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.0
             .iter()

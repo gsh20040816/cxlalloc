@@ -84,9 +84,8 @@ impl<'raw> Allocator<'raw> {
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
         let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
-        slab.free.clear(block);
 
-        if slab.free.is_empty() {
+        if slab.free.clear(block) && slab.free.is_empty() {
             self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
         }
 
@@ -146,21 +145,20 @@ impl<'raw> Allocator<'raw> {
             let meta = slab.meta.load();
             let class = meta.class();
             let block = offset.to_block(index, class);
-            slab.free.set(block);
-            match slab.free.len() {
-                1 => self.heap.owned.meta[&mut self.id].r#sized[class].push(
+
+            let hint = slab.free.set(block);
+            if hint == 1 && slab.free.is_empty_except(block) {
+                self.heap.owned.meta[&mut self.id].r#sized[class].push(
                     &self.heap.owned.slabs,
                     index,
                     Some(class),
-                ),
-                len if len == core::cmp::min(class.count(), 448) => {
-                    self.heap.owned.meta[&mut self.id].sized_to_unsized(
-                        &self.heap.owned.slabs,
-                        class,
-                        index,
-                    );
-                }
-                _ => (),
+                );
+            } else if slab.free.is_full(class) {
+                self.heap.owned.meta[&mut self.id].sized_to_unsized(
+                    &self.heap.owned.slabs,
+                    class,
+                    index,
+                );
             }
         } else {
             todo!("remote free")
