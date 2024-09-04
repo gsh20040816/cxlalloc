@@ -254,8 +254,8 @@ impl<'raw> Allocator<'raw> {
         } else {
             let slab = &self.heap.shared.slabs[index];
             let meta = slab.meta.load();
-            match meta.class() {
-                size::Class::Small(_) => todo!(),
+            let class = match meta.class() {
+                size::Class::Small(small) => small,
                 size::Class::Large(large) => {
                     let stage = &self.heap.shared[&self.id];
                     let staged = stage.store_versioned(Some(index)).transpose();
@@ -269,9 +269,30 @@ impl<'raw> Allocator<'raw> {
                         staged,
                     );
 
-                    log::info!("Freed remote large allocation {:?}", index);
+                    log::info!("Freed remote large allocation {:?} ({})", index, large);
+                    return;
                 }
+            };
+
+            let block = offset.index_block(class);
+
+            // FIXME: use compare_exchange to detect if we are the last writer
+            if slab.free.set(block) < 64 || !slab.free.is_full(class.count()) {
+                return;
             }
+
+            let version = slab.meta.load().version();
+            slab.meta.store(slab::Shared::new(
+                version.next(),
+                size::Class::Small(size::Small::default()),
+            ));
+
+            let stage = &self.heap.shared[&self.id];
+            let staged = stage.store_versioned(Some(index)).transpose();
+
+            self.heap
+                .shared
+                .push(&mut self.id, &self.heap.owned.slabs, 1, staged);
         }
     }
 }

@@ -63,6 +63,7 @@ impl Meta {
         shared[index]
             .meta
             .store(slab::Shared::new(version.next(), size::Class::Small(class)));
+        shared[index].free.reset(0);
 
         self.r#sized[class].set(Some(index));
         self.r#unsized.set(next);
