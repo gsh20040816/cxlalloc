@@ -2,6 +2,7 @@ use core::ptr::NonNull;
 
 use crate::raw;
 use crate::region;
+use crate::slab;
 use crate::Root;
 
 pub struct Heap<'raw> {
@@ -19,11 +20,11 @@ impl<'raw> Heap<'raw> {
         }
     }
 
-    pub fn offset_to_pointer<T>(&self, offset: region::data::Offset) -> NonNull<T> {
+    pub fn offset_to_pointer<T>(&self, offset: slab::Offset) -> NonNull<T> {
         self.data.offset_to_pointer(offset)
     }
 
-    pub fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> region::data::Offset {
+    pub fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> slab::Offset {
         self.data.pointer_to_offset(pointer)
     }
 

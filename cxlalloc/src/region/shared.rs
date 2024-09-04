@@ -63,7 +63,7 @@ impl<'raw> Shared<'raw> {
 }
 
 impl Index<root::Index> for Shared<'_> {
-    type Output = Option<region::data::Offset>;
+    type Output = Option<slab::Offset>;
     fn index(&self, index: root::Index) -> &Self::Output {
         &self.meta.roots[index]
     }

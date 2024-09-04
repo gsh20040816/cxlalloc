@@ -138,6 +138,12 @@ impl Index {
     }
 }
 
+impl From<Index> for usize {
+    fn from(index: Index) -> Self {
+        index.0
+    }
+}
+
 #[test]
 fn clear_next() {
     let set: Set<8> = Set::default();

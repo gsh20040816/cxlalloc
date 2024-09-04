@@ -1,12 +1,9 @@
 use core::alloc::Layout;
 use core::marker::PhantomData;
-use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
-use crate::block;
 use crate::raw;
-use crate::size;
 use crate::slab;
 use crate::SIZE_SLAB;
 
@@ -27,44 +24,13 @@ impl<'raw> Data<'raw> {
         }
     }
 
-    pub(crate) fn offset_to_pointer<T>(&self, offset: Offset) -> NonNull<T> {
-        NonNull::new(self.base.as_ptr().wrapping_byte_add(offset.0.get()).cast()).unwrap()
+    pub(crate) fn offset_to_pointer<T>(&self, offset: slab::Offset) -> NonNull<T> {
+        unsafe { self.base.byte_add(NonZeroUsize::from(offset).get()) }.cast()
     }
 
-    pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Offset {
+    pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> slab::Offset {
         NonZeroUsize::new(pointer.as_ptr() as usize - self.base.as_ptr() as usize)
-            .map(Offset)
+            .map(|delta| unsafe { slab::Offset::new(delta) })
             .unwrap()
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Offset(NonZeroUsize);
-
-impl Offset {
-    // TOOD: safer interface?
-    pub(crate) unsafe fn from_slab_block(
-        slab: slab::Index,
-        block: block::Index,
-        class: size::Small,
-    ) -> Self {
-        NonZeroUsize::new(slab.to_offset().get() + block.to_offset(class))
-            .map(Offset)
-            .unwrap()
-    }
-
-    pub(crate) unsafe fn from_slab(slab: slab::Index) -> Self {
-        Self(slab.to_offset())
-    }
-
-    pub(crate) fn to_slab(self) -> slab::Index {
-        slab::Index::from_offset(self.0)
-    }
-
-    pub(crate) fn to_block(self, slab: slab::Index, class: size::Small) -> block::Index {
-        let offset = self.0.get() - slab.to_offset().get();
-        debug_assert_eq!(offset % class.size(), 0);
-        block::Index::new(offset / class.size())
     }
 }

@@ -23,16 +23,26 @@ impl Index {
         NonZeroU32::new(length + 1).map(Self).unwrap()
     }
 
-    pub(crate) fn from_offset(offset: NonZeroUsize) -> Self {
-        u32::try_from(offset.get() / SIZE_SLAB)
+    pub(crate) unsafe fn add(&self, class: size::Small, index: block::Index) -> Offset {
+        let base = self.0.get() as usize;
+        let delta = class.size() * usize::from(index);
+        NonZeroUsize::new(base + delta).map(Offset).unwrap()
+    }
+}
+
+impl From<Offset> for Index {
+    fn from(offset: Offset) -> Self {
+        u32::try_from(offset.0.get() / SIZE_SLAB)
             .map(NonZeroU32::new)
             .unwrap()
             .map(Self)
             .unwrap()
     }
+}
 
-    pub(crate) fn to_offset(self) -> NonZeroUsize {
-        NonZeroUsize::new((self.0.get() as usize) * SIZE_SLAB).unwrap()
+impl From<Index> for NonZeroU32 {
+    fn from(index: Index) -> Self {
+        index.0
     }
 }
 
@@ -49,6 +59,34 @@ unsafe impl Packed for Index {
 }
 
 unsafe impl NonZero for Index {}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct Offset(NonZeroUsize);
+
+impl Offset {
+    pub(crate) unsafe fn new(delta: NonZeroUsize) -> Self {
+        Self(delta)
+    }
+
+    pub(crate) unsafe fn block(&self, class: size::Small) -> block::Index {
+        block::Index::new((self.0.get() % SIZE_SLAB) / class.size())
+    }
+}
+
+impl From<Index> for Offset {
+    fn from(index: Index) -> Self {
+        NonZeroUsize::new(index.0.get() as usize * SIZE_SLAB)
+            .map(Self)
+            .unwrap()
+    }
+}
+
+impl From<Offset> for NonZeroUsize {
+    fn from(value: Offset) -> Self {
+        value.0
+    }
+}
 
 pub(crate) struct Slice<'raw, M> {
     base: NonNull<Slab<M>>,

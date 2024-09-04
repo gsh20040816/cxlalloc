@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::region;
+use crate::slab;
 use crate::Allocator;
 use crate::COUNT_ROOT;
 use crate::COUNT_THREAD;
@@ -56,10 +57,10 @@ impl From<Index> for usize {
     }
 }
 
-pub(crate) struct Array([Option<region::data::Offset>; COUNT_ROOT]);
+pub(crate) struct Array([Option<slab::Offset>; COUNT_ROOT]);
 
 impl core::ops::Index<Index> for Array {
-    type Output = Option<region::data::Offset>;
+    type Output = Option<slab::Offset>;
     fn index(&self, index: Index) -> &Self::Output {
         &self.0[index.0]
     }

@@ -1,5 +1,6 @@
 use core::alloc::Layout;
 use core::ffi;
+use core::num::NonZeroU32;
 use core::ptr::NonNull;
 
 use crate::block;
@@ -32,7 +33,7 @@ impl<'raw> Allocator<'raw> {
             .flat_map(|class| thread.r#sized[class].trace(&heap.owned.slabs))
             .chain(thread.r#unsized.trace(&heap.owned.slabs))
             .for_each(|index| {
-                owned.set(block::Index::new(index.to_offset().get() / SIZE_SLAB));
+                owned.set(block::Index::new(NonZeroU32::from(index).get() as usize));
             });
 
         Self { id, owned, heap }
@@ -59,7 +60,7 @@ impl<'raw> Allocator<'raw> {
         let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
-        let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
+        let offset = unsafe { index.add(class, block) };
         let mut pointer = self.heap.offset_to_pointer::<T>(offset);
 
         unsafe {
@@ -79,7 +80,7 @@ impl<'raw> Allocator<'raw> {
             size::Class::Small(small) => small,
             size::Class::Large(large) => {
                 let index = self.allocate_large(large);
-                let offset = region::data::Offset::from_slab(index);
+                let offset = slab::Offset::from(index);
                 return self.heap.offset_to_pointer(offset);
             }
         };
@@ -87,12 +88,12 @@ impl<'raw> Allocator<'raw> {
         let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
-        let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
 
         if slab.free.clear(block) && slab.free.is_empty() {
             self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
         }
 
+        let offset = unsafe { index.add(class, block) };
         self.heap.offset_to_pointer::<ffi::c_void>(offset)
 
         // TODO: link
@@ -163,11 +164,11 @@ impl<'raw> Allocator<'raw> {
 
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         let offset = self.heap.pointer_to_offset(pointer);
-        let index = offset.to_slab();
+        let index = slab::Index::from(offset);
 
         if self
             .owned
-            .get(block::Index::new(index.to_offset().get() / SIZE_SLAB))
+            .get(block::Index::new(NonZeroU32::from(index).get() as usize))
         {
             let slab = &self.heap.owned.slabs[index];
             let meta = slab.meta.load();
@@ -175,7 +176,7 @@ impl<'raw> Allocator<'raw> {
                 size::Class::Small(small) => small,
                 size::Class::Large(_) => todo!(),
             };
-            let block = offset.to_block(index, class);
+            let block = offset.block(class);
 
             let hint = slab.free.set(block);
             if hint == 1 && slab.free.is_empty_except(block) {

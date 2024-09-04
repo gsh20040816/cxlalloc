@@ -1,12 +1,12 @@
 use core::ptr::NonNull;
 
-use crate::region;
 use crate::root;
+use crate::slab;
 use crate::Heap;
 
 pub enum Site {
     Root(root::Index),
-    Data(region::data::Offset),
+    Data(slab::Offset),
 }
 
 pub trait Erase<'raw, 'root, T>: Sized {
