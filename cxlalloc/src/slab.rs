@@ -1,3 +1,5 @@
+use core::alloc::Layout;
+use core::alloc::LayoutError;
 use core::fmt::Debug;
 use core::iter;
 use core::marker::PhantomData;
@@ -116,6 +118,10 @@ pub(crate) struct Slice<'raw, M> {
 }
 
 impl<M> Slice<'_, M> {
+    pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
+        Layout::array::<Slab<M>>(count)
+    }
+
     // Implementation detail: store minus one
     pub(crate) unsafe fn from_raw(region: &raw::Region, offset: usize) -> Self {
         let base = region

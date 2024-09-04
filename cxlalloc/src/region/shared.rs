@@ -25,7 +25,7 @@ pub(crate) struct Shared<'raw> {
 impl<'raw> Shared<'raw> {
     pub(crate) fn layout(slab_count: usize) -> Layout {
         Layout::new::<Meta>()
-            .extend(Layout::array::<slab::Shared>(slab_count).unwrap())
+            .extend(slab::Slice::<slab::Shared>::layout(slab_count).unwrap())
             .unwrap()
             .0
             .align_to(SIZE_PAGE)

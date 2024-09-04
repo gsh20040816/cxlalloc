@@ -14,7 +14,7 @@ pub(crate) struct Owned<'raw> {
 impl<'raw> Owned<'raw> {
     pub(crate) fn layout(slab_count: usize) -> Layout {
         Layout::new::<thread::Array<Meta>>()
-            .extend(Layout::array::<slab::Owned>(slab_count).unwrap())
+            .extend(slab::Slice::<slab::Owned>::layout(slab_count).unwrap())
             .unwrap()
             .0
             .align_to(SIZE_PAGE)
@@ -25,7 +25,7 @@ impl<'raw> Owned<'raw> {
     pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner) -> Self {
         // FIXME: deduplicate with `layout`
         let (_, offset) = Layout::new::<thread::Array<Meta>>()
-            .extend(Layout::array::<slab::Owned>(1).unwrap())
+            .extend(slab::Slice::<slab::Owned>::layout(1).unwrap())
             .unwrap();
 
         Self {
