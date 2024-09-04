@@ -161,6 +161,28 @@ impl<'raw> Allocator<'raw> {
         }
     }
 
+    pub unsafe fn realloc_untyped(
+        &mut self,
+        old_pointer: NonNull<ffi::c_void>,
+        new_size: usize,
+    ) -> NonNull<ffi::c_void> {
+        let old_size = self.class_untyped(old_pointer);
+
+        if old_size >= new_size {
+            return old_pointer;
+        }
+
+        let new_pointer = self.allocate_untyped(new_size);
+        core::ptr::copy_nonoverlapping::<u8>(
+            old_pointer.as_ptr().cast(),
+            new_pointer.as_ptr().cast(),
+            old_size,
+        );
+
+        self.free_untyped(old_pointer);
+        new_pointer
+    }
+
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> NonNull<ffi::c_void> {
         let class = match size::Class::new(size) {
             size::Class::Small(small) => small,

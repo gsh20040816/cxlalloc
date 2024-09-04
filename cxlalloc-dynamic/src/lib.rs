@@ -225,13 +225,12 @@ pub unsafe extern "C" fn realloc(pointer: *mut ffi::c_void, size: usize) -> *mut
         return malloc(size);
     };
 
-    // ALLOCATOR.with_borrow_mut(|allocator| {
-    //     allocator
-    //         .realloc_untyped(pointer.cast(), size)
-    //         .as_ptr()
-    //         .cast()
-    // })
-    todo!()
+    ALLOCATOR.with_borrow_mut(|allocator| {
+        allocator
+            .realloc_untyped(pointer.cast(), size)
+            .as_ptr()
+            .cast()
+    })
 }
 
 #[no_mangle]
