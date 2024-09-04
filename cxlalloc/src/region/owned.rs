@@ -54,7 +54,8 @@ impl Meta {
 
         let slab = &slabs[index];
         let next = slab.meta.load().next();
-        slab.meta.store(slab::Owned::new(None, class));
+        slab.meta
+            .store(slab::Owned::new(None, size::Class::Small(class)));
         slab.free.fill(class.count());
 
         self.r#sized[class].set(Some(index));
@@ -84,7 +85,9 @@ impl Meta {
                 }
             };
 
-            slabs[prev].meta.store(slab::Owned::new(next, class));
+            slabs[prev]
+                .meta
+                .store(slab::Owned::new(next, size::Class::Small(class)));
         };
 
         self.r#unsized.push(slabs, index, None);

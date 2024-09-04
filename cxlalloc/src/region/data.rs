@@ -54,6 +54,10 @@ impl Offset {
             .unwrap()
     }
 
+    pub(crate) unsafe fn from_slab(slab: slab::Index) -> Self {
+        Self(slab.to_offset())
+    }
+
     pub(crate) fn to_slab(self) -> slab::Index {
         slab::Index::from_offset(self.0)
     }

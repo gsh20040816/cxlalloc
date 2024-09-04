@@ -56,7 +56,7 @@ impl<'raw> Allocator<'raw> {
             size::Class::Large(_) => unimplemented!(),
         };
 
-        let index = self.allocate(class);
+        let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
         let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
@@ -77,10 +77,14 @@ impl<'raw> Allocator<'raw> {
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> NonNull<ffi::c_void> {
         let class = match size::Class::new(size) {
             size::Class::Small(small) => small,
-            size::Class::Large(_) => unimplemented!(),
+            size::Class::Large(large) => {
+                let index = self.allocate_large(large);
+                let offset = region::data::Offset::from_slab(index);
+                return self.heap.offset_to_pointer(offset);
+            }
         };
 
-        let index = self.allocate(class);
+        let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
         let offset = unsafe { region::data::Offset::from_slab_block(index, block, class) };
@@ -94,7 +98,31 @@ impl<'raw> Allocator<'raw> {
         // TODO: link
     }
 
-    fn allocate(&mut self, class: size::Small) -> slab::Index {
+    fn allocate_large(&mut self, class: size::Large) -> slab::Index {
+        let stage = &self.heap.shared[&self.id];
+        let version = stage
+            .store_versioned::<region::meta::shared::Extent>(None)
+            .version();
+
+        let length = self
+            .heap
+            .shared
+            .allocate(
+                &mut self.id,
+                u16::try_from(class.size() / SIZE_SLAB).unwrap(),
+                Some(version),
+            )
+            .unwrap()
+            .length();
+
+        self.heap.owned.slabs[slab::Index::from_length(length)]
+            .meta
+            .store(slab::Owned::new(None, size::Class::Large(class)));
+
+        slab::Index::from_length(length)
+    }
+
+    fn allocate_small(&mut self, class: size::Small) -> slab::Index {
         let thread = &mut self.heap.owned.meta[&mut self.id];
         loop {
             if let Some(index) = thread.r#sized[class].peek() {
@@ -143,7 +171,10 @@ impl<'raw> Allocator<'raw> {
         {
             let slab = &self.heap.owned.slabs[index];
             let meta = slab.meta.load();
-            let class = meta.class();
+            let class = match meta.class() {
+                size::Class::Small(small) => small,
+                size::Class::Large(_) => todo!(),
+            };
             let block = offset.to_block(index, class);
 
             let hint = slab.free.set(block);

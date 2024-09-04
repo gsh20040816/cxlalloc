@@ -19,6 +19,10 @@ use crate::SIZE_SLAB;
 pub(crate) struct Index(NonZeroU32);
 
 impl Index {
+    pub(crate) fn from_length(length: u32) -> Self {
+        NonZeroU32::new(length + 1).map(Self).unwrap()
+    }
+
     pub(crate) fn from_offset(offset: NonZeroUsize) -> Self {
         u32::try_from(offset.get() / SIZE_SLAB)
             .map(NonZeroU32::new)
@@ -82,7 +86,9 @@ impl Slice<'_, Owned> {
             range.clone(),
             range.clone().skip(1).map(Option::Some).chain(Option::None),
         ) {
-            self[i].meta.store(Owned::new(j, size::Small::default()));
+            self[i]
+                .meta
+                .store(Owned::new(j, size::Class::Small(size::Small::default())));
         }
     }
 }
@@ -103,10 +109,10 @@ pub(crate) struct Slab<M> {
 #[repr(C)]
 pub(crate) struct Owned(u64);
 // next: Option<Index>,
-// class: size::Small,
+// class: size::Class,
 
 impl Owned {
-    pub(crate) fn new(next: Option<Index>, class: size::Small) -> Self {
+    pub(crate) fn new(next: Option<Index>, class: size::Class) -> Self {
         Self(next.pack() << 32 | class.pack())
     }
 
@@ -114,7 +120,7 @@ impl Owned {
         Packed::unpack(self.0 >> 32)
     }
 
-    pub(crate) fn class(&self) -> size::Small {
+    pub(crate) fn class(&self) -> size::Class {
         Packed::unpack(self.0)
     }
 }
@@ -192,9 +198,10 @@ impl LocalStack {
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index, class: Option<size::Small>) {
-        slabs[index]
-            .meta
-            .store(Owned::new(self.head, class.unwrap_or_default()));
+        slabs[index].meta.store(Owned::new(
+            self.head,
+            size::Class::Small(class.unwrap_or_default()),
+        ));
         self.set(Some(index));
     }
 
