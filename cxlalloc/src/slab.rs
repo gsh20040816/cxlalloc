@@ -17,8 +17,8 @@ use crate::BitSet;
 use crate::Transfer;
 use crate::SIZE_SLAB;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub(crate) struct Index(NonZeroU32);
 
 impl Index {
@@ -35,6 +35,12 @@ impl Index {
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
         self.0.checked_add(count).map(Self).unwrap()
+    }
+}
+
+impl Debug for Index {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        (self.0.get() - 1).fmt(f)
     }
 }
 
@@ -68,8 +74,8 @@ unsafe impl Packed for Index {
 
 unsafe impl NonZero for Index {}
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Offset(NonZeroUsize);
 
 impl Offset {
@@ -93,6 +99,12 @@ impl From<Index> for Offset {
 impl From<Offset> for NonZeroUsize {
     fn from(value: Offset) -> Self {
         value.0
+    }
+}
+
+impl Debug for Offset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (self.0.get() - SIZE_SLAB).fmt(f)
     }
 }
 
