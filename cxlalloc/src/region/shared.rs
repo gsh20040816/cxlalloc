@@ -84,6 +84,21 @@ impl<'raw> Shared<'raw> {
             staged,
         );
     }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.meta.free.is_empty()
+    }
+
+    pub(crate) fn pop(
+        &self,
+        thread_id: &mut thread::Id,
+        slabs: &slab::Slice<slab::Owned>,
+        version: Option<Version>,
+    ) -> Result<slab::Index, slab::Empty> {
+        self.meta
+            .free
+            .read(slabs, &self.meta.stages, thread_id, slab::Pop, version)
+    }
 }
 
 impl Index<root::Index> for Shared<'_> {

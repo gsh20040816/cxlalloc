@@ -117,7 +117,25 @@ impl<'raw> Allocator<'raw> {
                 continue;
             }
 
-            // TODO: Transfer from global stack to sized stack
+            if !self.heap.shared.is_empty() {
+                let stage = &self.heap.shared[&self.id];
+                let version = stage
+                    .store_versioned::<region::meta::shared::Extent>(None)
+                    .version();
+
+                if let Ok(index) =
+                    self.heap
+                        .shared
+                        .pop(&mut self.id, &self.heap.owned.slabs, Some(version))
+                {
+                    self.heap.owned.slabs[index].meta.store(slab::Owned::new(
+                        None,
+                        size::Class::Small(size::Small::default()),
+                    ));
+                    thread.r#unsized.set(Some(index));
+                    continue;
+                }
+            }
 
             // Transfer from length expansion to unsized stack
             let stage = &self.heap.shared[&self.id];

@@ -289,6 +289,12 @@ pub(crate) struct GlobalStack<'raw> {
     _raw: PhantomData<&'raw raw::Heap>,
 }
 
+impl<'raw> GlobalStack<'raw> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.head.load().is_none()
+    }
+}
+
 #[derive(Debug)]
 pub struct Empty;
 
