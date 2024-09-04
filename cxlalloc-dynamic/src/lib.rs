@@ -161,9 +161,11 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
     log::trace!("malloc {size}");
+    if size == 0 {
+        return core::ptr::null_mut();
+    }
 
     ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size).as_ptr())
-    // todo!()
 }
 
 #[no_mangle]
