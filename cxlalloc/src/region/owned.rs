@@ -45,18 +45,24 @@ pub(crate) struct Meta {
 impl Meta {
     pub(crate) fn unsized_to_sized(
         &mut self,
-        slabs: &slab::Slice<slab::Owned>,
+        owned: &slab::Slice<slab::Owned>,
+        shared: &slab::Slice<slab::Shared>,
         class: size::Small,
     ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
             return false;
         };
 
-        let slab = &slabs[index];
+        let slab = &owned[index];
         let next = slab.meta.load().next();
         slab.meta
             .store(slab::Owned::new(None, size::Class::Small(class)));
         slab.free.reset(class.count());
+
+        let version = shared[index].meta.load().version();
+        shared[index]
+            .meta
+            .store(slab::Shared::new(version.next(), size::Class::Small(class)));
 
         self.r#sized[class].set(Some(index));
         self.r#unsized.set(next);

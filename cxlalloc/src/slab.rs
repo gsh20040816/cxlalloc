@@ -8,6 +8,7 @@ use core::ptr::NonNull;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
+use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::raw;
 use crate::size;
@@ -207,8 +208,20 @@ unsafe impl Packed for Owned {
 
 #[repr(C)]
 pub(crate) struct Shared(u64);
-// version: Wrapping<u16>,
-// class: size::Small,
+
+impl Shared {
+    pub(crate) fn new(version: Version, class: size::Class) -> Self {
+        Self(version.pack() << size::Class::BITS | class.pack())
+    }
+
+    pub(crate) fn version(&self) -> Version {
+        Version::unpack(self.0 >> 32)
+    }
+
+    pub(crate) fn class(&self) -> size::Class {
+        size::Class::unpack(self.0)
+    }
+}
 
 unsafe impl Packed for Shared {
     const BITS: u8 = 64;

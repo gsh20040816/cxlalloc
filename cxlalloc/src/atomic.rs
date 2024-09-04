@@ -1,7 +1,6 @@
 use core::convert::Infallible;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use core::num::NonZeroU16;
 use core::num::Wrapping;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -152,7 +151,7 @@ impl<T: Packed + NonZero> Versioned<Option<T>> {
 pub struct Version(Wrapping<u16>);
 
 impl Version {
-    fn next(&self) -> Self {
+    pub fn next(&self) -> Self {
         Self(self.0 + Wrapping(1))
     }
 }

@@ -122,6 +122,11 @@ impl<'raw> Allocator<'raw> {
             .meta
             .store(slab::Owned::new(None, size::Class::Large(class)));
 
+        let version = self.heap.shared.slabs[range.start].meta.load().version();
+        self.heap.shared.slabs[range.start]
+            .meta
+            .store(slab::Shared::new(version.next(), size::Class::Large(class)));
+
         range.start
     }
 
@@ -132,7 +137,7 @@ impl<'raw> Allocator<'raw> {
                 break index;
             }
 
-            if thread.unsized_to_sized(&self.heap.owned.slabs, class) {
+            if thread.unsized_to_sized(&self.heap.owned.slabs, &self.heap.shared.slabs, class) {
                 continue;
             }
 
@@ -189,8 +194,7 @@ impl<'raw> Allocator<'raw> {
                         staged,
                     );
 
-                    log::info!("Freed large allocation {:?}", index);
-
+                    log::info!("Freed local large allocation {:?}", index);
                     return;
                 }
             };
@@ -210,7 +214,26 @@ impl<'raw> Allocator<'raw> {
                 );
             }
         } else {
-            todo!("remote free")
+            let slab = &self.heap.shared.slabs[index];
+            let meta = slab.meta.load();
+            match meta.class() {
+                size::Class::Small(_) => todo!(),
+                size::Class::Large(large) => {
+                    let stage = &self.heap.shared[&self.id];
+                    let staged = stage.store_versioned(Some(index)).transpose();
+
+                    // TODO: log capsule boundary
+
+                    self.heap.shared.push(
+                        &mut self.id,
+                        &self.heap.owned.slabs,
+                        large.count() as u16,
+                        staged,
+                    );
+
+                    log::info!("Freed remote large allocation {:?}", index);
+                }
+            }
         }
     }
 }

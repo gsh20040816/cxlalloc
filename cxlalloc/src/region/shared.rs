@@ -19,7 +19,7 @@ use crate::SIZE_PAGE;
 pub(crate) struct Shared<'raw> {
     capacity: u32,
     meta: &'raw Meta<'raw>,
-    slabs: slab::Slice<'raw, slab::Shared>,
+    pub(crate) slabs: slab::Slice<'raw, slab::Shared>,
 }
 
 impl<'raw> Shared<'raw> {
