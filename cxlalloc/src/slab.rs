@@ -16,6 +16,7 @@ use crate::transfer;
 use crate::Atomic;
 use crate::BitSet;
 use crate::Transfer;
+use crate::SIZE_BIT_SET;
 use crate::SIZE_SLAB;
 
 #[repr(C)]
@@ -163,7 +164,7 @@ impl<'raw, M> core::ops::Index<Index> for Slice<'raw, M> {
 #[repr(C, align(64))]
 pub(crate) struct Slab<M> {
     pub(crate) meta: Atomic<M>,
-    pub(crate) free: BitSet<7>,
+    pub(crate) free: BitSet<SIZE_BIT_SET>,
 }
 
 #[repr(C)]

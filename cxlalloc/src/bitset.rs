@@ -1,8 +1,5 @@
-use core::cmp;
 use core::sync::atomic::Ordering;
 use std::sync::atomic::AtomicU64;
-
-use crate::size;
 
 /// Fixed-size bitset implementation.
 ///
