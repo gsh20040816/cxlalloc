@@ -9,59 +9,60 @@ use crate::size;
 /// `SIZE` is in units of 8 bytes.
 #[repr(C, align(8))]
 #[derive(Debug)]
-pub(crate) struct Set<const SIZE: usize>([AtomicU64; SIZE]);
+pub(crate) struct BitSet<const SIZE: usize>([AtomicU64; SIZE]);
 
-impl<const SIZE: usize> Default for Set<SIZE> {
+impl<const SIZE: usize> Default for BitSet<SIZE> {
     fn default() -> Self {
         Self(std::array::from_fn(|_| AtomicU64::new(0)))
     }
 }
 
-impl<const SIZE: usize> Set<SIZE> {
-    pub(crate) fn peek(&self) -> Option<Index> {
+impl<const SIZE: usize> BitSet<SIZE> {
+    pub(crate) fn peek(&self) -> Option<Bit> {
         self.0
             .iter()
             .map(|row| row.load(Ordering::Acquire))
             .enumerate()
             .find(|(_, row)| *row != 0)
             .map(|(i, row)| (i, row.trailing_zeros() as usize))
-            .map(Index::from_row_col)
+            .map(Bit::from_row_col)
     }
 
-    pub(crate) fn set(&self, index: Index) -> u32 {
-        let (row, col) = index.into_row_col();
+    pub(crate) fn set(&self, bit: Bit) -> u32 {
+        let row = bit.row();
+        let col = bit.col();
         let old = self.0[row].load(Ordering::Acquire);
         let new = old | (1 << col);
         self.0[row].store(new, Ordering::Release);
         new.count_ones()
     }
 
-    pub(crate) fn clear(&self, index: Index) -> bool {
-        let (row, col) = index.into_row_col();
+    pub(crate) fn unset(&self, bit: Bit) -> u32 {
+        let row = bit.row();
+        let col = bit.col();
         let old = self.0[row].load(Ordering::Acquire);
         let new = old & !(1 << col);
         self.0[row].store(new, Ordering::Release);
-        new == 0
+        new.count_ones()
     }
 
-    pub(crate) fn get(&self, index: Index) -> bool {
-        let (row, col) = index.into_row_col();
-        self.0[row].load(Ordering::Acquire) & (1 << col) > 0
+    pub(crate) fn get(&self, bit: Bit) -> bool {
+        self.0[bit.row()].load(Ordering::Acquire) & (1 << bit.col()) > 0
     }
 
     pub(crate) fn is_empty(&self) -> bool {
         self.0.iter().all(|row| row.load(Ordering::Acquire) == 0)
     }
 
-    pub(crate) fn is_empty_except(&self, index: Index) -> bool {
+    pub(crate) fn is_empty_except(&self, bit: Bit) -> bool {
         self.0
             .iter()
             .enumerate()
-            .filter(|(row, _)| *row != index.0 >> 6)
+            .filter(|(row, _)| *row != bit.row())
             .all(|(_, row)| row.load(Ordering::Acquire) == 0)
     }
 
-    pub(crate) fn fill(&self, count: usize) {
+    pub(crate) fn reset(&self, count: usize) {
         let rows = count / 64;
 
         // Full rows of 1s
@@ -87,8 +88,7 @@ impl<const SIZE: usize> Set<SIZE> {
             .for_each(|row| row.store(0, Ordering::Release));
     }
 
-    pub(crate) fn is_full(&self, class: size::Small) -> bool {
-        let count = cmp::min(class.count(), 448);
+    pub(crate) fn is_full(&self, count: usize) -> bool {
         let rows = count / 64;
 
         // Full rows of 1s
@@ -117,50 +117,67 @@ impl<const SIZE: usize> Set<SIZE> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Index(usize);
+pub(crate) struct Bit(usize);
 
-impl Index {
+impl Bit {
     // TODO: only used for ownership bitmap, maybe decouple?
-    pub(crate) fn new(index: usize) -> Self {
-        Self(index)
+    pub(crate) fn new(bit: usize) -> Self {
+        Self(bit)
     }
 
-    pub(crate) fn to_offset(self, class: size::Small) -> usize {
-        self.0 * class.size()
+    fn from_row_col((row, col): (usize, usize)) -> Self {
+        Self((row << 6) + col)
     }
 
-    fn from_row_col((i, j): (usize, usize)) -> Self {
-        Self((i << 6) + j)
+    fn row(self) -> usize {
+        self.0 >> 6
     }
 
-    fn into_row_col(self) -> (usize, usize) {
-        (self.0 >> 6, self.0 & ((1 << 6) - 1))
-    }
-}
-
-impl From<Index> for usize {
-    fn from(index: Index) -> Self {
-        index.0
+    fn col(self) -> usize {
+        self.0 & ((1 << 6) - 1)
     }
 }
 
-#[test]
-fn clear_next() {
-    let set: Set<8> = Set::default();
-    set.fill(512);
-
-    for index in (0..512).map(Index) {
-        assert_eq!(set.peek(), Some(index));
-        set.clear(index);
+impl From<Bit> for usize {
+    fn from(bit: Bit) -> Self {
+        bit.0
     }
 }
 
-#[test]
-fn fill() {
-    for i in 0..1024 {
-        let set: Set<16> = Set::default();
-        assert_eq!(set.len(), 0);
-        set.fill(i);
-        assert_eq!(set.len(), i);
+#[cfg(test)]
+mod tests {
+    use super::Bit;
+    use super::BitSet;
+
+    #[test]
+    fn peek_unset() {
+        let set: BitSet<8> = BitSet::default();
+        set.reset(512);
+
+        for bit in (0..512).map(Bit) {
+            assert_eq!(set.peek(), Some(bit));
+            set.unset(bit);
+        }
+    }
+
+    #[test]
+    fn reset_len() {
+        for i in 0..1024 {
+            let set: BitSet<16> = BitSet::default();
+            assert_eq!(set.len(), 0);
+            set.reset(i);
+            assert_eq!(set.len(), i);
+        }
+    }
+
+    #[test]
+    fn peek_set() {
+        let set: BitSet<7> = BitSet::default();
+        assert_eq!(set.peek(), None);
+
+        for bit in (0..448).rev().map(Bit) {
+            set.set(bit);
+            assert_eq!(set.peek(), Some(bit));
+        }
     }
 }

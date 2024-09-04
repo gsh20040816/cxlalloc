@@ -101,7 +101,11 @@ impl Small {
     }
 
     pub(crate) fn count(&self) -> usize {
-        crate::SIZE_SLAB / self.size()
+        match self.size() {
+            // FIXME: tie to slab descriptor bitset size
+            8 => 448,
+            size => crate::SIZE_SLAB / size,
+        }
     }
 }
 

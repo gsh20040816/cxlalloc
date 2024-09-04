@@ -56,7 +56,7 @@ impl Meta {
         let next = slab.meta.load().next();
         slab.meta
             .store(slab::Owned::new(None, size::Class::Small(class)));
-        slab.free.fill(class.count());
+        slab.free.reset(class.count());
 
         self.r#sized[class].set(Some(index));
         self.r#unsized.set(next);

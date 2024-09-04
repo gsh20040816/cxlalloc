@@ -3,7 +3,7 @@ use core::ffi;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 
-use crate::block;
+use crate::bitset::Bit;
 use crate::link;
 use crate::raw;
 use crate::region;
@@ -11,6 +11,7 @@ use crate::root;
 use crate::size;
 use crate::slab;
 use crate::thread;
+use crate::BitSet;
 use crate::Heap;
 use crate::Root;
 use crate::SIZE_SLAB;
@@ -18,13 +19,13 @@ use crate::SIZE_SLAB;
 pub struct Allocator<'raw> {
     id: thread::Id,
     // 4096 * 64 * 4096 = 2**(12 + 6 + 12) = 1 GiB?
-    owned: block::Set<4096>,
+    owned: BitSet<4096>,
     heap: Heap<'raw>,
 }
 
 impl<'raw> Allocator<'raw> {
     pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, mut id: thread::Id) -> Self {
-        let owned = block::Set::default();
+        let owned = BitSet::default();
         let heap = Heap::from_raw(raw);
         let thread = &heap.owned.meta[&mut id];
 
@@ -33,7 +34,7 @@ impl<'raw> Allocator<'raw> {
             .flat_map(|class| thread.r#sized[class].trace(&heap.owned.slabs))
             .chain(thread.r#unsized.trace(&heap.owned.slabs))
             .for_each(|index| {
-                owned.set(block::Index::new(NonZeroU32::from(index).get() as usize));
+                owned.set(Bit::new(NonZeroU32::from(index).get() as usize));
             });
 
         Self { id, owned, heap }
@@ -89,7 +90,7 @@ impl<'raw> Allocator<'raw> {
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
 
-        if slab.free.clear(block) && slab.free.is_empty() {
+        if slab.free.unset(block) == 0 && slab.free.is_empty() {
             self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
         }
 
@@ -155,7 +156,7 @@ impl<'raw> Allocator<'raw> {
                 thread.r#unsized.set(Some(range.start));
                 // FIXME: move ownership and range logic here into slab module
                 for i in NonZeroU32::from(range.start).get()..NonZeroU32::from(range.end).get() {
-                    self.owned.set(block::Index::new(i as usize + 1));
+                    self.owned.set(Bit::new(i as usize + 1));
                 }
             }
         }
@@ -167,7 +168,7 @@ impl<'raw> Allocator<'raw> {
 
         if self
             .owned
-            .get(block::Index::new(NonZeroU32::from(index).get() as usize))
+            .get(Bit::new(NonZeroU32::from(index).get() as usize))
         {
             let slab = &self.heap.owned.slabs[index];
             let meta = slab.meta.load();
@@ -177,14 +178,13 @@ impl<'raw> Allocator<'raw> {
             };
             let block = offset.index_block(class);
 
-            let hint = slab.free.set(block);
-            if hint == 1 && slab.free.is_empty_except(block) {
+            if slab.free.set(block) == 1 && slab.free.is_empty_except(block) {
                 self.heap.owned.meta[&mut self.id].r#sized[class].push(
                     &self.heap.owned.slabs,
                     index,
                     Some(class),
                 );
-            } else if slab.free.is_full(class) {
+            } else if slab.free.is_full(class.count()) {
                 self.heap.owned.meta[&mut self.id].sized_to_unsized(
                     &self.heap.owned.slabs,
                     class,

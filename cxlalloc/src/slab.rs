@@ -8,11 +8,12 @@ use core::ptr::NonNull;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
-use crate::block;
+use crate::bitset::Bit;
 use crate::raw;
 use crate::size;
 use crate::transfer;
 use crate::Atomic;
+use crate::BitSet;
 use crate::Transfer;
 use crate::SIZE_SLAB;
 
@@ -25,7 +26,7 @@ impl Index {
         NonZeroU32::new(length + 1).map(Self).unwrap()
     }
 
-    pub(crate) unsafe fn offset_block(&self, class: size::Small, index: block::Index) -> Offset {
+    pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
         debug_assert!(usize::from(index) <= class.count());
         let base = self.0.get() as usize;
         let delta = class.size() * usize::from(index);
@@ -76,8 +77,8 @@ impl Offset {
         Self(delta)
     }
 
-    pub(crate) unsafe fn index_block(&self, class: size::Small) -> block::Index {
-        block::Index::new((self.0.get() % SIZE_SLAB) / class.size())
+    pub(crate) unsafe fn index_block(&self, class: size::Small) -> Bit {
+        Bit::new((self.0.get() % SIZE_SLAB) / class.size())
     }
 }
 
@@ -149,7 +150,7 @@ impl<'raw, M> core::ops::Index<Index> for Slice<'raw, M> {
 #[repr(C, align(64))]
 pub(crate) struct Slab<M> {
     pub(crate) meta: Atomic<M>,
-    pub(crate) free: block::Set<7>,
+    pub(crate) free: BitSet<7>,
 }
 
 #[repr(C)]
