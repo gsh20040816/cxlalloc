@@ -48,6 +48,20 @@ impl<'raw> Allocator<'raw> {
         Root::new(self, index)
     }
 
+    pub unsafe fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
+        let offset = self.heap.pointer_to_offset(pointer);
+        let index = slab::Index::from(offset);
+
+        if self
+            .owned
+            .get(Bit::new(NonZeroU32::from(index).get() as usize))
+        {
+            self.heap.owned.slabs[index].meta.load().class().size()
+        } else {
+            self.heap.shared.slabs[index].meta.load().class().size()
+        }
+    }
+
     pub fn allocate_at<'root, T: Default, L: link::Erase<'raw, 'root, T>>(
         &mut self,
         link: L,

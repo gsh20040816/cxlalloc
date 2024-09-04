@@ -182,11 +182,7 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
         return 0;
     };
 
-    // ALLOCATOR.with_borrow(|allocator| {
-    //     let offset = allocator.heap().pointer_to_offset(pointer);
-    //     allocator.heap().class(offset).size()
-    // })
-    todo!()
+    ALLOCATOR.with_borrow(|allocator| allocator.class_untyped(pointer))
 }
 
 #[no_mangle]
