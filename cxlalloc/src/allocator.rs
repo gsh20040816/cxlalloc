@@ -60,7 +60,7 @@ impl<'raw> Allocator<'raw> {
         let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
         let block = slab.free.peek().unwrap();
-        let offset = unsafe { index.add(class, block) };
+        let offset = unsafe { index.offset_block(class, block) };
         let mut pointer = self.heap.offset_to_pointer::<T>(offset);
 
         unsafe {
@@ -93,7 +93,7 @@ impl<'raw> Allocator<'raw> {
             self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
         }
 
-        let offset = unsafe { index.add(class, block) };
+        let offset = unsafe { index.offset_block(class, block) };
         self.heap.offset_to_pointer::<ffi::c_void>(offset)
 
         // TODO: link
@@ -105,7 +105,7 @@ impl<'raw> Allocator<'raw> {
             .store_versioned::<region::meta::shared::Extent>(None)
             .version();
 
-        let length = self
+        let range = self
             .heap
             .shared
             .allocate(
@@ -113,14 +113,13 @@ impl<'raw> Allocator<'raw> {
                 u16::try_from(class.size() / SIZE_SLAB).unwrap(),
                 Some(version),
             )
-            .unwrap()
-            .length();
+            .unwrap();
 
-        self.heap.owned.slabs[slab::Index::from_length(length)]
+        self.heap.owned.slabs[range.start]
             .meta
             .store(slab::Owned::new(None, size::Class::Large(class)));
 
-        slab::Index::from_length(length)
+        range.start
     }
 
     fn allocate_small(&mut self, class: size::Small) -> slab::Index {
@@ -145,17 +144,17 @@ impl<'raw> Allocator<'raw> {
             // TODO: log capsule boundary
 
             const COUNT: u16 = 4;
-            let length = self
+            let range = self
                 .heap
                 .shared
                 .allocate(&mut self.id, COUNT, Some(version))
-                .unwrap()
-                .length();
+                .unwrap();
 
             unsafe {
-                self.heap.owned.slabs.link(length - COUNT as u32..length);
-                thread.r#unsized.set_raw(length - COUNT as u32);
-                for i in length - COUNT as u32..length {
+                self.heap.owned.slabs.link(range.clone(), None);
+                thread.r#unsized.set(Some(range.start));
+                // FIXME: move ownership and range logic here into slab module
+                for i in NonZeroU32::from(range.start).get()..NonZeroU32::from(range.end).get() {
                     self.owned.set(block::Index::new(i as usize + 1));
                 }
             }
@@ -176,7 +175,7 @@ impl<'raw> Allocator<'raw> {
                 size::Class::Small(small) => small,
                 size::Class::Large(_) => todo!(),
             };
-            let block = offset.block(class);
+            let block = offset.index_block(class);
 
             let hint = slab.free.set(block);
             if hint == 1 && slab.free.is_empty_except(block) {

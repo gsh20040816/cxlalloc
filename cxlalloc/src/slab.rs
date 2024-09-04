@@ -11,7 +11,9 @@ use crate::atomic::Packed;
 use crate::block;
 use crate::raw;
 use crate::size;
+use crate::transfer;
 use crate::Atomic;
+use crate::Transfer;
 use crate::SIZE_SLAB;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -23,10 +25,15 @@ impl Index {
         NonZeroU32::new(length + 1).map(Self).unwrap()
     }
 
-    pub(crate) unsafe fn add(&self, class: size::Small, index: block::Index) -> Offset {
+    pub(crate) unsafe fn offset_block(&self, class: size::Small, index: block::Index) -> Offset {
+        debug_assert!(usize::from(index) <= class.count());
         let base = self.0.get() as usize;
         let delta = class.size() * usize::from(index);
         NonZeroUsize::new(base + delta).map(Offset).unwrap()
+    }
+
+    pub(crate) unsafe fn add(&self, count: u32) -> Self {
+        self.0.checked_add(count).map(Self).unwrap()
     }
 }
 
@@ -69,7 +76,7 @@ impl Offset {
         Self(delta)
     }
 
-    pub(crate) unsafe fn block(&self, class: size::Small) -> block::Index {
+    pub(crate) unsafe fn index_block(&self, class: size::Small) -> block::Index {
         block::Index::new((self.0.get() % SIZE_SLAB) / class.size())
     }
 }
@@ -111,18 +118,19 @@ impl<M> Slice<'_, M> {
 }
 
 impl Slice<'_, Owned> {
-    // FIXME: type of `range` for integration with `meta::Shared::allocate`
-    pub(crate) unsafe fn link(&self, range: Range<u32>) {
-        let range = range
-            .map(|index| index.checked_add(1))
-            .map(Option::unwrap)
+    pub(crate) unsafe fn link(&self, range: Range<Index>, head: Option<Index>) {
+        let range = (range.start.0.get()..range.end.0.get())
             .map(NonZeroU32::new)
             .map(Option::unwrap)
             .map(Index);
 
         for (i, j) in iter::zip(
             range.clone(),
-            range.clone().skip(1).map(Option::Some).chain(Option::None),
+            range
+                .clone()
+                .skip(1)
+                .map(Option::Some)
+                .chain(iter::once(head)),
         ) {
             self[i]
                 .meta
@@ -215,18 +223,6 @@ impl LocalStack {
         self.head = head;
     }
 
-    // FIXME: type of `head` for integration with `meta::Shared::allocate`
-    pub(crate) unsafe fn set_raw(&mut self, head: u32) {
-        let head = head
-            .checked_add(1)
-            .map(NonZeroU32::new)
-            .unwrap()
-            .map(Index)
-            .unwrap();
-
-        self.head = Some(head);
-    }
-
     pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) {
         let Some(index) = self.head else {
             return;
@@ -254,4 +250,109 @@ impl LocalStack {
 }
 
 #[repr(C)]
-pub(crate) struct GlobalStack;
+pub(crate) struct GlobalStack<'raw> {
+    claim: transfer::Claim<Pop, Push>,
+    head: transfer::State<Option<Index>>,
+    _raw: PhantomData<&'raw raw::Heap>,
+}
+
+#[derive(Debug)]
+pub struct Empty;
+
+impl<'raw> Transfer for GlobalStack<'raw> {
+    type State = Option<Index>;
+    type Context = Slice<'raw, Owned>;
+
+    type Write = Push;
+    type Input = Index;
+
+    type Read = Pop;
+    type Output = Index;
+
+    type Abort = Empty;
+
+    fn try_read(
+        &self,
+        _: &Self::Context,
+        Pop: Self::Read,
+        head: Self::State,
+    ) -> Result<Self::Output, Self::Abort> {
+        match head {
+            Some(index) => Ok(index),
+            None => Err(Empty),
+        }
+    }
+
+    fn finish_read(
+        &self,
+        slabs: &Self::Context,
+        Pop: Self::Read,
+        head: Self::State,
+    ) -> Self::State {
+        let index = head.expect("Non-empty head");
+        slabs[index].meta.load().next()
+    }
+
+    fn interpose_write(
+        &self,
+        slabs: &Self::Context,
+        Push(count): Self::Write,
+        head: Self::State,
+        index: &Self::Input,
+    ) {
+        // FIXME: this only needs to be done once, but `interpose_write` is called
+        // every time there is a conflicting operation and we need to restart.
+        // One solution would be to pass another parameter indicating whether
+        // this is the first time?
+        unsafe {
+            slabs.link(*index..index.add(u32::from(count)), head);
+        }
+    }
+
+    fn finish_write(
+        &self,
+        _: &Self::Context,
+        Push(_): Self::Write,
+        index: Self::Input,
+    ) -> Self::State {
+        Some(index)
+    }
+
+    fn claim(&self) -> &transfer::Claim<Self::Read, Self::Write> {
+        &self.claim
+    }
+
+    fn state(&self) -> &transfer::State<Self::State> {
+        &self.head
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Pop;
+
+unsafe impl Packed for Pop {
+    const BITS: u8 = 1;
+
+    fn pack(&self) -> u64 {
+        0
+    }
+
+    fn unpack(_: u64) -> Self {
+        Self
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Push(u16);
+
+unsafe impl Packed for Push {
+    const BITS: u8 = 15;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Push((value & Self::MASK) as u16)
+    }
+}

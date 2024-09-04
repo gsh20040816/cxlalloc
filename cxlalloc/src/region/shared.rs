@@ -1,12 +1,12 @@
 use core::alloc::Layout;
 use core::convert::Infallible;
 use core::ops::Index;
+use core::ops::Range;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::raw;
-use crate::region;
 use crate::root;
 use crate::slab;
 use crate::thread;
@@ -17,7 +17,7 @@ use crate::SIZE_PAGE;
 
 pub(crate) struct Shared<'raw> {
     capacity: u32,
-    meta: &'raw Meta,
+    meta: &'raw Meta<'raw>,
     slabs: slab::Slice<'raw, slab::Shared>,
 }
 
@@ -51,14 +51,21 @@ impl<'raw> Shared<'raw> {
         thread_id: &mut thread::Id,
         count: u16,
         version: Option<Version>,
-    ) -> Result<Extent, Epoch> {
-        self.meta.read(
-            &self.capacity,
-            &self.meta.stages,
-            thread_id,
-            Read::Allocate(count),
-            version,
-        )
+    ) -> Result<Range<slab::Index>, Epoch> {
+        self.meta
+            .read(
+                &self.capacity,
+                &self.meta.stages,
+                thread_id,
+                Read::Allocate(count),
+                version,
+            )
+            .map(|extent| extent.length())
+            .map(|length| {
+                let end = slab::Index::from_length(length);
+                let start = slab::Index::from_length(length - u32::from(count));
+                start..end
+            })
     }
 }
 
@@ -77,9 +84,9 @@ impl Index<&thread::Id> for Shared<'_> {
 }
 
 #[repr(C)]
-pub(crate) struct Meta {
+pub(crate) struct Meta<'raw> {
     roots: root::Array,
-    free: slab::GlobalStack,
+    free: slab::GlobalStack<'raw>,
     claim: transfer::Claim<Read, Infallible>,
     extent: transfer::State<Extent>,
     stages: thread::Array<transfer::Stage>,
@@ -125,7 +132,7 @@ impl Epoch {
     }
 }
 
-impl Transfer for Meta {
+impl<'raw> Transfer for Meta<'raw> {
     type State = Extent;
     type Context = u32;
 
