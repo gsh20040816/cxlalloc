@@ -28,9 +28,9 @@ impl Index {
 
     pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
         debug_assert!(usize::from(index) <= class.count());
-        let base = self.0.get() as usize;
+        let base = NonZeroUsize::from(Offset::from(*self));
         let delta = class.size() * usize::from(index);
-        NonZeroUsize::new(base + delta).map(Offset).unwrap()
+        base.checked_add(delta).map(Offset).unwrap()
     }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {

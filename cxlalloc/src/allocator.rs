@@ -64,6 +64,8 @@ impl<'raw> Allocator<'raw> {
         let offset = unsafe { index.offset_block(class, block) };
         let mut pointer = self.heap.offset_to_pointer::<T>(offset);
 
+        dbg!(&pointer);
+
         unsafe {
             pointer.write(T::default());
         }
