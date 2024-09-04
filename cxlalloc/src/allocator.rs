@@ -157,7 +157,7 @@ impl<'raw> Allocator<'raw> {
                 thread.r#unsized.set(Some(range.start));
                 // FIXME: move ownership and range logic here into slab module
                 for i in NonZeroU32::from(range.start).get()..NonZeroU32::from(range.end).get() {
-                    self.owned.set(Bit::new(i as usize + 1));
+                    self.owned.set(Bit::new(i as usize));
                 }
             }
         }
