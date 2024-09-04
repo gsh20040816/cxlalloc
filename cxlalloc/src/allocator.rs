@@ -217,6 +217,8 @@ impl<'raw> Allocator<'raw> {
 
         if slab.free.unset(block) == 0 && slab.free.is_empty() {
             self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
+            self.owned
+                .unset(Bit::new(NonZeroU32::from(index).get() as usize));
         }
 
         let offset = unsafe { index.offset_block(class, block) };
@@ -262,6 +264,8 @@ impl<'raw> Allocator<'raw> {
                     index,
                     Some(class),
                 );
+                self.owned
+                    .set(Bit::new(NonZeroU32::from(index).get() as usize));
             } else if slab.free.is_full(class.count()) {
                 self.heap.owned.meta[&mut self.id].sized_to_unsized(
                     &self.heap.owned.slabs,
@@ -295,6 +299,7 @@ impl<'raw> Allocator<'raw> {
             let block = offset.index_block(class);
 
             // FIXME: use compare_exchange to detect if we are the last writer
+            // FIXME: also need ^ to avoid clobbering concurrent writes
             if slab.free.set(block) < 64 || !slab.free.is_full(class.count()) {
                 return;
             }
