@@ -9,6 +9,7 @@
 
 #![allow(unused_variables)]
 
+use core::alloc::Layout;
 use std::cell::RefCell;
 use std::ffi;
 use std::ptr::NonNull;
@@ -189,13 +190,18 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
 
 #[no_mangle]
 pub unsafe extern "C" fn memalign(alignment: usize, size: usize) -> *mut ffi::c_void {
-    // ALLOCATOR.with_borrow_mut(|allocator| {
-    //     allocator
-    //         .allocate_aligned_untyped(Layout::from_size_align(size, alignment).unwrap())
-    //         .as_ptr()
-    //         .cast()
-    // })
-    todo!()
+    ALLOCATOR.with_borrow_mut(|allocator| {
+        // FIXME: pass layout directly
+        allocator
+            .allocate_untyped(
+                Layout::from_size_align(size, alignment)
+                    .unwrap()
+                    .pad_to_align()
+                    .size(),
+            )
+            .as_ptr()
+            .cast()
+    })
 }
 
 #[no_mangle]
