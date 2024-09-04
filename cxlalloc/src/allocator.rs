@@ -176,7 +176,23 @@ impl<'raw> Allocator<'raw> {
             let meta = slab.meta.load();
             let class = match meta.class() {
                 size::Class::Small(small) => small,
-                size::Class::Large(_) => todo!(),
+                size::Class::Large(large) => {
+                    let stage = &self.heap.shared[&self.id];
+                    let staged = stage.store_versioned(Some(index)).transpose();
+
+                    // TODO: log capsule boundary
+
+                    self.heap.shared.push(
+                        &mut self.id,
+                        &self.heap.owned.slabs,
+                        large.count() as u16,
+                        staged,
+                    );
+
+                    log::info!("Freed large allocation {:?}", index);
+
+                    return;
+                }
             };
             let block = offset.index_block(class);
 

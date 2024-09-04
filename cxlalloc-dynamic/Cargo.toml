@@ -8,4 +8,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cxlalloc = { path = "../cxlalloc" }
-log = { workspace = true, features = ["release_max_level_off"] }
+log.workspace = true

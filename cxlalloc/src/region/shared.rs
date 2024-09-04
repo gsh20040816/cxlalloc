@@ -6,6 +6,7 @@ use core::ops::Range;
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
+use crate::atomic::Versioned;
 use crate::raw;
 use crate::root;
 use crate::slab;
@@ -66,6 +67,22 @@ impl<'raw> Shared<'raw> {
                 let start = slab::Index::from_length(length - u32::from(count));
                 start..end
             })
+    }
+
+    pub(crate) fn push(
+        &self,
+        thread_id: &mut thread::Id,
+        slabs: &slab::Slice<slab::Owned>,
+        count: u16,
+        staged: Option<Versioned<slab::Index>>,
+    ) {
+        self.meta.free.write(
+            slabs,
+            &self.meta.stages,
+            thread_id,
+            slab::Push::new(count),
+            staged,
+        );
     }
 }
 

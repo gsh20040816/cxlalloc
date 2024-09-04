@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use crate::atomic::Packed;
 use crate::SIZE_PAGE;
+use crate::SIZE_SLAB;
 
 #[repr(transparent)]
 pub(crate) struct Array<T>([T; CLASS_COUNT]);
@@ -139,6 +140,10 @@ pub(crate) struct Large(usize);
 impl Large {
     pub(crate) fn size(&self) -> usize {
         self.0
+    }
+
+    pub(crate) fn count(&self) -> usize {
+        self.0 / SIZE_SLAB
     }
 }
 

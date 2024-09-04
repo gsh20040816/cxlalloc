@@ -346,6 +346,13 @@ unsafe impl Packed for Pop {
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Push(u16);
 
+impl Push {
+    pub(crate) fn new(count: u16) -> Self {
+        assert!(count as u64 <= <Self as Packed>::MASK);
+        Self(count)
+    }
+}
+
 unsafe impl Packed for Push {
     const BITS: u8 = 15;
 
