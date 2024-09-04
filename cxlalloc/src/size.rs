@@ -127,9 +127,10 @@ unsafe impl Packed for Class {
     }
 
     fn unpack(value: u64) -> Self {
-        match value {
+        let inner = value as u32;
+        match inner {
             index if (index as usize) < CLASS_COUNT => Self::Small(Small(value as u8)),
-            size => Self::Large(Large(size as u32 as usize)),
+            size => Self::Large(Large(size as usize)),
         }
     }
 }
@@ -168,7 +169,7 @@ macro_rules! sc {
     }};
 }
 
-const CLASS_COUNT: usize = 39;
+const CLASS_COUNT: usize = 32;
 
 #[rustfmt::skip]
 #[allow(clippy::zero_prefixed_literal)]
@@ -212,13 +213,13 @@ const CLASSES: [u16; CLASS_COUNT] = [
     sc!(029, 11, 09, 2),
     sc!(030, 11, 09, 3),
     sc!(031, 11, 09, 4),
-
-    sc!(032, 12, 10, 1),
-    sc!(033, 12, 10, 2),
-    sc!(034, 12, 10, 3),
-    sc!(035, 12, 10, 4),
-
-    sc!(036, 13, 11, 1),
-    sc!(037, 13, 11, 2),
-    sc!(038, 13, 11, 3),
+    //
+    // sc!(032, 12, 10, 1),
+    // sc!(033, 12, 10, 2),
+    // sc!(034, 12, 10, 3),
+    // sc!(035, 12, 10, 4),
+    //
+    // sc!(036, 13, 11, 1),
+    // sc!(037, 13, 11, 2),
+    // sc!(038, 13, 11, 3),
 ];
