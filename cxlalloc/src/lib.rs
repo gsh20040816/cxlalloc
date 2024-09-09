@@ -14,7 +14,6 @@ pub mod transfer;
 
 pub use allocator::Allocator;
 pub use atomic::Atomic;
-pub(crate) use bitset::BitSet;
 pub use heap::Heap;
 pub use r#box::Box;
 pub use root::Root;

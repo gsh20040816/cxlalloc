@@ -3,6 +3,7 @@ use core::ffi;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 
+use crate::bitset::AtomicBitSet;
 use crate::bitset::Bit;
 use crate::link;
 use crate::raw;
@@ -11,7 +12,6 @@ use crate::root;
 use crate::size;
 use crate::slab;
 use crate::thread;
-use crate::BitSet;
 use crate::Heap;
 use crate::Root;
 use crate::SIZE_SLAB;
@@ -19,13 +19,13 @@ use crate::SIZE_SLAB;
 pub struct Allocator<'raw> {
     id: thread::Id,
     // 4096 * 64 * 4096 = 2**(12 + 6 + 12) = 1 GiB?
-    owned: BitSet<4096>,
+    owned: AtomicBitSet<4096>,
     heap: Heap<'raw>,
 }
 
 impl<'raw> Allocator<'raw> {
     pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, mut id: thread::Id) -> Self {
-        let owned = BitSet::default();
+        let owned = AtomicBitSet::default();
         let heap = Heap::from_raw(raw);
         let thread = &heap.owned.meta[&mut id];
 
