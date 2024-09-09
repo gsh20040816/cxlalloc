@@ -273,7 +273,7 @@ impl<'raw> Allocator<'raw> {
                 );
                 self.owned
                     .set(Bit::new(NonZeroU32::from(index).get() as usize));
-            } else if unsafe { &*slab.free.get() }.is_full(class.count()) {
+            } else if unsafe { &*slab.free.get() }.len() == class.count() {
                 self.heap.owned.meta[&mut self.id].sized_to_unsized(
                     &self.heap.owned.slabs,
                     class,
