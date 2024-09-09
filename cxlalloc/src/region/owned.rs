@@ -57,7 +57,7 @@ impl Meta {
         let next = slab.meta.load().next();
         slab.meta
             .store(slab::owned::Meta::new(None, size::Class::Small(class)));
-        slab.free.reset(class.count());
+        unsafe { &mut *slab.free.get() }.fill(class.count());
 
         let version = shared[index].meta.load().version();
         shared[index].meta.store(slab::shared::Meta::new(

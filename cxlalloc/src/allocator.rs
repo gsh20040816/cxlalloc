@@ -60,11 +60,9 @@ impl<'raw> Allocator<'raw> {
 
         let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
-        let block = slab.free.peek().unwrap();
+        let block = unsafe { &*slab.free.get() }.peek();
         let offset = unsafe { index.offset_block(class, block) };
         let mut pointer = self.heap.offset_to_pointer::<T>(offset);
-
-        dbg!(&pointer);
 
         unsafe {
             pointer.write(T::default());
@@ -218,9 +216,11 @@ impl<'raw> Allocator<'raw> {
 
         let index = self.allocate_small(class);
         let slab = &self.heap.owned.slabs[index];
-        let block = slab.free.peek().unwrap();
+        let block = unsafe { &*slab.free.get() }.peek();
 
-        if slab.free.unset(block) == 0 && slab.free.is_empty() {
+        unsafe { &mut *slab.free.get() }.unset(block);
+
+        if unsafe { &*slab.free.get() }.is_empty() {
             self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
             self.owned
                 .unset(Bit::new(NonZeroU32::from(index).get() as usize));
@@ -263,7 +263,9 @@ impl<'raw> Allocator<'raw> {
             };
             let block = offset.index_block(class);
 
-            if slab.free.set(block) == 1 && slab.free.is_empty_except(block) {
+            unsafe { &mut *slab.free.get() }.set(block);
+
+            if unsafe { &*slab.free.get() }.is_empty() {
                 self.heap.owned.meta[&mut self.id].r#sized[class].push(
                     &self.heap.owned.slabs,
                     index,
@@ -271,7 +273,7 @@ impl<'raw> Allocator<'raw> {
                 );
                 self.owned
                     .set(Bit::new(NonZeroU32::from(index).get() as usize));
-            } else if slab.free.is_full(class.count()) {
+            } else if unsafe { &*slab.free.get() }.is_full(class.count()) {
                 self.heap.owned.meta[&mut self.id].sized_to_unsized(
                     &self.heap.owned.slabs,
                     class,

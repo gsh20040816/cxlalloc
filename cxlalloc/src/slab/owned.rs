@@ -1,12 +1,15 @@
+use core::cell::UnsafeCell;
+
 use crate::atomic::Packed;
 use crate::bitset::HiBitSet;
 use crate::size;
 use crate::slab;
 use crate::Atomic;
+use crate::SIZE_BIT_SET;
 
 pub(crate) struct Owned {
     pub(crate) meta: Atomic<Meta>,
-    pub(crate) free: HiBitSet<1>,
+    pub(crate) free: UnsafeCell<HiBitSet<SIZE_BIT_SET>>,
 }
 
 pub(crate) struct Meta(u64);
