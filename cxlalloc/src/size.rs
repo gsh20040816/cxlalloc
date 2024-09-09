@@ -104,7 +104,7 @@ impl Small {
 
     pub(crate) fn count(&self) -> usize {
         match self.size() {
-            8 => crate::SIZE_SLAB / 8 - 64,
+            MIN => crate::SIZE_BIT_SET * 64,
             size => crate::SIZE_SLAB / size,
         }
     }
