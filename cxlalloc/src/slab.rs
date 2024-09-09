@@ -1,3 +1,9 @@
+pub(crate) mod owned;
+pub(crate) mod shared;
+
+pub(crate) use owned::Owned;
+pub(crate) use shared::Shared;
+
 use core::alloc::Layout;
 use core::alloc::LayoutError;
 use core::fmt::Debug;
@@ -10,15 +16,11 @@ use core::ptr::NonNull;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
-use crate::atomic::Version;
-use crate::bitset::AtomicBitSet;
 use crate::bitset::Bit;
 use crate::raw;
 use crate::size;
 use crate::transfer;
-use crate::Atomic;
 use crate::Transfer;
-use crate::SIZE_BIT_SET;
 use crate::SIZE_SLAB;
 
 #[repr(C)]
@@ -112,14 +114,14 @@ impl Debug for Offset {
     }
 }
 
-pub(crate) struct Slice<'raw, M> {
-    base: NonNull<Slab<M>>,
+pub(crate) struct Slice<'raw, S> {
+    base: NonNull<S>,
     _raw: PhantomData<&'raw raw::Region>,
 }
 
-impl<M> Slice<'_, M> {
+impl<S: Slab> Slice<'_, S> {
     pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
-        Layout::array::<Slab<M>>(count)
+        Layout::array::<S>(count)
     }
 
     // Implementation detail: store minus one
@@ -128,7 +130,7 @@ impl<M> Slice<'_, M> {
             .base()
             .byte_add(offset)
             .as_ptr()
-            .cast::<Slab<M>>()
+            .cast::<S>()
             .wrapping_sub(1);
 
         Self {
@@ -136,6 +138,18 @@ impl<M> Slice<'_, M> {
             _raw: PhantomData,
         }
     }
+}
+
+trait Slab: private::Seal {}
+
+impl private::Seal for Owned {}
+impl Slab for Owned {}
+
+impl private::Seal for Shared {}
+impl Slab for Shared {}
+
+mod private {
+    pub trait Seal {}
 }
 
 impl Slice<'_, Owned> {
@@ -153,92 +167,18 @@ impl Slice<'_, Owned> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            self[i]
-                .meta
-                .store(Owned::new(j, size::Class::Small(size::Small::default())));
+            self[i].meta.store(owned::Meta::new(
+                j,
+                size::Class::Small(size::Small::default()),
+            ));
         }
     }
 }
 
-impl<'raw, M> core::ops::Index<Index> for Slice<'raw, M> {
-    type Output = Slab<M>;
+impl<'raw, S> core::ops::Index<Index> for Slice<'raw, S> {
+    type Output = S;
     fn index(&self, index: Index) -> &Self::Output {
         unsafe { self.base.add(index.0.get() as usize).as_ref() }
-    }
-}
-
-#[repr(C, align(64))]
-pub(crate) struct Slab<M> {
-    pub(crate) meta: Atomic<M>,
-    pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
-}
-
-#[repr(C)]
-pub(crate) struct Owned(u64);
-// next: Option<Index>,
-// class: size::Class,
-
-impl Owned {
-    pub(crate) fn new(next: Option<Index>, class: size::Class) -> Self {
-        Self(next.pack() << 32 | class.pack())
-    }
-
-    pub(crate) fn next(&self) -> Option<Index> {
-        Packed::unpack(self.0 >> 32)
-    }
-
-    pub(crate) fn class(&self) -> size::Class {
-        Packed::unpack(self.0)
-    }
-}
-
-impl Debug for Owned {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Owned")
-            .field("next", &self.next())
-            .field("class", &self.class())
-            .finish()
-    }
-}
-
-unsafe impl Packed for Owned {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        self.0
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-#[repr(C)]
-pub(crate) struct Shared(u64);
-
-impl Shared {
-    pub(crate) fn new(version: Version, class: size::Class) -> Self {
-        Self(version.pack() << size::Class::BITS | class.pack())
-    }
-
-    pub(crate) fn version(&self) -> Version {
-        Version::unpack(self.0 >> 32)
-    }
-
-    pub(crate) fn class(&self) -> size::Class {
-        size::Class::unpack(self.0)
-    }
-}
-
-unsafe impl Packed for Shared {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        self.0
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value)
     }
 }
 
@@ -265,7 +205,7 @@ impl LocalStack {
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index, class: Option<size::Small>) {
-        slabs[index].meta.store(Owned::new(
+        slabs[index].meta.store(owned::Meta::new(
             self.head,
             size::Class::Small(class.unwrap_or_default()),
         ));

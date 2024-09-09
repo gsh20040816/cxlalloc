@@ -1,6 +1,8 @@
 mod atomic;
+mod hi;
 
 pub(crate) use atomic::AtomicBitSet;
+pub(crate) use hi::HiBitSet;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Bit(usize);

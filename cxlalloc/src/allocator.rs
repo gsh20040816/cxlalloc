@@ -96,12 +96,15 @@ impl<'raw> Allocator<'raw> {
 
         self.heap.owned.slabs[range.start]
             .meta
-            .store(slab::Owned::new(None, size::Class::Large(class)));
+            .store(slab::owned::Meta::new(None, size::Class::Large(class)));
 
         let version = self.heap.shared.slabs[range.start].meta.load().version();
         self.heap.shared.slabs[range.start]
             .meta
-            .store(slab::Shared::new(version.next(), size::Class::Large(class)));
+            .store(slab::shared::Meta::new(
+                version.next(),
+                size::Class::Large(class),
+            ));
 
         range.start
     }
@@ -128,10 +131,12 @@ impl<'raw> Allocator<'raw> {
                         .shared
                         .pop(&mut self.id, &self.heap.owned.slabs, Some(version))
                 {
-                    self.heap.owned.slabs[index].meta.store(slab::Owned::new(
-                        None,
-                        size::Class::Small(size::Small::default()),
-                    ));
+                    self.heap.owned.slabs[index]
+                        .meta
+                        .store(slab::owned::Meta::new(
+                            None,
+                            size::Class::Small(size::Small::default()),
+                        ));
                     thread.r#unsized.set(Some(index));
                     continue;
                 }
@@ -305,7 +310,7 @@ impl<'raw> Allocator<'raw> {
             }
 
             let version = slab.meta.load().version();
-            slab.meta.store(slab::Shared::new(
+            slab.meta.store(slab::shared::Meta::new(
                 version.next(),
                 size::Class::Small(size::Small::default()),
             ));

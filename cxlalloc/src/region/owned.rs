@@ -56,13 +56,14 @@ impl Meta {
         let slab = &owned[index];
         let next = slab.meta.load().next();
         slab.meta
-            .store(slab::Owned::new(None, size::Class::Small(class)));
+            .store(slab::owned::Meta::new(None, size::Class::Small(class)));
         slab.free.reset(class.count());
 
         let version = shared[index].meta.load().version();
-        shared[index]
-            .meta
-            .store(slab::Shared::new(version.next(), size::Class::Small(class)));
+        shared[index].meta.store(slab::shared::Meta::new(
+            version.next(),
+            size::Class::Small(class),
+        ));
         shared[index].free.reset(0);
 
         self.r#sized[class].set(Some(index));
@@ -94,7 +95,7 @@ impl Meta {
 
             slabs[prev]
                 .meta
-                .store(slab::Owned::new(next, size::Class::Small(class)));
+                .store(slab::owned::Meta::new(next, size::Class::Small(class)));
         };
 
         self.r#unsized.push(slabs, index, None);
