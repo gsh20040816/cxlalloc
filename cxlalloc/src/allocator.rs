@@ -136,6 +136,8 @@ impl<'raw> Allocator<'raw> {
                             size::Class::Small(size::Small::default()),
                         ));
                     thread.r#unsized.set(Some(index));
+                    self.owned
+                        .set(Bit::new(NonZeroU32::from(index).get() as usize));
                     continue;
                 }
             }
@@ -262,10 +264,11 @@ impl<'raw> Allocator<'raw> {
                 }
             };
             let block = offset.index_block(class);
+            let count = unsafe { &*slab.free.get() }.len();
 
             unsafe { &mut *slab.free.get() }.set(block);
 
-            if unsafe { &*slab.free.get() }.is_empty() {
+            if count == 0 {
                 self.heap.owned.meta[&mut self.id].r#sized[class].push(
                     &self.heap.owned.slabs,
                     index,
@@ -273,7 +276,7 @@ impl<'raw> Allocator<'raw> {
                 );
                 self.owned
                     .set(Bit::new(NonZeroU32::from(index).get() as usize));
-            } else if unsafe { &*slab.free.get() }.len() == class.count() {
+            } else if count + 1 == class.count() {
                 self.heap.owned.meta[&mut self.id].sized_to_unsized(
                     &self.heap.owned.slabs,
                     class,
@@ -291,6 +294,8 @@ impl<'raw> Allocator<'raw> {
 
                     // TODO: log capsule boundary
 
+                    self.owned
+                        .unset(Bit::new(NonZeroU32::from(index).get() as usize));
                     self.heap.shared.push(
                         &mut self.id,
                         &self.heap.owned.slabs,
