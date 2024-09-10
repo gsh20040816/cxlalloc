@@ -4,12 +4,15 @@ use crate::bitset::AtomicBitSet;
 use crate::size;
 use crate::Atomic;
 use crate::SIZE_BIT_SET;
+use crate::SIZE_CACHE_LINE;
 
 #[repr(C, align(64))]
 pub(crate) struct Shared {
     pub(crate) meta: Atomic<Meta>,
     pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
 }
+
+const _: () = assert!(size_of::<Shared>() % SIZE_CACHE_LINE == 0);
 
 #[repr(C)]
 pub(crate) struct Meta(u64);
