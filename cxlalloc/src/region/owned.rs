@@ -64,7 +64,7 @@ impl Meta {
             version.next(),
             size::Class::Small(class),
         ));
-        shared[index].free.reset(0);
+        shared[index].free.clear();
 
         self.r#sized[class].set(Some(index));
         self.r#unsized.set(next);
