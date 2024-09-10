@@ -18,13 +18,13 @@ where
 impl<T> std::ops::Index<Small> for Array<T> {
     type Output = T;
     fn index(&self, Small(index): Small) -> &Self::Output {
-        &self.0[index as usize]
+        unsafe { self.0.get_unchecked(index as usize) }
     }
 }
 
 impl<T> std::ops::IndexMut<Small> for Array<T> {
     fn index_mut(&mut self, Small(index): Small) -> &mut Self::Output {
-        &mut self.0[index as usize]
+        unsafe { self.0.get_unchecked_mut(index as usize) }
     }
 }
 
