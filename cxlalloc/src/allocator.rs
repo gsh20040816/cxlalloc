@@ -331,6 +331,7 @@ impl<'raw> Allocator<'raw> {
                 version.next(),
                 size::Class::Small(size::Small::default()),
             ));
+            slab.free.clear();
 
             let stage = &self.heap.shared[&self.id];
             let staged = stage.store_versioned(Some(index)).transpose();
