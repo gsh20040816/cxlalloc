@@ -71,6 +71,7 @@ impl Meta {
         true
     }
 
+    #[cold]
     pub(crate) fn sized_to_unsized(
         &mut self,
         slabs: &slab::Slice<slab::Owned>,
