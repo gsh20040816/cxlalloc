@@ -259,7 +259,7 @@ impl<'raw> Allocator<'raw> {
         let meta = slab.meta.load();
         let class = match meta.class() {
             size::Class::Small(small) => small,
-            size::Class::Large(large) => return self.free_large(large, index),
+            size::Class::Large(_) => std::hint::unreachable_unchecked(),
         };
         let block = offset.index_block(class);
         let count = unsafe { &*slab.free.get() }.len();
@@ -315,44 +315,30 @@ impl<'raw> Allocator<'raw> {
             staged,
         );
 
-        log::info!("Freed local large allocation {:?}", index);
+        log::info!("Freed large allocation {:?}", index);
     }
 
-    #[cold]
     unsafe fn free_remote(&mut self, offset: slab::Offset) {
         let index = slab::Index::from(offset);
         let slab = &self.heap.shared.slabs[index];
         let meta = slab.meta.load();
         let class = match meta.class() {
             size::Class::Small(small) => small,
-            size::Class::Large(large) => {
-                let stage = &self.heap.shared[&self.id];
-                let staged = stage.store_versioned(Some(index)).transpose();
-
-                // TODO: log capsule boundary
-
-                self.owned
-                    .unset(Bit::new(NonZeroU32::from(index).get() as usize));
-                self.heap.shared.push(
-                    &mut self.id,
-                    &self.heap.owned.slabs,
-                    large.count() as u16,
-                    staged,
-                );
-
-                // log::info!("freed remote large allocation {:?} ({})", index, large);
-                return;
-            }
+            size::Class::Large(large) => return self.free_large(large, index),
         };
 
         let block = offset.index_block(class);
 
         // FIXME: use compare_exchange to detect if we are the last writer
         // FIXME: also need ^ to avoid clobbering concurrent writes
-        if slab.free.set(block) < 64 || !slab.free.is_full(class.count()) {
-            return;
+        if slab.free.set(block) == 64 && slab.free.is_full(class.count()) {
+            self.transfer(index);
         }
+    }
 
+    #[cold]
+    fn transfer(&mut self, index: slab::Index) {
+        let slab = &self.heap.shared.slabs[index];
         let version = slab.meta.load().version();
         slab.meta.store(slab::shared::Meta::new(
             version.next(),
