@@ -18,9 +18,8 @@ use crate::SIZE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
-    // 4096 * 64 * 4096 = 2**(12 + 6 + 12) = 1 GiB?
-    owned: AtomicBitSet<4096>,
     heap: Heap<'raw>,
+    owned: AtomicBitSet<8192>,
 }
 
 impl<'raw> Allocator<'raw> {
