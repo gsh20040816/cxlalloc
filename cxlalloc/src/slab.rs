@@ -196,12 +196,10 @@ impl LocalStack {
         self.head = head;
     }
 
-    pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) {
-        let Some(index) = self.head else {
-            return;
-        };
-
+    pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) -> Option<Index> {
+        let index = self.head?;
         self.head = slabs[index].meta.load().next();
+        Some(index)
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index, class: Option<size::Small>) {

@@ -106,15 +106,12 @@ impl<'raw> Allocator<'raw> {
         range.start
     }
 
+    #[cold]
     fn allocate_small(&mut self, class: size::Small) -> slab::Index {
         let thread = &mut self.heap.owned.meta[&mut self.id];
         loop {
-            if let Some(index) = thread.r#sized[class].peek() {
-                break index;
-            }
-
             if thread.unsized_to_sized(&self.heap.owned.slabs, &self.heap.shared.slabs, class) {
-                continue;
+                break;
             }
 
             if !self.heap.shared.is_empty() {
@@ -165,6 +162,8 @@ impl<'raw> Allocator<'raw> {
                 }
             }
         }
+
+        thread.r#sized[class].peek().unwrap()
     }
 }
 
@@ -207,30 +206,42 @@ impl<'raw> Allocator<'raw> {
 
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> NonNull<ffi::c_void> {
         let class = match size::Class::new(size) {
-            size::Class::Small(small) => small,
-            size::Class::Large(large) => {
-                let index = self.allocate_large(large);
-                let offset = slab::Offset::from(index);
-                return self.heap.offset_to_pointer(offset);
-            }
+            size::Class::Large(class) => return self.malloc_slow_large(class),
+            size::Class::Small(class) => class,
         };
 
-        let index = self.allocate_small(class);
+        let index = match self.heap.owned.meta[&mut self.id].r#sized[class].peek() {
+            None => self.allocate_small(class),
+            Some(index) => index,
+        };
+
         let slab = &self.heap.owned.slabs[index];
         let block = unsafe { &*slab.free.get() }.peek();
 
         unsafe { &mut *slab.free.get() }.unset(block);
-
         if unsafe { &*slab.free.get() }.is_empty() {
-            self.heap.owned.meta[&mut self.id].r#sized[class].pop(&self.heap.owned.slabs);
-            self.owned
-                .unset(Bit::new(NonZeroU32::from(index).get() as usize));
+            self.disown(class);
         }
 
         let offset = unsafe { index.offset_block(class, block) };
         self.heap.offset_to_pointer::<ffi::c_void>(offset)
+    }
 
-        // TODO: link
+    #[cold]
+    fn disown(&mut self, class: size::Small) {
+        let index = self.heap.owned.meta[&mut self.id].r#sized[class]
+            .pop(&self.heap.owned.slabs)
+            .unwrap();
+        self.owned
+            .unset(Bit::new(NonZeroU32::from(index).get() as usize));
+    }
+
+    #[cold]
+    unsafe fn malloc_slow_large(&mut self, class: size::Large) -> NonNull<ffi::c_void> {
+        let index = self.allocate_large(class);
+        log::info!("malloc large {} = {:?}", class, index);
+        let offset = slab::Offset::from(index);
+        return self.heap.offset_to_pointer(offset);
     }
 
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
