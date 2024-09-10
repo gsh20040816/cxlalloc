@@ -41,14 +41,16 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
 
     pub(crate) fn peek(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as usize;
-        let col = self.dense[row].trailing_zeros() as usize;
+        let col = unsafe { self.dense.get_unchecked(row) }.trailing_zeros() as usize;
         Bit::from_row_col((row, col))
     }
 
     pub(crate) fn set(&mut self, bit: Bit) {
         let row = bit.row();
         let col = bit.col();
-        self.dense[row] |= 1 << col;
+        let cols = unsafe { self.dense.get_unchecked_mut(row) };
+
+        *cols |= 1 << col;
         self.sparse |= 1 << row;
         self.count += 1;
     }
@@ -56,9 +58,10 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
     pub(crate) fn unset(&mut self, bit: Bit) {
         let row = bit.row();
         let col = bit.col();
+        let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
-        self.dense[row] &= !(1 << col);
-        self.sparse &= !((self.dense[row] == 0) as u64) << row;
+        *cols &= !(1 << col);
+        self.sparse &= !((*cols == 0) as u64) << row;
         self.count -= 1;
     }
 
