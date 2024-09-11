@@ -11,10 +11,10 @@
 
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
-use std::ffi;
-use std::ptr::NonNull;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
+use core::ffi;
+use core::ptr::NonNull;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
 use std::sync::LazyLock;
 
 // Note: it would be nice to initialize this with an initialization
