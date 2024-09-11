@@ -10,7 +10,7 @@
 #![allow(unused_variables)]
 
 use core::alloc::Layout;
-use std::cell::RefCell;
+use core::cell::UnsafeCell;
 use std::ffi;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicUsize;
@@ -120,14 +120,14 @@ thread_local! {
         id
     };
 
-    static ALLOCATOR: RefCell<cxlalloc::Allocator<'static>> = {
+    static ALLOCATOR: UnsafeCell<cxlalloc::Allocator<'static>> = {
         let id = THREAD_ID.with(ThreadId::get);
 
         // let allocator = unsafe { RAW.allocator_assume_init(id) };
         let allocator = RAW.allocator(unsafe { cxlalloc::thread::Id::new(id as u16) });
 
         log::info!("Initialized allocator: {id}");
-        RefCell::new(allocator)
+        UnsafeCell::new(allocator)
     };
 }
 
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
         return;
     };
 
-    ALLOCATOR.with_borrow_mut(|allocator| allocator.free_untyped(pointer))
+    ALLOCATOR.with(|allocator| (*allocator.get()).free_untyped(pointer))
 }
 
 #[no_mangle]
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
         return core::ptr::null_mut();
     }
 
-    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size).as_ptr())
+    ALLOCATOR.with(|allocator| (*allocator.get()).allocate_untyped(size).as_ptr())
 }
 
 #[no_mangle]
@@ -185,14 +185,14 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
         return 0;
     };
 
-    ALLOCATOR.with_borrow(|allocator| allocator.class_untyped(pointer))
+    ALLOCATOR.with(|allocator| (*allocator.get()).class_untyped(pointer))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn memalign(alignment: usize, size: usize) -> *mut ffi::c_void {
-    ALLOCATOR.with_borrow_mut(|allocator| {
+    ALLOCATOR.with(|allocator| {
         // FIXME: pass layout directly
-        allocator
+        (*allocator.get())
             .allocate_untyped(
                 Layout::from_size_align(size, alignment)
                     .unwrap()
@@ -231,8 +231,8 @@ pub unsafe extern "C" fn realloc(pointer: *mut ffi::c_void, size: usize) -> *mut
         return malloc(size);
     };
 
-    ALLOCATOR.with_borrow_mut(|allocator| {
-        allocator
+    ALLOCATOR.with(|allocator| {
+        (*allocator.get())
             .realloc_untyped(pointer.cast(), size)
             .as_ptr()
             .cast()
