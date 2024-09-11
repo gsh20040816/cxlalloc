@@ -172,10 +172,9 @@ impl Slice<'_, Owned> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            self[i].meta.store(owned::Meta::new(
-                j,
-                size::Class::Small(size::Small::default()),
-            ));
+            self[i]
+                .meta
+                .store(owned::Meta::new(j, size::Small::default()));
         }
     }
 }
@@ -208,10 +207,9 @@ impl LocalStack {
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index, class: Option<size::Small>) {
-        slabs[index].meta.store(owned::Meta::new(
-            self.head,
-            size::Class::Small(class.unwrap_or_default()),
-        ));
+        slabs[index]
+            .meta
+            .store(owned::Meta::new(self.head, class.unwrap_or_default()));
         self.set(Some(index));
     }
 

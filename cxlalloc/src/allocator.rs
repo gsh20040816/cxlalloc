@@ -92,10 +92,6 @@ impl<'raw> Allocator<'raw> {
             )
             .unwrap();
 
-        self.heap.owned.slabs[range.start]
-            .meta
-            .store(slab::owned::Meta::new(None, size::Class::Large(class)));
-
         let version = self.heap.shared.slabs[range.start].meta.load().version();
         self.heap.shared.slabs[range.start]
             .meta
@@ -128,10 +124,7 @@ impl<'raw> Allocator<'raw> {
                 {
                     self.heap.owned.slabs[index]
                         .meta
-                        .store(slab::owned::Meta::new(
-                            None,
-                            size::Class::Small(size::Small::default()),
-                        ));
+                        .store(slab::owned::Meta::new(None, size::Small::default()));
                     thread.r#unsized.set(Some(index));
                     self.owned
                         .set(Bit::new(NonZeroU32::from(index).get() as usize));
@@ -260,11 +253,7 @@ impl<'raw> Allocator<'raw> {
         }
 
         let slab = &self.heap.owned.slabs[index];
-        let meta = slab.meta.load();
-        let class = match meta.class() {
-            size::Class::Small(small) => small,
-            size::Class::Large(_) => hint::unreachable_unchecked(),
-        };
+        let class = slab.meta.load().class();
         let block = offset.index_block(class);
         let count = unsafe { &*slab.free.get() }.len();
 

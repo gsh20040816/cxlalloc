@@ -19,7 +19,7 @@ const _: () = assert!(size_of::<Owned>() % SIZE_CACHE_LINE == 0);
 pub(crate) struct Meta(u64);
 
 impl Meta {
-    pub(crate) fn new(next: Option<slab::Index>, class: size::Class) -> Self {
+    pub(crate) fn new(next: Option<slab::Index>, class: size::Small) -> Self {
         Self(next.pack() << 32 | class.pack())
     }
 
@@ -27,7 +27,7 @@ impl Meta {
         Packed::unpack(self.0 >> 32)
     }
 
-    pub(crate) fn class(&self) -> size::Class {
+    pub(crate) fn class(&self) -> size::Small {
         Packed::unpack(self.0)
     }
 }

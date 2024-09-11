@@ -117,12 +117,24 @@ impl Small {
     }
 }
 
+unsafe impl Packed for Small {
+    const BITS: u8 = 8;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value as u8)
+    }
+}
+
 unsafe impl Packed for Class {
     const BITS: u8 = 32;
 
     fn pack(&self) -> u64 {
         match self {
-            Class::Small(small) => small.0 as u64,
+            Class::Small(small) => small.pack(),
             Class::Large(large) => large.0 as u64,
         }
     }
@@ -130,7 +142,7 @@ unsafe impl Packed for Class {
     fn unpack(value: u64) -> Self {
         let inner = value as u32;
         match inner {
-            index if (index as usize) < CLASS_COUNT => Self::Small(Small(value as u8)),
+            index if (index as usize) < CLASS_COUNT => Self::Small(Small::unpack(value)),
             size => Self::Large(Large(size as usize)),
         }
     }
