@@ -38,10 +38,10 @@ pub(crate) enum Class {
     Large(Large),
 }
 
-pub(crate) const MIN: usize = CLASSES[0] as usize;
+pub(crate) const MIN: usize = CLASSES.0[0] as usize;
 
 /// Largest size class for small allocations
-const MAX: usize = CLASSES[CLASS_COUNT - 1] as usize;
+const MAX: usize = CLASSES.0[CLASS_COUNT - 1] as usize;
 
 const fn cache() -> [Small; MAX + 1] {
     let mut table = [Small(0); MAX + 1];
@@ -49,7 +49,7 @@ const fn cache() -> [Small; MAX + 1] {
     let mut class = 0;
 
     while index < table.len() {
-        if (CLASSES[class] as usize) < index {
+        if (CLASSES.0[class] as usize) < index {
             class += 1;
         }
 
@@ -105,7 +105,7 @@ impl Small {
 
     #[inline]
     pub(crate) fn size(&self) -> usize {
-        CLASSES[self.0 as usize] as usize
+        CLASSES[*self] as usize
     }
 
     #[inline]
@@ -174,7 +174,7 @@ const CLASS_COUNT: usize = 39;
 
 #[rustfmt::skip]
 #[allow(clippy::zero_prefixed_literal)]
-const CLASSES: [u16; CLASS_COUNT] = [
+const CLASSES: Array<u16> = Array([
     sc!(000, 03, 03, 0),
     sc!(001, 03, 03, 1),
     sc!(002, 03, 03, 2),
@@ -223,4 +223,4 @@ const CLASSES: [u16; CLASS_COUNT] = [
     sc!(036, 13, 11, 1),
     sc!(037, 13, 11, 2),
     sc!(038, 13, 11, 3),
-];
+]);

@@ -29,8 +29,10 @@ impl<'raw> Data<'raw> {
     }
 
     pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> slab::Offset {
-        NonZeroUsize::new(pointer.as_ptr() as usize - self.base.as_ptr() as usize)
-            .map(|delta| unsafe { slab::Offset::new(delta) })
-            .unwrap()
+        unsafe {
+            slab::Offset::new(NonZeroUsize::new_unchecked(
+                pointer.as_ptr() as usize - self.base.as_ptr() as usize,
+            ))
+        }
     }
 }

@@ -55,11 +55,11 @@ impl Debug for Index {
 impl From<Offset> for Index {
     #[inline]
     fn from(offset: Offset) -> Self {
-        u32::try_from(offset.0.get() / SIZE_SLAB)
-            .map(NonZeroU32::new)
-            .unwrap()
-            .map(Self)
-            .unwrap()
+        unsafe {
+            Self(NonZeroU32::new_unchecked(
+                (offset.0.get() / SIZE_SLAB) as u32,
+            ))
+        }
     }
 }
 
