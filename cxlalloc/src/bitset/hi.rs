@@ -42,7 +42,7 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
     pub(crate) fn peek(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as usize;
         let col = unsafe { self.dense.get_unchecked(row) }.trailing_zeros() as usize;
-        Bit::from_row_col((row, col))
+        Bit::from_row_col(row, col)
     }
 
     pub(crate) fn set(&mut self, bit: Bit) {

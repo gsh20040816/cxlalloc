@@ -216,10 +216,11 @@ impl<'raw> Allocator<'raw> {
         };
 
         let slab = &self.heap.owned.slabs[index];
-        let block = unsafe { &*slab.free.get() }.peek();
+        let free = unsafe { &mut *slab.free.get() };
+        let block = free.peek();
 
-        unsafe { &mut *slab.free.get() }.unset(block);
-        if unsafe { &*slab.free.get() }.is_empty() {
+        free.unset(block);
+        if free.is_empty() {
             self.disown(class);
         }
 
