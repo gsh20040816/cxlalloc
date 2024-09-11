@@ -20,6 +20,7 @@ where
 
 impl<T> ops::Index<Small> for Array<T> {
     type Output = T;
+
     fn index(&self, Small(index): Small) -> &Self::Output {
         unsafe { self.0.get_unchecked(index as usize) }
     }
@@ -60,6 +61,7 @@ const fn cache() -> [Small; MAX + 1] {
 }
 
 impl Class {
+    #[inline]
     pub(crate) fn new(size: usize) -> Self {
         const CACHE: [Small; MAX + 1] = cache();
 
@@ -87,7 +89,7 @@ impl Display for Class {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct Small(u8);
 
 impl Display for Small {
@@ -101,21 +103,17 @@ impl Small {
         (0..CLASS_COUNT as u8).map(Self)
     }
 
+    #[inline]
     pub(crate) fn size(&self) -> usize {
         CLASSES[self.0 as usize] as usize
     }
 
+    #[inline]
     pub(crate) fn count(&self) -> usize {
         match self.size() {
             MIN => crate::SIZE_BIT_SET * 64,
             size => crate::SIZE_SLAB / size,
         }
-    }
-}
-
-impl Default for Small {
-    fn default() -> Self {
-        Self(0)
     }
 }
 

@@ -33,6 +33,7 @@ impl Index {
         NonZeroU32::new(length + 1).map(Self).unwrap()
     }
 
+    #[inline]
     pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
         debug_assert!(usize::from(index) <= class.count());
         let base = NonZeroUsize::from(Offset::from(*self));
@@ -52,6 +53,7 @@ impl Debug for Index {
 }
 
 impl From<Offset> for Index {
+    #[inline]
     fn from(offset: Offset) -> Self {
         u32::try_from(offset.0.get() / SIZE_SLAB)
             .map(NonZeroU32::new)
@@ -90,12 +92,14 @@ impl Offset {
         Self(delta)
     }
 
+    #[inline]
     pub(crate) unsafe fn index_block(&self, class: size::Small) -> Bit {
         Bit::new((self.0.get() % SIZE_SLAB) / class.size())
     }
 }
 
 impl From<Index> for Offset {
+    #[inline]
     fn from(index: Index) -> Self {
         NonZeroUsize::new(index.0.get() as usize * SIZE_SLAB)
             .map(Self)

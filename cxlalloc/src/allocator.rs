@@ -205,6 +205,7 @@ impl<'raw> Allocator<'raw> {
         new_pointer
     }
 
+    #[inline]
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> NonNull<ffi::c_void> {
         let class = match size::Class::new(size) {
             size::Class::Large(class) => return self.malloc_slow_large(class),
@@ -246,6 +247,7 @@ impl<'raw> Allocator<'raw> {
         return self.heap.offset_to_pointer(offset);
     }
 
+    #[inline]
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         let offset = self.heap.pointer_to_offset(pointer);
         let index = slab::Index::from(offset);
