@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use core::array;
+use core::fmt;
+use core::fmt::Display;
+use core::ops;
 
 use crate::atomic::Packed;
 use crate::SIZE_SLAB;
@@ -11,18 +14,18 @@ where
     T: Default,
 {
     fn default() -> Self {
-        Self(std::array::from_fn(|_| T::default()))
+        Self(array::from_fn(|_| T::default()))
     }
 }
 
-impl<T> std::ops::Index<Small> for Array<T> {
+impl<T> ops::Index<Small> for Array<T> {
     type Output = T;
     fn index(&self, Small(index): Small) -> &Self::Output {
         unsafe { self.0.get_unchecked(index as usize) }
     }
 }
 
-impl<T> std::ops::IndexMut<Small> for Array<T> {
+impl<T> ops::IndexMut<Small> for Array<T> {
     fn index_mut(&mut self, Small(index): Small) -> &mut Self::Output {
         unsafe { self.0.get_unchecked_mut(index as usize) }
     }
@@ -79,7 +82,7 @@ impl Class {
 }
 
 impl Display for Class {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.size())
     }
 }
@@ -88,7 +91,7 @@ impl Display for Class {
 pub(crate) struct Small(u8);
 
 impl Display for Small {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.size())
     }
 }
@@ -149,7 +152,7 @@ impl Large {
 }
 
 impl Display for Large {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.0)
     }
 }

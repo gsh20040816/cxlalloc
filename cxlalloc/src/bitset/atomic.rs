@@ -1,3 +1,4 @@
+use core::array;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
@@ -12,7 +13,7 @@ pub(crate) struct AtomicBitSet<const SIZE: usize>([AtomicU64; SIZE]);
 
 impl<const SIZE: usize> Default for AtomicBitSet<SIZE> {
     fn default() -> Self {
-        Self(std::array::from_fn(|_| AtomicU64::new(0)))
+        Self(array::from_fn(|_| AtomicU64::new(0)))
     }
 }
 

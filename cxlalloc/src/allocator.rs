@@ -1,5 +1,6 @@
 use core::alloc::Layout;
 use core::ffi;
+use core::hint;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 
@@ -260,7 +261,7 @@ impl<'raw> Allocator<'raw> {
         let meta = slab.meta.load();
         let class = match meta.class() {
             size::Class::Small(small) => small,
-            size::Class::Large(_) => std::hint::unreachable_unchecked(),
+            size::Class::Large(_) => hint::unreachable_unchecked(),
         };
         let block = offset.index_block(class);
         let count = unsafe { &*slab.free.get() }.len();

@@ -3,6 +3,7 @@ use core::ffi::CStr;
 use core::fmt;
 use core::fmt::Display;
 use core::fmt::Write as _;
+use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
@@ -35,7 +36,7 @@ impl Region {
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
         let reserved = match unsafe {
             libc::mmap64(
-                std::ptr::null_mut(),
+                ptr::null_mut(),
                 Self::RESERVATION,
                 libc::PROT_NONE,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,

@@ -1,5 +1,6 @@
+use core::any;
+use core::fmt::Debug;
 use core::marker::PhantomData;
-use std::fmt::Debug;
 
 use crate::atomic::Atomic;
 use crate::atomic::NonZero;
@@ -230,7 +231,7 @@ fn read<T: Transfer + ?Sized>(
         let output = global
             .try_read(context, operation, state.inner())
             .map_err(|abort| {
-                log::debug!("[{}]: Aborted {:?}", std::any::type_name::<T>(), claim,);
+                log::debug!("[{}]: Aborted {:?}", core::any::type_name::<T>(), claim,);
                 abort
             })?;
 
@@ -286,17 +287,17 @@ fn apply<T: Transfer + ?Sized>(
 
     let current = match &previous {
         Ok(_) => {
-            log::debug!("[{}]: Installed {:?}", std::any::type_name::<T>(), claim,);
+            log::debug!("[{}]: Installed {:?}", any::type_name::<T>(), claim,);
             claim
         }
         Err(current) => match current.inner() {
             None => {
                 // An operation interleaved between creating this claim and CASing it
-                log::debug!("[{}]: Restarting {:?}", std::any::type_name::<T>(), claim);
+                log::debug!("[{}]: Restarting {:?}", any::type_name::<T>(), claim);
                 return false;
             }
             Some(claim) => {
-                log::debug!("[{}]: Helping {:?}", std::any::type_name::<T>(), claim);
+                log::debug!("[{}]: Helping {:?}", any::type_name::<T>(), claim);
                 Versioned::new(claim, current.version())
             }
         },

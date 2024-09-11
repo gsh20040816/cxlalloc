@@ -1,4 +1,4 @@
-use std::ffi;
+use core::ffi;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd as _;

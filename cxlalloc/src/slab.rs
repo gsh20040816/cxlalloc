@@ -6,6 +6,7 @@ pub(crate) use shared::Shared;
 
 use core::alloc::Layout;
 use core::alloc::LayoutError;
+use core::fmt;
 use core::fmt::Debug;
 use core::iter;
 use core::marker::PhantomData;
@@ -109,7 +110,7 @@ impl From<Offset> for NonZeroUsize {
 }
 
 impl Debug for Offset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (self.0.get() - SIZE_SLAB).fmt(f)
     }
 }

@@ -5,6 +5,7 @@ pub use heap::Builder;
 pub use heap::Heap;
 pub(crate) use region::Region;
 
+use core::any;
 use std::io;
 
 use region::Id;
@@ -28,7 +29,7 @@ impl Backend {
                 region.size(),
                 region.base().as_ptr(),
                 unsafe { region.base().as_ptr().byte_add(region.size()) },
-                std::any::type_name::<Self>(),
+                any::type_name::<Self>(),
             );
 
             region
