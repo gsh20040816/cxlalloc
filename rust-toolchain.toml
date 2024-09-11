@@ -1,5 +1,6 @@
 [toolchain]
-channel = "1.80.1"
+# Day before https://github.com/rust-lang/rust/commit/fe89962237e425f661ca36dd36113340188ac057
+channel = "nightly-2024-07-17"
 components = [
     "cargo",
     "clippy",
