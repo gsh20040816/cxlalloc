@@ -7,7 +7,7 @@ use crate::thread;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Owned<'raw> {
-    pub(crate) meta: thread::Slice<'raw, Meta>,
+    pub(crate) meta: &'raw mut Meta,
     pub(crate) slabs: slab::Slice<'raw, slab::Owned>,
 }
 
@@ -22,14 +22,19 @@ impl<'raw> Owned<'raw> {
             .pad_to_align()
     }
 
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: &mut thread::Id) -> Self {
         // FIXME: deduplicate with `layout`
         let (_, offset) = Layout::new::<thread::Array<Meta>>()
             .extend(slab::Slice::<slab::Owned>::layout(1).unwrap())
             .unwrap();
 
         Self {
-            meta: thread::Slice::from_raw(&raw.owned, 0),
+            meta: raw
+                .owned
+                .base()
+                .cast::<Meta>()
+                .add(id.index() as usize)
+                .as_mut(),
             slabs: slab::Slice::from_raw(&raw.owned, offset),
         }
     }
