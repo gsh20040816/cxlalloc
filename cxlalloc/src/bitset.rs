@@ -34,6 +34,6 @@ impl Bit {
 
 impl From<Bit> for usize {
     fn from(bit: Bit) -> Self {
-        bit.row << 6 | bit.col
+        (bit.row << 6) | bit.col
     }
 }
