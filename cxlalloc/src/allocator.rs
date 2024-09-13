@@ -3,7 +3,6 @@ use core::ffi;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
 
-use crate::bitset::AtomicBitSet;
 use crate::bitset::Bit;
 use crate::link;
 use crate::raw;
@@ -20,30 +19,14 @@ pub struct Allocator<'raw> {
     id: thread::Id,
     owned: region::meta::Owned<'raw>,
     heap: Heap<'raw>,
-    local: AtomicBitSet<8192>,
 }
 
 impl<'raw> Allocator<'raw> {
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, mut id: thread::Id) -> Self {
-        let local = AtomicBitSet::default();
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
         let heap = Heap::from_raw(raw);
-        let owned = region::meta::Owned::from_raw(raw, &mut id);
-        let thread = &owned.meta;
+        let owned = region::meta::Owned::from_raw(raw, id);
 
-        //Recover state of owned set
-        size::Small::all()
-            .flat_map(|class| thread.r#sized[class].trace(&owned.slabs))
-            .chain(thread.r#unsized.trace(&owned.slabs))
-            .for_each(|index| {
-                local.set(Bit::new(NonZeroU32::from(index).get() as usize));
-            });
-
-        Self {
-            id,
-            owned,
-            heap,
-            local,
-        }
+        Self { id, owned, heap }
     }
 
     pub fn heap(&self) -> &Heap<'raw> {
@@ -83,83 +66,98 @@ impl<'raw> Allocator<'raw> {
     }
 
     fn allocate_large(&mut self, class: size::Large) -> slab::Index {
-        let stage = &self.heap.shared[&self.id];
-        let version = stage
-            .store_versioned::<region::meta::shared::Extent>(None)
-            .version();
+        log::info!("malloc large {}", class);
 
-        let range = self
-            .heap
-            .shared
-            .allocate(
-                &mut self.id,
-                u16::try_from(class.size() / SIZE_SLAB).unwrap(),
-                Some(version),
-            )
-            .unwrap();
+        let index = 'inner: {
+            // First try from unsized
+            if class.count() == 1 {
+                if let Some(index) = self.owned.meta.r#unsized.peek() {
+                    self.owned.meta.r#unsized.pop(&self.owned.slabs);
+                    break 'inner index;
+                }
+            }
 
-        let version = self.heap.shared.slabs[range.start].meta.load().version();
-        self.heap.shared.slabs[range.start]
-            .meta
-            .store(slab::shared::Meta::new(
-                version.next(),
-                size::Class::Large(class),
-            ));
+            let stage = &self.heap.shared[self.id];
+            let version = stage
+                .store_versioned::<region::meta::shared::Extent>(None)
+                .version();
 
-        range.start
+            // Then try from global shared
+            if class.count() == 1 {
+                if let Ok(index) = self
+                    .heap
+                    .shared
+                    .pop(self.id, &self.owned.slabs, Some(version))
+                {
+                    break 'inner index;
+                }
+            }
+
+            // Then try from bump pointer
+            self.heap
+                .shared
+                .allocate(
+                    self.id,
+                    u16::try_from(class.size() / SIZE_SLAB).unwrap(),
+                    Some(version),
+                )
+                .unwrap()
+                .start
+        };
+
+        self.heap.shared.slabs[index]
+            .owner
+            .store(slab::shared::Owner::new(size::Class::Large(class), self.id));
+
+        index
     }
 
     #[cold]
     fn allocate_small(&mut self, class: size::Small) -> slab::Index {
         let thread = &mut *self.owned.meta;
         loop {
-            if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, class) {
+            if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
                 break;
             }
 
-            if !self.heap.shared.is_empty() {
-                let stage = &self.heap.shared[&self.id];
-                let version = stage
-                    .store_versioned::<region::meta::shared::Extent>(None)
-                    .version();
-
-                if let Ok(index) =
-                    self.heap
-                        .shared
-                        .pop(&mut self.id, &self.owned.slabs, Some(version))
-                {
-                    self.owned.slabs[index]
-                        .meta
-                        .store(slab::owned::Meta::new(None, size::Small::default()));
-                    thread.r#unsized.set(Some(index));
-                    self.local
-                        .set(Bit::new(NonZeroU32::from(index).get() as usize));
-                    continue;
-                }
-            }
-
-            // Transfer from length expansion to unsized stack
-            let stage = &self.heap.shared[&self.id];
+            let stage = &self.heap.shared[self.id];
             let version = stage
                 .store_versioned::<region::meta::shared::Extent>(None)
                 .version();
 
+            if let Ok(index) = self
+                .heap
+                .shared
+                .pop(self.id, &self.owned.slabs, Some(version))
+            {
+                self.owned.slabs[index]
+                    .meta
+                    .store(slab::owned::Meta::new(None));
+
+                // unsized is empty
+                thread.r#unsized.set(Some(index));
+
+                log::info!(
+                    "{:?} allocated from global {:?} ({})",
+                    &self.id,
+                    index,
+                    class
+                );
+                continue;
+            }
+
             // TODO: log capsule boundary
 
-            const COUNT: u16 = 4;
+            const COUNT: u16 = 16;
             let range = self
                 .heap
                 .shared
-                .allocate(&mut self.id, COUNT, Some(version))
+                .allocate(self.id, COUNT, Some(version))
                 .unwrap();
 
             unsafe {
                 self.owned.slabs.link(range.clone(), None);
                 thread.r#unsized.set(Some(range.start));
-                // FIXME: move ownership and range logic here into slab module
-                for i in NonZeroU32::from(range.start).get()..NonZeroU32::from(range.end).get() {
-                    self.local.set(Bit::new(i as usize));
-                }
             }
         }
 
@@ -171,15 +169,7 @@ impl<'raw> Allocator<'raw> {
     pub unsafe fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
         let offset = self.heap.pointer_to_offset(pointer);
         let index = slab::Index::from(offset);
-
-        if self
-            .local
-            .get(Bit::new(NonZeroU32::from(index).get() as usize))
-        {
-            self.owned.slabs[index].meta.load().class().size()
-        } else {
-            self.heap.shared.slabs[index].meta.load().class().size()
-        }
+        self.heap.shared.slabs[index].owner.load().class().size()
     }
 
     pub unsafe fn realloc_untyped(
@@ -212,7 +202,11 @@ impl<'raw> Allocator<'raw> {
         };
 
         let index = match self.owned.meta.r#sized[class].peek() {
-            None => self.allocate_small(class),
+            None => {
+                let index = self.allocate_small(class);
+                log::info!("malloc small slab {} = {:?}", class, index);
+                index
+            }
             Some(index) => index,
         };
 
@@ -231,11 +225,13 @@ impl<'raw> Allocator<'raw> {
 
     #[cold]
     fn disown(&mut self, class: size::Small) {
-        let index = self.owned.meta.r#sized[class]
+        // log::info!("disowning {:?} from {}", index, class);
+        // assert!(self.heap.owned.meta[&mut self.id].r#sized[class]
+        //     .trace(&self.heap.owned.slabs)
+        //     .all(|other| other != index));
+        self.owned.meta.r#sized[class]
             .pop(&self.owned.slabs)
             .unwrap();
-        self.local
-            .unset(Bit::new(NonZeroU32::from(index).get() as usize));
     }
 
     #[cold]
@@ -251,15 +247,24 @@ impl<'raw> Allocator<'raw> {
         let offset = self.heap.pointer_to_offset(pointer);
         let index = slab::Index::from(offset);
 
-        if !self
-            .local
-            .get(Bit::new(NonZeroU32::from(index).get() as usize))
-        {
-            return self.free_remote(offset);
+        let shared = &self.heap.shared.slabs[index];
+        let owner = shared.owner.load();
+
+        let class = match owner.class() {
+            size::Class::Small(small) => small,
+            size::Class::Large(large) => {
+                log::info!("{:?} large allocation {} at {:?}", self.id, large, index);
+                return self.free_large(large, index);
+            }
+        };
+
+        if owner.id() != self.id {
+            return self.free_remote(offset, index, class);
         }
 
+        log::info!("{:?} freeing local {:?}", self.id, index);
+
         let slab = &self.owned.slabs[index];
-        let class = slab.meta.load().class();
         let block = offset.index_block(class);
         let count = unsafe { &*slab.free.get() }.len();
 
@@ -289,42 +294,38 @@ impl<'raw> Allocator<'raw> {
         //     .trace(&self.heap.owned.slabs)
         //     .all(|other| other != index));
         // log::info!("pushing {:?} onto {}", index, class);
-        self.owned.meta.r#sized[class].push(&self.owned.slabs, index, Some(class));
-        self.local
-            .set(Bit::new(NonZeroU32::from(index).get() as usize));
+        self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
     }
 
     #[cold]
     unsafe fn free_large(&mut self, class: size::Large, index: slab::Index) {
-        let stage = &self.heap.shared[&self.id];
+        log::info!("Freed large allocation {:?}", index);
+        if class.count() == 1 {
+            self.owned.meta.r#unsized.push(&self.owned.slabs, index);
+            return;
+        }
+
+        let stage = &self.heap.shared[self.id];
         let staged = stage.store_versioned(Some(index)).transpose();
 
         // TODO: log capsule boundary
 
-        self.heap.shared.push(
-            &mut self.id,
-            &self.owned.slabs,
-            class.count() as u16,
-            staged,
-        );
-
-        log::info!("Freed large allocation {:?}", index);
+        self.heap
+            .shared
+            .push(self.id, &self.owned.slabs, class.count() as u16, staged);
     }
 
-    unsafe fn free_remote(&mut self, offset: slab::Offset) {
-        let index = slab::Index::from(offset);
+    #[cold]
+    unsafe fn free_remote(&mut self, offset: slab::Offset, index: slab::Index, class: size::Small) {
         let slab = &self.heap.shared.slabs[index];
-        let meta = slab.meta.load();
-        let class = match meta.class() {
-            size::Class::Small(small) => small,
-            size::Class::Large(large) => return self.free_large(large, index),
-        };
+
+        log::info!("free remote {:?} {}", index, class);
 
         let block = offset.index_block(class);
 
         // FIXME: use compare_exchange to detect if we are the last writer
         // FIXME: also need ^ to avoid clobbering concurrent writes
-        if slab.free.set(block) == 64 && slab.free.is_full(class.count()) {
+        if slab.free.set_atomic(block) == 64 && slab.free.is_full(class.count()) {
             self.transfer(index);
         }
     }
@@ -333,17 +334,13 @@ impl<'raw> Allocator<'raw> {
     fn transfer(&mut self, index: slab::Index) {
         let slab = &self.heap.shared.slabs[index];
         let version = slab.meta.load().version();
-        slab.meta.store(slab::shared::Meta::new(
-            version.next(),
-            size::Class::Small(size::Small::default()),
-        ));
+
+        slab.meta.store(slab::shared::Meta::new(version.next()));
         slab.free.clear();
 
-        let stage = &self.heap.shared[&self.id];
+        let stage = &self.heap.shared[self.id];
         let staged = stage.store_versioned(Some(index)).transpose();
 
-        self.heap
-            .shared
-            .push(&mut self.id, &self.owned.slabs, 1, staged);
+        self.heap.shared.push(self.id, &self.owned.slabs, 1, staged);
     }
 }

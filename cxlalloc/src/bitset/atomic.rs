@@ -46,6 +46,14 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
             .for_each(|row| row.store(0, Ordering::Release));
     }
 
+    pub(crate) fn set_atomic(&self, bit: Bit) -> u32 {
+        let row = bit.row();
+        let col = bit.col();
+        self.0[row]
+            .fetch_or(1 << col, Ordering::SeqCst)
+            .count_ones()
+    }
+
     pub(crate) fn is_full(&self, count: usize) -> bool {
         let rows = count / 64;
 

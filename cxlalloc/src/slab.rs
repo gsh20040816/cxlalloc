@@ -35,7 +35,7 @@ impl Index {
 
     #[inline]
     pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
-        debug_assert!(usize::from(index) <= class.count());
+        debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
         let base = NonZeroUsize::from(Offset::from(*self));
         let delta = class.size() * usize::from(index);
         base.checked_add(delta).map(Offset).unwrap()
@@ -93,6 +93,7 @@ impl Offset {
     }
 
     #[inline]
+    #[track_caller]
     pub(crate) unsafe fn index_block(&self, class: size::Small) -> Bit {
         Bit::new((self.0.get() % SIZE_SLAB) / class.size())
     }
@@ -172,9 +173,7 @@ impl Slice<'_, Owned> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            self[i]
-                .meta
-                .store(owned::Meta::new(j, size::Small::default()));
+            self[i].meta.store(owned::Meta::new(j));
         }
     }
 }
@@ -206,10 +205,8 @@ impl LocalStack {
         Some(index)
     }
 
-    pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index, class: Option<size::Small>) {
-        slabs[index]
-            .meta
-            .store(owned::Meta::new(self.head, class.unwrap_or_default()));
+    pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
+        slabs[index].meta.store(owned::Meta::new(self.head));
         self.set(Some(index));
     }
 

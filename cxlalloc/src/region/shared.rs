@@ -49,7 +49,7 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn allocate(
         &self,
-        thread_id: &mut thread::Id,
+        id: thread::Id,
         count: u16,
         version: Option<Version>,
     ) -> Result<Range<slab::Index>, Epoch> {
@@ -57,7 +57,7 @@ impl<'raw> Shared<'raw> {
             .read(
                 &self.capacity,
                 &self.meta.stages,
-                thread_id,
+                id,
                 Read::Allocate(count),
                 version,
             )
@@ -71,33 +71,29 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn push(
         &self,
-        thread_id: &mut thread::Id,
+        id: thread::Id,
         slabs: &slab::Slice<slab::Owned>,
         count: u16,
         staged: Option<Versioned<slab::Index>>,
     ) {
-        self.meta.free.write(
-            slabs,
-            &self.meta.stages,
-            thread_id,
-            slab::Push::new(count),
-            staged,
-        );
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.meta.free.is_empty()
+        self.meta
+            .free
+            .write(slabs, &self.meta.stages, id, slab::Push::new(count), staged);
     }
 
     pub(crate) fn pop(
         &self,
-        thread_id: &mut thread::Id,
+        id: thread::Id,
         slabs: &slab::Slice<slab::Owned>,
         version: Option<Version>,
     ) -> Result<slab::Index, slab::Empty> {
+        if self.meta.free.is_empty() {
+            return Err(slab::Empty);
+        }
+
         self.meta
             .free
-            .read(slabs, &self.meta.stages, thread_id, slab::Pop, version)
+            .read(slabs, &self.meta.stages, id, slab::Pop, version)
     }
 }
 
@@ -108,10 +104,10 @@ impl Index<root::Index> for Shared<'_> {
     }
 }
 
-impl Index<&thread::Id> for Shared<'_> {
+impl Index<thread::Id> for Shared<'_> {
     type Output = transfer::Stage;
-    fn index(&self, index: &thread::Id) -> &Self::Output {
-        &self.meta.stages[index]
+    fn index(&self, id: thread::Id) -> &Self::Output {
+        &self.meta.stages[id]
     }
 }
 

@@ -5,7 +5,7 @@ use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::COUNT_THREAD;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Id(NonZeroU16);
 
 impl Id {
@@ -36,9 +36,9 @@ unsafe impl NonZero for Id {}
 #[repr(C)]
 pub struct Array<T>([T; COUNT_THREAD]);
 
-impl<T> Index<&Id> for Array<T> {
+impl<T> Index<Id> for Array<T> {
     type Output = T;
-    fn index(&self, index: &Id) -> &Self::Output {
+    fn index(&self, index: Id) -> &Self::Output {
         &self.0[index.0.get() as usize]
     }
 }

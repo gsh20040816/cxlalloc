@@ -2,7 +2,6 @@ use core::cell::UnsafeCell;
 
 use crate::atomic::Packed;
 use crate::bitset::HiBitSet;
-use crate::size;
 use crate::slab;
 use crate::Atomic;
 use crate::SIZE_BIT_SET;
@@ -19,25 +18,18 @@ const _: () = assert!(size_of::<Owned>() % SIZE_CACHE_LINE == 0);
 pub(crate) struct Meta(u64);
 
 impl Meta {
-    pub(crate) fn new(next: Option<slab::Index>, class: size::Small) -> Self {
-        Self(next.pack() << 32 | class.pack())
+    pub(crate) fn new(next: Option<slab::Index>) -> Self {
+        Self(next.pack())
     }
 
     pub(crate) fn next(&self) -> Option<slab::Index> {
-        Packed::unpack(self.0 >> 32)
-    }
-
-    pub(crate) fn class(&self) -> size::Small {
         Packed::unpack(self.0)
     }
 }
 
 impl core::fmt::Debug for Meta {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Meta")
-            .field("next", &self.next())
-            .field("class", &self.class())
-            .finish()
+        f.debug_struct("Meta").field("next", &self.next()).finish()
     }
 }
 

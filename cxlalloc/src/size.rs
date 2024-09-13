@@ -128,7 +128,7 @@ unsafe impl Packed for Class {
     fn unpack(value: u64) -> Self {
         let inner = value as u32;
         match inner {
-            index if (index as usize) < CLASS_COUNT => Self::Small(Small::unpack(value)),
+            index if (index as usize) <= CLASS_COUNT => Self::Small(Small::unpack(value)),
             size => Self::Large(Large(size as usize)),
         }
     }

@@ -2,6 +2,7 @@ use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::bitset::AtomicBitSet;
 use crate::size;
+use crate::thread;
 use crate::Atomic;
 use crate::SIZE_BIT_SET;
 use crate::SIZE_CACHE_LINE;
@@ -9,6 +10,7 @@ use crate::SIZE_CACHE_LINE;
 #[repr(C, align(64))]
 pub(crate) struct Shared {
     pub(crate) meta: Atomic<Meta>,
+    pub(crate) owner: Atomic<Owner>,
     pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
 }
 
@@ -18,20 +20,45 @@ const _: () = assert!(size_of::<Shared>() % SIZE_CACHE_LINE == 0);
 pub(crate) struct Meta(u64);
 
 impl Meta {
-    pub(crate) fn new(version: Version, class: size::Class) -> Self {
-        Self(version.pack() << size::Class::BITS | class.pack())
+    pub(crate) fn new(version: Version) -> Self {
+        Self(version.pack())
     }
 
     pub(crate) fn version(&self) -> Version {
         Version::unpack(self.0 >> 32)
     }
-
-    pub(crate) fn class(&self) -> size::Class {
-        size::Class::unpack(self.0)
-    }
 }
 
 unsafe impl Packed for Meta {
+    const BITS: u8 = 64;
+
+    fn pack(&self) -> u64 {
+        self.0
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+#[repr(C)]
+pub(crate) struct Owner(u64);
+
+impl Owner {
+    pub(crate) fn new(class: size::Class, id: thread::Id) -> Self {
+        Self(class.pack() << thread::Id::BITS | id.pack())
+    }
+
+    pub(crate) fn class(&self) -> size::Class {
+        Packed::unpack(self.0 >> thread::Id::BITS)
+    }
+
+    pub(crate) fn id(&self) -> thread::Id {
+        thread::Id::unpack(self.0)
+    }
+}
+
+unsafe impl Packed for Owner {
     const BITS: u8 = 64;
 
     fn pack(&self) -> u64 {

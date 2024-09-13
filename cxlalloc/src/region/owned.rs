@@ -22,7 +22,7 @@ impl<'raw> Owned<'raw> {
             .pad_to_align()
     }
 
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: &mut thread::Id) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
         // FIXME: deduplicate with `layout`
         let (_, offset) = Layout::new::<thread::Array<Meta>>()
             .extend(slab::Slice::<slab::Owned>::layout(1).unwrap())
@@ -52,6 +52,7 @@ impl Meta {
         &mut self,
         owned: &slab::Slice<slab::Owned>,
         shared: &slab::Slice<slab::Shared>,
+        id: thread::Id,
         class: size::Small,
     ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
@@ -60,14 +61,12 @@ impl Meta {
 
         let slab = &owned[index];
         let next = slab.meta.load().next();
-        slab.meta.store(slab::owned::Meta::new(None, class));
+        slab.meta.store(slab::owned::Meta::new(None));
         unsafe { &mut *slab.free.get() }.fill(class.count());
 
-        let version = shared[index].meta.load().version();
-        shared[index].meta.store(slab::shared::Meta::new(
-            version.next(),
-            size::Class::Small(class),
-        ));
+        shared[index]
+            .owner
+            .store(slab::shared::Owner::new(size::Class::Small(class), id));
 
         self.r#sized[class].set(Some(index));
         self.r#unsized.set(next);
@@ -97,9 +96,9 @@ impl Meta {
                 }
             };
 
-            slabs[prev].meta.store(slab::owned::Meta::new(next, class));
+            slabs[prev].meta.store(slab::owned::Meta::new(next));
         };
 
-        self.r#unsized.push(slabs, index, None);
+        self.r#unsized.push(slabs, index);
     }
 }
