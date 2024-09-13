@@ -1,9 +1,7 @@
 use core::alloc::Layout;
 use core::ffi;
-use core::num::NonZeroU32;
 use core::ptr::NonNull;
 
-use crate::bitset::Bit;
 use crate::link;
 use crate::raw;
 use crate::region;
