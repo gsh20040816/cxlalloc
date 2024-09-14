@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+use core::fmt::Display;
 use core::num::NonZeroU16;
 use core::ops::Index;
 
@@ -5,17 +7,13 @@ use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::COUNT_THREAD;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Id(NonZeroU16);
 
 impl Id {
     pub const unsafe fn new(id: u16) -> Self {
         assert!(id < u16::MAX);
         Self(NonZeroU16::new_unchecked(id.wrapping_add(1)))
-    }
-
-    pub(crate) fn index(&self) -> u16 {
-        self.0.get() - 1
     }
 }
 
@@ -32,6 +30,24 @@ unsafe impl Packed for Id {
 }
 
 unsafe impl NonZero for Id {}
+
+impl From<Id> for u16 {
+    fn from(id: Id) -> Self {
+        id.0.get() - 1
+    }
+}
+
+impl Debug for Id {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&u16::from(*self), f)
+    }
+}
+
+impl Display for Id {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&u16::from(*self), f)
+    }
+}
 
 #[repr(C)]
 pub struct Array<T>([T; COUNT_THREAD]);

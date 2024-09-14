@@ -33,7 +33,7 @@ impl<'raw> Owned<'raw> {
                 .owned
                 .base()
                 .cast::<Meta>()
-                .add(id.index() as usize)
+                .add(u16::from(id) as usize)
                 .as_mut(),
             slabs: slab::Slice::from_raw(&raw.owned, offset),
         }
