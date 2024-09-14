@@ -163,11 +163,7 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
     log::trace!("malloc {size}");
-    if size == 0 {
-        return core::ptr::null_mut();
-    }
-
-    with_mut(|allocator| allocator.allocate_untyped(size).as_ptr())
+    with_mut(|allocator| allocator.allocate_untyped(size))
 }
 
 #[no_mangle]
@@ -200,7 +196,6 @@ pub unsafe extern "C" fn memalign(alignment: usize, size: usize) -> *mut ffi::c_
                     .pad_to_align()
                     .size(),
             )
-            .as_ptr()
             .cast()
     })
 }
@@ -232,12 +227,7 @@ pub unsafe extern "C" fn realloc(pointer: *mut ffi::c_void, size: usize) -> *mut
         return malloc(size);
     };
 
-    with_mut(|allocator| {
-        allocator
-            .realloc_untyped(pointer.cast(), size)
-            .as_ptr()
-            .cast()
-    })
+    with_mut(|allocator| allocator.realloc_untyped(pointer.cast(), size).cast())
 }
 
 #[no_mangle]

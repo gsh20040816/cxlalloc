@@ -45,7 +45,7 @@ impl<'raw> Allocator<'raw> {
             size::Class::Large(_) => unimplemented!(),
         };
 
-        let index = self.allocate_small(class);
+        let index = self.allocate_small(class).unwrap();
         let slab = &self.owned.slabs[index];
         let block = unsafe { slab.free.with(|free| free.peek()) };
         let offset = unsafe { index.offset_block(class, block) };
@@ -111,7 +111,11 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    fn allocate_small(&mut self, class: size::Small) -> slab::Index {
+    fn allocate_small(&mut self, class: size::Small) -> Option<slab::Index> {
+        if class.is_zero() {
+            return None;
+        }
+
         let thread = &mut *self.owned.meta;
         loop {
             if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
@@ -159,7 +163,7 @@ impl<'raw> Allocator<'raw> {
             }
         }
 
-        thread.r#sized[class].peek().unwrap()
+        thread.r#sized[class].peek()
     }
 }
 
@@ -174,17 +178,17 @@ impl<'raw> Allocator<'raw> {
         &mut self,
         old_pointer: NonNull<ffi::c_void>,
         new_size: usize,
-    ) -> NonNull<ffi::c_void> {
+    ) -> *mut ffi::c_void {
         let old_size = self.class_untyped(old_pointer);
 
         if old_size >= new_size {
-            return old_pointer;
+            return old_pointer.as_ptr();
         }
 
         let new_pointer = self.allocate_untyped(new_size);
         core::ptr::copy_nonoverlapping::<u8>(
             old_pointer.as_ptr().cast(),
-            new_pointer.as_ptr().cast(),
+            new_pointer.cast(),
             old_size,
         );
 
@@ -193,15 +197,18 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[inline]
-    pub unsafe fn allocate_untyped(&mut self, size: usize) -> NonNull<ffi::c_void> {
+    pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
         let class = match size::Class::new(size) {
             size::Class::Large(class) => return self.malloc_slow_large(class),
             size::Class::Small(class) => class,
         };
 
         let index = match self.owned.meta.r#sized[class].peek() {
-            None => self.allocate_small(class),
             Some(index) => index,
+            None => match self.allocate_small(class) {
+                Some(index) => index,
+                None => return core::ptr::null_mut(),
+            },
         };
 
         let (block, empty) = self.owned.slabs[index].free.with_mut(|free| {
@@ -215,7 +222,7 @@ impl<'raw> Allocator<'raw> {
         }
 
         let offset = unsafe { index.offset_block(class, block) };
-        self.heap.offset_to_pointer::<ffi::c_void>(offset)
+        self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
     }
 
     #[cold]
@@ -230,11 +237,11 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    unsafe fn malloc_slow_large(&mut self, class: size::Large) -> NonNull<ffi::c_void> {
+    unsafe fn malloc_slow_large(&mut self, class: size::Large) -> *mut ffi::c_void {
         let index = self.allocate_large(class);
         log::info!("malloc large {} = {:?}", class, index);
         let offset = slab::Offset::from(index);
-        return self.heap.offset_to_pointer(offset);
+        self.heap.offset_to_pointer(offset).as_ptr()
     }
 
     #[inline]

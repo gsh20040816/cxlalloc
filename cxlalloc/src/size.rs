@@ -1,6 +1,7 @@
 use core::array;
 use core::fmt;
 use core::fmt::Display;
+use core::num::NonZeroU16;
 use core::ops;
 
 use crate::atomic::Packed;
@@ -45,8 +46,10 @@ impl Class {
     #[inline]
     pub(crate) fn new(size: usize) -> Self {
         match size {
-            0..1025 => Self::Small(Small(((size + 7) >> 3) as u8)),
-            _ => Self::Large(Large(size.next_multiple_of(SIZE_SLAB))),
+            0..1025 => Self::Small(Small(((size + 7) / 8) as u8)),
+            _ => Self::Large(Large(unsafe {
+                NonZeroU16::new_unchecked(((size + SIZE_SLAB - 1) / SIZE_SLAB) as u16)
+            })),
         }
     }
 
@@ -64,6 +67,25 @@ impl Display for Class {
     }
 }
 
+unsafe impl Packed for Class {
+    const BITS: u8 = 32;
+
+    fn pack(&self) -> u64 {
+        match self {
+            Class::Small(small) => small.pack(),
+            Class::Large(large) => large.pack() << Small::BITS,
+        }
+    }
+
+    fn unpack(value: u64) -> Self {
+        if value as u32 as usize <= CLASS_COUNT {
+            Self::Small(Small::unpack(value))
+        } else {
+            Self::Large(Large::unpack(value >> Small::BITS))
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct Small(u8);
 
@@ -76,8 +98,9 @@ impl Display for Small {
 const CLASS_COUNT: usize = 128;
 
 impl Small {
-    pub(crate) fn all() -> impl Iterator<Item = Self> {
-        (0..CLASS_COUNT as u8).map(Self)
+    #[inline]
+    pub(crate) fn is_zero(&self) -> bool {
+        self.0 == 0
     }
 
     #[inline]
@@ -94,8 +117,12 @@ impl Small {
 
 const fn counts() -> Array<u16> {
     let mut counts = [0u16; CLASS_COUNT + 1];
-    let mut i = 2;
+
+    // Special case: the smallest size class has some
+    // bits in its bitset reserved for slab metadata.
     counts[1] = (SIZE_BIT_SET * 64) as u16;
+
+    let mut i = 2;
     while i < counts.len() {
         counts[i] = (SIZE_SLAB / (i * 8)) as u16;
         i += 1;
@@ -115,35 +142,16 @@ unsafe impl Packed for Small {
     }
 }
 
-unsafe impl Packed for Class {
-    const BITS: u8 = 32;
-
-    fn pack(&self) -> u64 {
-        match self {
-            Class::Small(small) => small.pack(),
-            Class::Large(large) => large.0 as u64,
-        }
-    }
-
-    fn unpack(value: u64) -> Self {
-        let inner = value as u32;
-        match inner {
-            index if (index as usize) <= CLASS_COUNT => Self::Small(Small::unpack(value)),
-            size => Self::Large(Large(size as usize)),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct Large(usize);
+pub(crate) struct Large(NonZeroU16);
 
 impl Large {
     pub(crate) fn size(&self) -> usize {
-        self.0
+        self.0.get() as usize * SIZE_SLAB
     }
 
     pub(crate) fn count(&self) -> usize {
-        self.0 / SIZE_SLAB
+        self.0.get() as usize
     }
 }
 
@@ -153,17 +161,14 @@ impl Display for Large {
     }
 }
 
-/// For reference:
-/// - https://jemalloc.net/jemalloc.3.html#size_classes
-/// - https://github.com/ricleite/lrmalloc/blob/34c6474861ec7583ac146da5a8f39190de6db991/size_classes.h
-/// - https://github.com/urcs-sync/ralloc/blob/6b9d7a1af75ba75232107bfaeb6a034799d5b182/src/SizeClass.hpp
-macro_rules! sc {
-    ($index:expr, $lg_grp:expr, $lg_delta:expr, $ndelta:expr) => {{
-        const BLOCK_SIZE: usize = (1 << $lg_grp) + ($ndelta << $lg_delta);
+unsafe impl Packed for Large {
+    const BITS: u8 = 16;
 
-        // Statically confirm that we can fit size class information in 16 bits.
-        const _: () = assert!(BLOCK_SIZE < u16::MAX as usize);
+    fn pack(&self) -> u64 {
+        self.0.get() as u64
+    }
 
-        BLOCK_SIZE as u16
-    }};
+    fn unpack(value: u64) -> Self {
+        Self(unsafe { NonZeroU16::new_unchecked(value as u16) })
+    }
 }
