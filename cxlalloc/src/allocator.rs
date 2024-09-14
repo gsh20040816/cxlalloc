@@ -8,6 +8,7 @@ use crate::region;
 use crate::root;
 use crate::size;
 use crate::slab;
+use crate::stat;
 use crate::thread;
 use crate::Heap;
 use crate::Root;
@@ -64,6 +65,7 @@ impl<'raw> Allocator<'raw> {
     }
 
     fn allocate_large(&mut self, class: size::Large) -> slab::Index {
+        stat::inc(&stat::ALLOCATE_LARGE);
         log::info!("malloc large {}", class);
 
         let index = 'inner: {
@@ -71,6 +73,7 @@ impl<'raw> Allocator<'raw> {
             if class.count() == 1 {
                 if let Some(index) = self.owned.meta.r#unsized.peek() {
                     self.owned.meta.r#unsized.pop(&self.owned.slabs);
+                    stat::inc(&stat::ALLOCATE_LARGE_UNSIZED);
                     break 'inner index;
                 }
             }
@@ -87,11 +90,13 @@ impl<'raw> Allocator<'raw> {
                     .shared
                     .pop(self.id, &self.owned.slabs, Some(version))
                 {
+                    stat::inc(&stat::ALLOCATE_LARGE_GLOBAL);
                     break 'inner index;
                 }
             }
 
             // Then try from bump pointer
+            stat::inc(&stat::ALLOCATE_LARGE_BUMP);
             self.heap
                 .shared
                 .allocate(
@@ -112,13 +117,17 @@ impl<'raw> Allocator<'raw> {
 
     #[cold]
     fn allocate_small(&mut self, class: size::Small) -> Option<slab::Index> {
+        stat::inc(&stat::ALLOCATE_SMALL);
+
         if class.is_zero() {
+            stat::inc(&stat::ALLOCATE_SMALL_ZERO);
             return None;
         }
 
         let thread = &mut *self.owned.meta;
         loop {
             if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
+                stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
                 break;
             }
 
@@ -145,6 +154,8 @@ impl<'raw> Allocator<'raw> {
                     index,
                     class
                 );
+
+                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 continue;
             }
 
@@ -157,6 +168,7 @@ impl<'raw> Allocator<'raw> {
                 .allocate(self.id, COUNT, Some(version))
                 .unwrap();
 
+            stat::inc(&stat::ALLOCATE_SMALL_BUMP);
             unsafe {
                 self.owned.slabs.link(range.clone(), None);
                 thread.r#unsized.set(Some(range.start));
@@ -198,13 +210,18 @@ impl<'raw> Allocator<'raw> {
 
     #[inline]
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
+        stat::inc(&stat::ALLOCATE);
+
         let class = match size::Class::new(size) {
             size::Class::Large(class) => return self.malloc_slow_large(class),
             size::Class::Small(class) => class,
         };
 
         let index = match self.owned.meta.r#sized[class].peek() {
-            Some(index) => index,
+            Some(index) => {
+                stat::inc(&stat::ALLOCATE_FAST);
+                index
+            }
             None => match self.allocate_small(class) {
                 Some(index) => index,
                 None => return core::ptr::null_mut(),
@@ -238,6 +255,8 @@ impl<'raw> Allocator<'raw> {
                 .trace(&self.owned.slabs)
                 .all(|other| other != index));
         }
+
+        stat::inc(&stat::ALLOCATE_FAST_DETACH);
     }
 
     #[cold]
@@ -250,6 +269,8 @@ impl<'raw> Allocator<'raw> {
 
     #[inline]
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
+        stat::inc(&stat::FREE);
+
         let offset = self.heap.pointer_to_offset(pointer);
         let index = slab::Index::from(offset);
 
@@ -270,6 +291,7 @@ impl<'raw> Allocator<'raw> {
 
         log::info!("{:?} freeing local {:?}", self.id, index);
 
+        stat::inc(&stat::FREE_FAST);
         let slab = &self.owned.slabs[index];
         let block = offset.index_block(class);
         let count = slab.free.with_mut(|free| {
@@ -288,6 +310,7 @@ impl<'raw> Allocator<'raw> {
                 //     class,
                 //     index
                 // );
+                stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned
                     .meta
                     .sized_to_unsized(&self.owned.slabs, class, index);
@@ -307,12 +330,17 @@ impl<'raw> Allocator<'raw> {
         self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
 
         log::info!("Attaching {} to {}", index, class);
+
+        stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
     #[cold]
     unsafe fn free_large(&mut self, class: size::Large, index: slab::Index) {
+        stat::inc(&stat::FREE_LARGE);
+
         log::info!("Freed large allocation {:?}", index);
         if class.count() == 1 {
+            stat::inc(&stat::FREE_LARGE_UNSIZED);
             self.owned.meta.r#unsized.push(&self.owned.slabs, index);
             return;
         }
@@ -322,6 +350,7 @@ impl<'raw> Allocator<'raw> {
 
         // TODO: log capsule boundary
 
+        stat::inc(&stat::FREE_LARGE_GLOBAL);
         self.heap
             .shared
             .push(self.id, &self.owned.slabs, class.count() as u16, staged);
@@ -329,6 +358,8 @@ impl<'raw> Allocator<'raw> {
 
     #[cold]
     unsafe fn free_remote(&mut self, offset: slab::Offset, index: slab::Index, class: size::Small) {
+        stat::inc(&stat::FREE_REMOTE);
+
         let slab = &self.heap.shared.slabs[index];
 
         log::info!("free remote {:?} {}", index, class);
@@ -344,6 +375,8 @@ impl<'raw> Allocator<'raw> {
 
     #[cold]
     fn transfer(&mut self, index: slab::Index) {
+        stat::inc(&stat::FREE_REMOTE_GLOBAL);
+
         let slab = &self.heap.shared.slabs[index];
         let version = slab.meta.load().version();
 

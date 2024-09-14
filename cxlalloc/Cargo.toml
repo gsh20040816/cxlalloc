@@ -6,13 +6,14 @@ edition = "2021"
 [features]
 backend-shm = ["numa-sys"]
 operation-expand = []
+stat = []
 validate = []
 
 [dependencies]
 arrayvec.workspace = true
+atomic_refcell.workspace = true
 libc.workspace = true
 log.workspace = true
-atomic_refcell.workspace = true
 
 [dependencies.numa-sys]
 git = "https://github.com/nwtnni/numa.git"

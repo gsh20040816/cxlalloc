@@ -304,5 +304,6 @@ impl ThreadId {
 impl Drop for ThreadId {
     fn drop(&mut self) {
         ID.fetch_or(1 << self.0, Ordering::AcqRel);
+        cxlalloc::stat::dump(self.0);
     }
 }

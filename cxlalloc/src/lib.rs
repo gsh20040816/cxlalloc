@@ -10,6 +10,7 @@ mod region;
 pub mod root;
 mod size;
 mod slab;
+pub mod stat;
 pub mod thread;
 pub mod transfer;
 
