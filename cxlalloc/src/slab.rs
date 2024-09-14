@@ -8,6 +8,7 @@ use core::alloc::Layout;
 use core::alloc::LayoutError;
 use core::fmt;
 use core::fmt::Debug;
+use core::fmt::Display;
 use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
@@ -48,7 +49,13 @@ impl Index {
 
 impl Debug for Index {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        (self.0.get() - 1).fmt(f)
+        Debug::fmt(&(self.0.get() - 1), f)
+    }
+}
+
+impl Display for Index {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(&(self.0.get() - 1), f)
     }
 }
 
@@ -66,6 +73,12 @@ impl From<Offset> for Index {
 impl From<Index> for NonZeroU32 {
     fn from(index: Index) -> Self {
         index.0
+    }
+}
+
+impl From<Index> for u32 {
+    fn from(index: Index) -> Self {
+        index.0.get() - 1
     }
 }
 
@@ -116,7 +129,19 @@ impl From<Offset> for NonZeroUsize {
 
 impl Debug for Offset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (self.0.get() - SIZE_SLAB).fmt(f)
+        Debug::fmt(&usize::from(*self), f)
+    }
+}
+
+impl Display for Offset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(&usize::from(*self), f)
+    }
+}
+
+impl From<Offset> for usize {
+    fn from(value: Offset) -> Self {
+        value.0.get() - SIZE_SLAB
     }
 }
 
