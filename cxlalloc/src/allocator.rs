@@ -218,7 +218,7 @@ impl<'raw> Allocator<'raw> {
         });
 
         if empty {
-            self.disown(class);
+            self.detach(class);
         }
 
         let offset = unsafe { index.offset_block(class, block) };
@@ -226,14 +226,18 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    fn disown(&mut self, class: size::Small) {
-        // log::info!("disowning {:?} from {}", index, class);
-        // assert!(self.heap.owned.meta[&mut self.id].r#sized[class]
-        //     .trace(&self.heap.owned.slabs)
-        //     .all(|other| other != index));
-        self.owned.meta.r#sized[class]
+    fn detach(&mut self, class: size::Small) {
+        let index = self.owned.meta.r#sized[class]
             .pop(&self.owned.slabs)
             .unwrap();
+
+        log::info!("Detaching {:?} from {}", index, class);
+
+        if cfg!(feature = "validate") {
+            assert!(self.owned.meta.r#sized[class]
+                .trace(&self.owned.slabs)
+                .all(|other| other != index));
+        }
     }
 
     #[cold]
@@ -275,7 +279,7 @@ impl<'raw> Allocator<'raw> {
         });
 
         match count {
-            0 => self.reown(class, index),
+            0 => self.attach(class, index),
             count if count + 1 == class.count() => {
                 // log::info!(
                 //     "id = {:?}, free = {} ({}), removing {:?}",
@@ -293,12 +297,16 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    fn reown(&mut self, class: size::Small, index: slab::Index) {
-        // assert!(self.heap.owned.meta[&mut self.id].r#sized[class]
-        //     .trace(&self.heap.owned.slabs)
-        //     .all(|other| other != index));
-        // log::info!("pushing {:?} onto {}", index, class);
+    fn attach(&mut self, class: size::Small, index: slab::Index) {
+        if cfg!(feature = "validate") {
+            assert!(self.owned.meta.r#sized[class]
+                .trace(&self.owned.slabs)
+                .all(|other| other != index));
+        }
+
         self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
+
+        log::info!("Attaching {} to {}", index, class);
     }
 
     #[cold]
