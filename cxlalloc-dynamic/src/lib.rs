@@ -10,12 +10,13 @@
 #![allow(unused_variables)]
 
 use core::alloc::Layout;
-use core::cell::UnsafeCell;
 use core::ffi;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::LazyLock;
+
+use cxlalloc::UnsafeCell;
 
 // Note: it would be nice to initialize this with an initialization
 // function, but that doesn't work well with `LD_PRELOAD`.
@@ -156,7 +157,7 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
         return;
     };
 
-    ALLOCATOR.with(|allocator| (*allocator.get()).free_untyped(pointer))
+    with_mut(|allocator| allocator.free_untyped(pointer))
 }
 
 #[no_mangle]
@@ -166,7 +167,7 @@ pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
         return core::ptr::null_mut();
     }
 
-    ALLOCATOR.with(|allocator| (*allocator.get()).allocate_untyped(size).as_ptr())
+    with_mut(|allocator| allocator.allocate_untyped(size).as_ptr())
 }
 
 #[no_mangle]
@@ -185,14 +186,14 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
         return 0;
     };
 
-    ALLOCATOR.with(|allocator| (*allocator.get()).class_untyped(pointer))
+    with(|allocator| allocator.class_untyped(pointer))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn memalign(alignment: usize, size: usize) -> *mut ffi::c_void {
-    ALLOCATOR.with(|allocator| {
+    with_mut(|allocator| {
         // FIXME: pass layout directly
-        (*allocator.get())
+        allocator
             .allocate_untyped(
                 Layout::from_size_align(size, alignment)
                     .unwrap()
@@ -231,8 +232,8 @@ pub unsafe extern "C" fn realloc(pointer: *mut ffi::c_void, size: usize) -> *mut
         return malloc(size);
     };
 
-    ALLOCATOR.with(|allocator| {
-        (*allocator.get())
+    with_mut(|allocator| {
+        allocator
             .realloc_untyped(pointer.cast(), size)
             .as_ptr()
             .cast()
@@ -261,6 +262,14 @@ pub unsafe extern "C" fn valloc(_size: usize) -> *mut ffi::c_void {
 #[no_mangle]
 pub unsafe extern "C" fn vfree(_pointer: *mut ffi::c_void) {
     unimplemented!("vfree")
+}
+
+unsafe fn with<F: FnOnce(&cxlalloc::Allocator) -> T, T>(apply: F) -> T {
+    ALLOCATOR.with(|allocator| allocator.with(apply))
+}
+
+unsafe fn with_mut<F: FnOnce(&mut cxlalloc::Allocator) -> T, T>(apply: F) -> T {
+    ALLOCATOR.with(|allocator| allocator.with_mut(apply))
 }
 
 struct Logger;

@@ -47,7 +47,7 @@ impl<'raw> Allocator<'raw> {
 
         let index = self.allocate_small(class);
         let slab = &self.owned.slabs[index];
-        let block = unsafe { &*slab.free.get() }.peek();
+        let block = unsafe { slab.free.with(|free| free.peek()) };
         let offset = unsafe { index.offset_block(class, block) };
         let mut pointer = self.heap.offset_to_pointer::<T>(offset);
 
@@ -200,20 +200,17 @@ impl<'raw> Allocator<'raw> {
         };
 
         let index = match self.owned.meta.r#sized[class].peek() {
-            None => {
-                let index = self.allocate_small(class);
-                log::info!("malloc small slab {} = {:?}", class, index);
-                index
-            }
+            None => self.allocate_small(class),
             Some(index) => index,
         };
 
-        let slab = &self.owned.slabs[index];
-        let free = unsafe { &mut *slab.free.get() };
-        let block = free.peek();
+        let (block, empty) = self.owned.slabs[index].free.with_mut(|free| {
+            let block = free.peek();
+            free.unset(block);
+            (block, free.is_empty())
+        });
 
-        free.unset(block);
-        if free.is_empty() {
+        if empty {
             self.disown(class);
         }
 
@@ -264,9 +261,11 @@ impl<'raw> Allocator<'raw> {
 
         let slab = &self.owned.slabs[index];
         let block = offset.index_block(class);
-        let count = unsafe { &*slab.free.get() }.len();
-
-        unsafe { &mut *slab.free.get() }.set(block);
+        let count = slab.free.with_mut(|free| {
+            let count = free.len();
+            free.set(block);
+            count
+        });
 
         match count {
             0 => self.reown(class, index),

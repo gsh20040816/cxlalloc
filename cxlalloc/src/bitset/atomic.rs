@@ -18,28 +18,6 @@ impl<const SIZE: usize> Default for AtomicBitSet<SIZE> {
 }
 
 impl<const SIZE: usize> AtomicBitSet<SIZE> {
-    pub(crate) fn set(&self, bit: Bit) -> u32 {
-        let row = bit.row();
-        let col = bit.col();
-        let old = self.0[row].load(Ordering::Acquire);
-        let new = old | (1 << col);
-        self.0[row].store(new, Ordering::Release);
-        new.count_ones()
-    }
-
-    pub(crate) fn unset(&self, bit: Bit) -> u32 {
-        let row = bit.row();
-        let col = bit.col();
-        let old = self.0[row].load(Ordering::Acquire);
-        let new = old & !(1 << col);
-        self.0[row].store(new, Ordering::Release);
-        new.count_ones()
-    }
-
-    pub(crate) fn get(&self, bit: Bit) -> bool {
-        self.0[bit.row()].load(Ordering::Acquire) & (1 << bit.col()) > 0
-    }
-
     pub(crate) fn clear(&self) {
         self.0
             .iter()

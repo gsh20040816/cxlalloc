@@ -1,7 +1,6 @@
-use core::cell::UnsafeCell;
-
 use crate::atomic::Packed;
 use crate::bitset::HiBitSet;
+use crate::cell::UnsafeCell;
 use crate::slab;
 use crate::Atomic;
 use crate::SIZE_BIT_SET;
@@ -12,8 +11,6 @@ pub(crate) struct Owned {
     pub(crate) meta: Atomic<Meta>,
     pub(crate) free: UnsafeCell<HiBitSet<SIZE_BIT_SET>>,
 }
-
-const _: () = assert!(size_of::<Owned>() % SIZE_CACHE_LINE == 0);
 
 pub(crate) struct Meta(u64);
 
