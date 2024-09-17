@@ -1,0 +1,9 @@
+[package]
+name = "cxlalloc-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap.workspace = true
+duct.workspace = true
+homedir.workspace = true
