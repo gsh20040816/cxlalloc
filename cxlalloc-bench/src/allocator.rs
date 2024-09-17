@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use anyhow::anyhow;
+use anyhow::Context as _;
 use clap::ValueEnum;
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -12,7 +14,7 @@ pub enum Allocator {
 }
 
 impl Allocator {
-    pub fn path(&self, release: bool) -> PathBuf {
+    pub fn path(&self, release: bool) -> anyhow::Result<PathBuf> {
         let path = match self {
             Allocator::Mi2 => "mi2/out/release/libmimalloc",
             Allocator::Je => "je/lib/libjemalloc",
@@ -24,10 +26,9 @@ impl Allocator {
 
         // TODO: change for MacOS
         let ext = "so";
+        let path = Path::new("extern").join(Path::new(path).with_extension(ext));
 
-        Path::new("extern")
-            .join(Path::new(path).with_extension(ext))
-            .canonicalize()
-            .unwrap()
+        path.canonicalize()
+            .with_context(|| anyhow!("Could not find allocator at {}", path.display()))
     }
 }

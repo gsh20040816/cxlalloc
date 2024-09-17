@@ -3,6 +3,7 @@ members = ["cxlalloc", "cxlalloc-bench", "cxlalloc-dynamic"]
 resolver = "2"
 
 [workspace.dependencies]
+anyhow = "1.0"
 arrayvec = "0.7"
 atomic_refcell = "0.1"
 clap = { version = "4.5", features = ["derive"] }

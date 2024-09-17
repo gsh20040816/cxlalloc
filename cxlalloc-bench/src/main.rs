@@ -44,55 +44,59 @@ enum Wrapper {
     PerfStat,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     match Cli::parse() {
         Cli::Bench {
             allocators,
             benchmarks,
             warmup,
             output,
-        } => cmd![
-            "hyperfine",
-            "--warmup",
-            warmup.to_string(),
-            "--export-json",
-            format!("{}.json", output),
-            "--export-markdown",
-            format!("{}.md", output),
-        ]
-        .before_spawn(move |command| {
-            command.arg("--parameter-list");
-            command.arg("allocator");
-
+        } => {
             let mut iter = allocators
                 .iter()
-                .map(|allocator| allocator.path(true).display().to_string());
-            let mut list = iter.next().unwrap_or_default();
+                .map(|allocator| allocator.path(true))
+                .collect::<anyhow::Result<Vec<_>>>()?
+                .into_iter()
+                .map(|allocator| allocator.display().to_string());
+
+            let mut allocators = iter.next().unwrap_or_default();
             for allocator in iter {
-                list.push(',');
-                list.push_str(&allocator);
-            }
-            command.arg(list);
-
-            for benchmark in &benchmarks {
-                command.arg(format!(
-                    "env LD_PRELOAD={{allocator}} {}",
-                    benchmark.command(),
-                ));
+                allocators.push(',');
+                allocators.push_str(&allocator);
             }
 
-            Ok(())
-        })
-        .run()
-        .map(drop)
-        .unwrap(),
+            cmd![
+                "hyperfine",
+                "--warmup",
+                warmup.to_string(),
+                "--export-json",
+                format!("{}.json", output),
+                "--export-markdown",
+                format!("{}.md", output),
+                "--parameter-list",
+                "allocator",
+                allocators,
+            ]
+            .before_spawn(move |command| {
+                for benchmark in &benchmarks {
+                    command.arg(format!(
+                        "env LD_PRELOAD={{allocator}} {}",
+                        benchmark.command(),
+                    ));
+                }
+
+                Ok(())
+            })
+            .run()
+            .map(drop)?
+        }
         Cli::Run {
             allocator,
             benchmark,
             release,
             wrapper,
         } => {
-            let ld = format!("LD_PRELOAD={}", allocator.path(release).display());
+            let ld = format!("LD_PRELOAD={}", allocator.path(release)?.display());
 
             match &wrapper {
                 None => cmd!["env", ld],
@@ -121,18 +125,18 @@ fn main() {
                 command.args(benchmark.args());
                 Ok(())
             })
-            .run()
-            .unwrap();
+            .run()?;
 
             if let Some(Wrapper::PerfRecord) = wrapper {
-                let home = homedir::my_home().unwrap().unwrap();
+                let home = homedir::my_home()?.expect("No home directory");
                 cmd!["perf", "script", "--input", "perf.data"]
                     .pipe(cmd!(home.join(".cargo/bin/inferno-collapse-perf")))
                     .pipe(cmd!(home.join(".cargo/bin/inferno-flamegraph")))
                     .stdout_path("out.svg")
-                    .run()
-                    .unwrap();
+                    .run()?;
             }
         }
     }
+
+    Ok(())
 }
