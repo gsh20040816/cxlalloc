@@ -29,6 +29,14 @@
             taplo
           ];
 
+          buildInputs = [
+            (python3.withPackages (python-pkgs: with python-pkgs; [
+              plotly
+              python-lsp-ruff
+              python-lsp-server
+            ]))
+          ];
+
           # https://discourse.nixos.org/t/libclang-path-and-rust-bindgen-in-nixpkgs-unstable/13264
           LIBCLANG_PATH = "${llvmPackages_latest.libclang.lib}/lib";
         };
