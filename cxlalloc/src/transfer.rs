@@ -7,7 +7,18 @@ use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::atomic::Versioned;
+use crate::stat;
 use crate::thread;
+
+macro_rules! dispatch {
+    ($bump:expr, $global:expr $(,)?) => {
+        if any::type_name::<T>().contains("shared::Meta") {
+            $bump
+        } else if any::type_name::<T>().contains("slab::GlobalStack") {
+            $global
+        }
+    };
+}
 
 pub trait Transfer {
     type State: Packed;
@@ -226,6 +237,17 @@ fn read<T: Transfer + ?Sized>(
 ) -> Result<T::Output, T::Abort> {
     let claim = ClaimInner::new(version, Operation::Read(operation), id);
 
+    dispatch!(
+        {
+            stat::inc(&stat::BUMP);
+            stat::inc(&stat::BUMP_ALLOCATE);
+        },
+        {
+            stat::inc(&stat::GLOBAL);
+            stat::inc(&stat::GLOBAL_POP);
+        },
+    );
+
     let output = loop {
         let state = global.state().0.load();
         let output = global
@@ -259,6 +281,11 @@ fn write<T: Transfer + ?Sized>(
     let input = staged.inner();
     let claim = ClaimInner::new(staged.version(), Operation::Write(operation), id);
 
+    dispatch!((), {
+        stat::inc(&stat::GLOBAL);
+        stat::inc(&stat::GLOBAL_PUSH);
+    });
+
     loop {
         let state = global.state().0.load();
         global.interpose_write(context, operation, state.inner(), &input);
@@ -290,17 +317,54 @@ fn apply<T: Transfer + ?Sized>(
             log::debug!("[{}]: Installed {:?}", any::type_name::<T>(), claim,);
             claim
         }
-        Err(current) => match current.inner() {
-            None => {
-                // An operation interleaved between creating this claim and CASing it
-                log::debug!("[{}]: Restarting {:?}", any::type_name::<T>(), claim);
-                return false;
+        Err(current) => {
+            dispatch!(
+                if matches!(claim.inner().operation(), Operation::Read(_)) {
+                    stat::inc(&stat::BUMP_ALLOCATE_CONTEND);
+                },
+                if matches!(claim.inner().operation(), Operation::Read(_)) {
+                    stat::inc(&stat::GLOBAL_POP_CONTEND);
+                } else {
+                    stat::inc(&stat::GLOBAL_PUSH_CONTEND);
+                },
+            );
+
+            match current.inner() {
+                None => {
+                    // An operation interleaved between creating this claim and CASing it
+                    log::debug!("[{}]: Restarting {:?}", any::type_name::<T>(), claim);
+
+                    dispatch!(
+                        if matches!(claim.inner().operation(), Operation::Read(_)) {
+                            stat::inc(&stat::BUMP_ALLOCATE_CONTEND_INTERLEAVE);
+                        },
+                        if matches!(claim.inner().operation(), Operation::Read(_)) {
+                            stat::inc(&stat::GLOBAL_POP_CONTEND_INTERLEAVE);
+                        } else {
+                            stat::inc(&stat::GLOBAL_PUSH_CONTEND_INTERLEAVE);
+                        },
+                    );
+
+                    return false;
+                }
+                Some(claim) => {
+                    log::debug!("[{}]: Helping {:?}", any::type_name::<T>(), claim);
+
+                    dispatch!(
+                        if matches!(claim.operation(), Operation::Read(_)) {
+                            stat::inc(&stat::BUMP_ALLOCATE_CONTEND_HELP);
+                        },
+                        if matches!(claim.operation(), Operation::Read(_)) {
+                            stat::inc(&stat::GLOBAL_POP_CONTEND_HELP);
+                        } else {
+                            stat::inc(&stat::GLOBAL_PUSH_CONTEND_HELP);
+                        },
+                    );
+
+                    Versioned::new(claim, current.version())
+                }
             }
-            Some(claim) => {
-                log::debug!("[{}]: Helping {:?}", any::type_name::<T>(), claim);
-                Versioned::new(claim, current.version())
-            }
-        },
+        }
     };
 
     complete(global, context, stages, current);
