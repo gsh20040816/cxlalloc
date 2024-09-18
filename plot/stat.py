@@ -6,22 +6,20 @@ def main():
     data = None
     with open(sys.argv[1]) as file:
         rows = [row.split(",") for row in file.read().splitlines()]
-        data = [(int(row[0]), row[1], int(row[2])) for row in rows]
+        data = [(int(thread), name, int(count)) for thread, name, count in rows]
 
-    labels, sources, targets, values = parse(data)
-
-    figure = go.Figure(data=[go.Sankey(
-        node=dict(
-            label=labels,
-        ),
-        link=dict(
-            source=sources,
-            target=targets,
-            value=values,
-        )
-    )])
-
-    figure.show()
+    for index, prefix in enumerate(["ALLOCATE", "FREE", "BUMP", "GLOBAL"]):
+        labels, sources, targets, values = parse([row for row in data if row[1].startswith(prefix)])
+        go.Figure(data=[go.Sankey(
+            node=dict(
+                label=labels,
+            ),
+            link=dict(
+                source=sources,
+                target=targets,
+                value=values,
+            )
+        )]).show()
 
 
 def parse(data: list[tuple[int, str, int]]):
