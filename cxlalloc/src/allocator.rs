@@ -125,42 +125,39 @@ impl<'raw> Allocator<'raw> {
         }
 
         let thread = &mut *self.owned.meta;
-        loop {
-            if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
-                stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
-                break;
-            }
 
-            let stage = &self.heap.shared[self.id];
-            let version = stage
-                .store_versioned::<region::meta::shared::Extent>(None)
-                .version();
+        // Fast path: local unsized
+        if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
+            stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
+            return thread.r#sized[class].peek();
+        }
 
-            if let Ok(index) = self
-                .heap
-                .shared
-                .pop(self.id, &self.owned.slabs, Some(version))
-            {
-                self.owned.slabs[index]
-                    .meta
-                    .store(slab::owned::Meta::new(None));
+        let stage = &self.heap.shared[self.id];
+        let version = stage
+            .store_versioned::<region::meta::shared::Extent>(None)
+            .version();
 
-                // unsized is empty
-                thread.r#unsized.set(Some(index));
+        if let Ok(index) = self
+            .heap
+            .shared
+            .pop(self.id, &self.owned.slabs, Some(version))
+        {
+            self.owned.slabs[index]
+                .meta
+                .store(slab::owned::Meta::new(None));
 
-                log::info!(
-                    "{:?} allocated from global {:?} ({})",
-                    &self.id,
-                    index,
-                    class
-                );
+            // unsized is empty
+            thread.r#unsized.set(Some(index));
 
-                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
-                continue;
-            }
+            log::info!(
+                "{:?} allocated from global {:?} ({})",
+                &self.id,
+                index,
+                class
+            );
 
-            // TODO: log capsule boundary
-
+            stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
+        } else {
             const COUNT: u16 = 16;
             let range = self
                 .heap
@@ -175,6 +172,8 @@ impl<'raw> Allocator<'raw> {
             }
         }
 
+        // FIXME: optimize cold paths to move to sized instead of unsized
+        thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class);
         thread.r#sized[class].peek()
     }
 }
