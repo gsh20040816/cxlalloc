@@ -42,16 +42,16 @@ unsafe impl Packed for Meta {
 pub(crate) struct Owner(u64);
 
 impl Owner {
-    pub(crate) fn new(class: size::Class, id: thread::Id) -> Self {
-        Self(class.pack() << thread::Id::BITS | id.pack())
+    pub(crate) fn new(class: size::Class, id: Option<thread::Id>) -> Self {
+        Self(class.pack() << Option::<thread::Id>::BITS | id.pack())
     }
 
     pub(crate) fn class(&self) -> size::Class {
         Packed::unpack(self.0 >> thread::Id::BITS)
     }
 
-    pub(crate) fn id(&self) -> thread::Id {
-        thread::Id::unpack(self.0)
+    pub(crate) fn id(&self) -> Option<thread::Id> {
+        Option::<_>::unpack(self.0)
     }
 }
 

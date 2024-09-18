@@ -110,7 +110,10 @@ impl<'raw> Allocator<'raw> {
 
         self.heap.shared.slabs[index]
             .owner
-            .store(slab::shared::Owner::new(size::Class::Large(class), self.id));
+            .store(slab::shared::Owner::new(
+                size::Class::Large(class),
+                Some(self.id),
+            ));
 
         index
     }
@@ -249,13 +252,22 @@ impl<'raw> Allocator<'raw> {
 
         log::info!("Detaching {:?} from {}", index, class);
 
+        let shared = &self.heap.shared.slabs[index];
+        if !shared.free.is_empty() {
+            stat::inc(&stat::ALLOCATE_FAST_DISOWN);
+            let owner = shared.owner.load();
+            shared
+                .owner
+                .store(slab::shared::Owner::new(owner.class(), None));
+        } else {
+            stat::inc(&stat::ALLOCATE_FAST_DETACH);
+        }
+
         if cfg!(feature = "validate") {
             assert!(self.owned.meta.r#sized[class]
                 .trace(&self.owned.slabs)
                 .all(|other| other != index));
         }
-
-        stat::inc(&stat::ALLOCATE_FAST_DETACH);
     }
 
     #[cold]
@@ -284,7 +296,7 @@ impl<'raw> Allocator<'raw> {
             }
         };
 
-        if owner.id() != self.id {
+        if owner.id() != Some(self.id) {
             return self.free_remote(offset, index, class);
         }
 
@@ -365,9 +377,9 @@ impl<'raw> Allocator<'raw> {
 
         let block = offset.index_block(class);
 
-        // FIXME: use compare_exchange to detect if we are the last writer
-        // FIXME: also need ^ to avoid clobbering concurrent writes
-        if slab.free.set_atomic(block) == 64 && slab.free.is_full(class.count()) {
+        slab.free.set(block);
+
+        if slab.free.is_full(class.count()) {
             self.transfer(index);
         }
     }

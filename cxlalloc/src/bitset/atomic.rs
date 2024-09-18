@@ -24,12 +24,14 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
             .for_each(|row| row.store(0, Ordering::Release));
     }
 
-    pub(crate) fn set_atomic(&self, bit: Bit) -> u32 {
+    pub(crate) fn set(&self, bit: Bit) {
         let row = bit.row();
         let col = bit.col();
-        self.0[row]
-            .fetch_or(1 << col, Ordering::SeqCst)
-            .count_ones()
+        self.0[row].fetch_or(1 << col, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.iter().all(|row| row.load(Ordering::Acquire) == 0)
     }
 
     pub(crate) fn is_full(&self, count: usize) -> bool {

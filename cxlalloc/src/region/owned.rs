@@ -66,9 +66,10 @@ impl Meta {
             slab.free.with_mut(|free| free.fill(class.count()));
         }
 
-        shared[index]
-            .owner
-            .store(slab::shared::Owner::new(size::Class::Small(class), id));
+        shared[index].owner.store(slab::shared::Owner::new(
+            size::Class::Small(class),
+            Some(id),
+        ));
 
         self.r#sized[class].set(Some(index));
         self.r#unsized.set(next);
