@@ -75,6 +75,13 @@ pub struct Atomic<T> {
 }
 
 impl<T: Packed> Atomic<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value: AtomicU64::new(value.pack()),
+            _type: PhantomData,
+        }
+    }
+
     pub fn load(&self) -> T {
         T::unpack(self.value.load(Ordering::Acquire))
     }
@@ -92,6 +99,12 @@ impl<T: Packed> Atomic<T> {
 
     pub fn fetch_xor(&self, value: u64) -> u64 {
         self.value.fetch_xor(value, Ordering::AcqRel)
+    }
+}
+
+impl<T: Packed + Default> Default for Atomic<T> {
+    fn default() -> Self {
+        Self::new(T::default())
     }
 }
 

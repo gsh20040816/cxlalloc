@@ -12,7 +12,9 @@ use std::os::fd::RawFd;
 
 use arrayvec::ArrayString;
 
-#[derive(Debug)]
+use crate::extend::Epoch;
+use crate::Atomic;
+
 pub(crate) struct Region {
     /// Unique identifier of this memory region
     id: Id,
@@ -21,7 +23,7 @@ pub(crate) struct Region {
     size: usize,
 
     /// Number of heap extensions this memory region has undergone.
-    epoch: AtomicU8,
+    epoch: Atomic<Epoch>,
 
     /// Starting address of mapped region
     base: NonNull<u64>,
@@ -77,7 +79,7 @@ impl Region {
         Ok(Region {
             id,
             size,
-            epoch: AtomicU8::new(0),
+            epoch: Atomic::new(Epoch::default()),
             base,
         })
     }
@@ -91,17 +93,17 @@ impl Region {
     }
 
     #[cfg_attr(not(feature = "backend-shm"), allow(unused))]
-    pub(crate) fn epoch(&self) -> u8 {
-        self.epoch.load(Ordering::Relaxed)
+    pub(crate) fn epoch(&self) -> Epoch {
+        self.epoch.load()
     }
 
-    pub(crate) fn advance_epoch(&self) -> u8 {
-        let epoch = self.epoch.load(Ordering::Relaxed);
-        self.epoch.store(epoch + 1, Ordering::Relaxed);
-        epoch + 1
+    pub(crate) fn advance_epoch(&self) -> Epoch {
+        let epoch = self.epoch.load();
+        self.epoch.store(epoch.next());
+        epoch.next()
     }
 
-    pub(super) fn epoch_to_metadata(&self, epoch: u8) -> (*mut ffi::c_void, usize, Id) {
+    pub(super) fn epoch_to_metadata(&self, epoch: Epoch) -> (*mut ffi::c_void, usize, Id) {
         (
             self.epoch_to_address(epoch),
             self.epoch_to_size(epoch),
@@ -109,26 +111,18 @@ impl Region {
         )
     }
 
-    fn epoch_to_address(&self, epoch: u8) -> *mut ffi::c_void {
-        match epoch {
-            0 => self.base().as_ptr(),
-            _ => unsafe {
-                self.base()
-                    .as_ptr()
-                    .byte_add(self.size * 2usize.pow(epoch as u32 - 1))
-            },
-        }
-        .cast()
+    fn epoch_to_address(&self, epoch: Epoch) -> *mut ffi::c_void {
+        self.base()
+            .as_ptr()
+            .wrapping_byte_add(epoch.offset(self.size as u32) as usize)
+            .cast()
     }
 
-    fn epoch_to_size(&self, epoch: u8) -> usize {
-        match epoch {
-            0 => self.size,
-            _ => self.size * 2usize.pow(epoch as u32 - 1),
-        }
+    fn epoch_to_size(&self, epoch: Epoch) -> usize {
+        epoch.partial(self.size as u32) as usize
     }
 
-    pub(super) fn epoch_to_id(&self, epoch: u8) -> Id {
+    pub(super) fn epoch_to_id(&self, epoch: Epoch) -> Id {
         self.id.with_epoch(epoch)
     }
 
@@ -223,7 +217,9 @@ impl Id {
         Id(new)
     }
 
-    pub(super) fn with_epoch(&self, epoch: u8) -> Self {
+    pub(super) fn with_epoch(&self, epoch: Epoch) -> Self {
+        let epoch = u8::from(epoch);
+
         // log10(0..10) = 0
         // log10(10..100) = 1
         let digits = epoch.checked_ilog10().unwrap_or(0) as usize + 1;

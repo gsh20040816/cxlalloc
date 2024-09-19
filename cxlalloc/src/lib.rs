@@ -4,7 +4,6 @@ mod barrier;
 mod bitset;
 mod r#box;
 pub mod cell;
-#[cfg(feature = "extend")]
 mod extend;
 mod heap;
 mod link;

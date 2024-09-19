@@ -7,6 +7,7 @@ use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::atomic::Versioned;
+use crate::extend::Epoch;
 use crate::raw;
 use crate::root;
 use crate::slab;
@@ -152,31 +153,6 @@ pub(crate) struct Meta<'raw> {
     barrier: Barrier,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Epoch(u8);
-
-impl Epoch {
-    fn capacity(&self, initial: u32) -> u32 {
-        2u32.pow(self.0 as u32) * initial
-    }
-
-    fn next(&self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-unsafe impl Packed for Epoch {
-    const BITS: u8 = 8;
-
-    fn pack(&self) -> u64 {
-        self.0 as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value as u8)
-    }
-}
-
 struct Bump {
     claim: transfer::Claim<Allocate, Infallible>,
     length: transfer::State<Length>,
@@ -200,7 +176,7 @@ impl Transfer for Bump {
         Allocate(count): Self::Read,
         Length(length): Self::State,
     ) -> Result<Self::Output, Self::Abort> {
-        if length + count as u32 <= epoch.capacity(*initial) {
+        if length + count as u32 <= epoch.total(*initial) {
             Ok(Length(length + count as u32))
         } else {
             Err(*epoch)
@@ -357,7 +333,7 @@ unsafe impl Packed for Request {
     fn unpack(value: u64) -> Self {
         match value & (1 << Self::BITS) > 0 {
             false => Self::Map(value as u16),
-            true => Self::Extend(Epoch(value as u8)),
+            true => Self::Extend(Epoch::unpack(value)),
         }
     }
 }

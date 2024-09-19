@@ -4,6 +4,7 @@ use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd as _;
 use std::os::fd::OwnedFd;
 
+use crate::extend::Epoch;
 use crate::raw;
 use crate::raw::backend::Backend;
 use crate::raw::Id;
@@ -23,7 +24,7 @@ impl Shm {
 
 impl Backend for Shm {
     fn allocate(&self, id: Id, size: usize) -> io::Result<Region> {
-        let id = id.with_epoch(0);
+        let id = id.with_epoch(Epoch::default());
         let size = size.next_multiple_of(SIZE_PAGE);
 
         unsafe {
@@ -95,11 +96,15 @@ impl Backend for Shm {
         }
 
         unsafe {
-            for epoch in 0..region.epoch() + 1 {
-                let id = region.epoch_to_id(epoch);
+            let mut start = Epoch::default();
+            let end = region.epoch();
+
+            while start <= end {
+                let id = region.epoch_to_id(start);
                 if libc::shm_unlink(id.as_c_str().as_ptr()) != 0 {
                     return Err(io::Error::last_os_error());
                 }
+                start = start.next();
             }
 
             Ok(())

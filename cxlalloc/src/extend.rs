@@ -1,8 +1,12 @@
 use std::sync::Arc;
 use std::thread;
 
+use crate::atomic::Packed;
 use crate::raw;
 use crate::region::shared;
+
+#[cfg(not(feature = "extend"))]
+pub(crate) fn spawn(raw: &raw::Heap) {}
 
 /// This thread is responsible for heap extension.
 ///
@@ -21,6 +25,7 @@ use crate::region::shared;
 /// One benefit of this approach is that no threads are blocked
 /// by heap extension until they specifically request additional
 /// backing memory by modifying `metadata.extent`.
+#[cfg(feature = "extend")]
 pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
     let process_id = raw.process_id;
 
@@ -35,7 +40,7 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
 
     std::thread::spawn(move || {
         loop {
-            sleep();
+            core::hint::spin_loop();
 
             let Some(raw) = weak.upgrade() else {
                 return;
@@ -80,7 +85,50 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
     })
 }
 
-#[inline]
-pub(crate) fn sleep() {
-    core::hint::spin_loop()
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct Epoch(u8);
+
+impl Epoch {
+    /// The total size of all epochs up to and including this one.
+    pub(crate) fn total(&self, initial: u32) -> u32 {
+        2u32.pow(self.0 as u32) * initial
+    }
+
+    /// The offset of this last epoch.
+    pub(crate) fn offset(&self, initial: u32) -> u32 {
+        match self.0 {
+            0 => 0,
+            _ => Epoch(self.0 - 1).total(initial),
+        }
+    }
+
+    /// The size of this last epoch.
+    pub(crate) fn partial(&self, initial: u32) -> u32 {
+        match self.0 {
+            0 => initial,
+            _ => Epoch(self.0 - 1).total(initial),
+        }
+    }
+
+    pub(crate) fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+unsafe impl Packed for Epoch {
+    const BITS: u8 = 8;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value as u8)
+    }
+}
+
+impl From<Epoch> for u8 {
+    fn from(Epoch(epoch): Epoch) -> Self {
+        epoch
+    }
 }
