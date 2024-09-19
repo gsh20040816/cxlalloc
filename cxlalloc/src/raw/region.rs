@@ -20,7 +20,7 @@ pub(crate) struct Region {
     /// Size of this memory region in bytes
     size: usize,
 
-    /// Number of heap expansions this memory region has undergone.
+    /// Number of heap extensions this memory region has undergone.
     epoch: AtomicU8,
 
     /// Starting address of mapped region
@@ -31,7 +31,7 @@ impl Region {
     const RESERVATION: usize = 2usize.pow(40);
 
     pub(super) fn new(id: Id, size: usize, file: Option<(RawFd, i64)>) -> io::Result<Self> {
-        // In order to keep heap regions contiguous when expanding, we need
+        // In order to keep heap regions contiguous when extending, we need
         // to reserve an unbacked region of virtual address space via `mmap` with
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
         let reserved = match unsafe {
@@ -96,7 +96,9 @@ impl Region {
     }
 
     pub(crate) fn advance_epoch(&self) -> u8 {
-        self.epoch.fetch_add(1, Ordering::Relaxed) + 1
+        let epoch = self.epoch.load(Ordering::Relaxed);
+        self.epoch.store(epoch + 1, Ordering::Relaxed);
+        epoch + 1
     }
 
     pub(super) fn epoch_to_metadata(&self, epoch: u8) -> (*mut ffi::c_void, usize, Id) {
@@ -130,7 +132,7 @@ impl Region {
         self.id.with_epoch(epoch)
     }
 
-    pub(super) fn expand(
+    pub(super) fn extend(
         &self,
         address: *mut libc::c_void,
         size: usize,

@@ -64,7 +64,7 @@ impl Backend for Shm {
         }
     }
 
-    fn expand(&self, region: &Region) -> io::Result<()> {
+    fn extend(&self, region: &Region) -> io::Result<()> {
         unsafe {
             let epoch = region.advance_epoch();
             let (address, size, id) = region.epoch_to_metadata(epoch);
@@ -82,7 +82,7 @@ impl Backend for Shm {
                 return Err(io::Error::last_os_error());
             }
 
-            region.expand(address, size, Some((fd.as_raw_fd(), 0)))?;
+            region.extend(address, size, Some((fd.as_raw_fd(), 0)))?;
             mbind(address, size)
         }
     }

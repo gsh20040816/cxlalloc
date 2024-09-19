@@ -36,9 +36,9 @@ impl Backend {
         })
     }
 
-    #[cfg_attr(not(feature = "operation-expand"), allow(dead_code))]
-    pub(crate) fn expand(&self, region: &Region) -> io::Result<()> {
-        self.as_backend().expand(region)
+    #[cfg_attr(not(feature = "extend"), allow(dead_code))]
+    pub(crate) fn extend(&self, region: &Region) -> io::Result<()> {
+        self.as_backend().extend(region)
     }
 
     pub(crate) fn free(&self, region: &Region) -> io::Result<()> {
@@ -75,7 +75,7 @@ pub mod backend {
     pub(super) trait Backend: Send + Sync {
         fn allocate(&self, id: region::Id, size: usize) -> io::Result<Region>;
 
-        fn expand(&self, region: &Region) -> io::Result<()>;
+        fn extend(&self, region: &Region) -> io::Result<()>;
 
         fn free(&self, region: &Region) -> io::Result<()>;
     }

@@ -44,6 +44,18 @@ unsafe impl Packed for u64 {
     }
 }
 
+unsafe impl Packed for u32 {
+    const BITS: u8 = 32;
+
+    fn pack(&self) -> u64 {
+        *self as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        value as u32
+    }
+}
+
 unsafe impl Packed for Infallible {
     const BITS: u8 = 0;
     fn pack(&self) -> u64 {
@@ -77,9 +89,14 @@ impl<T: Packed> Atomic<T> {
             .map(T::unpack)
             .map_err(T::unpack)
     }
+
+    pub fn fetch_xor(&self, value: u64) -> u64 {
+        self.value.fetch_xor(value, Ordering::AcqRel)
+    }
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct Versioned<T> {
     value: u64,
     _type: PhantomData<T>,
@@ -151,6 +168,10 @@ impl<T: Packed + NonZero> Versioned<Option<T>> {
 pub struct Version(Wrapping<u16>);
 
 impl Version {
+    pub fn new(version: u16) -> Self {
+        Self(Wrapping(version))
+    }
+
     pub fn next(&self) -> Self {
         Self(self.0 + Wrapping(1))
     }

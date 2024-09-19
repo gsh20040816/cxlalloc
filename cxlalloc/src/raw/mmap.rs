@@ -13,10 +13,10 @@ impl Backend for Mmap {
         Region::new(id, size, None)
     }
 
-    fn expand(&self, region: &Region) -> io::Result<()> {
+    fn extend(&self, region: &Region) -> io::Result<()> {
         let epoch = region.advance_epoch();
         let (address, size, _) = region.epoch_to_metadata(epoch);
-        region.expand(address, size, None).map(drop)
+        region.extend(address, size, None).map(drop)
     }
 
     fn free(&self, region: &Region) -> io::Result<()> {

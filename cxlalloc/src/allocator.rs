@@ -80,7 +80,7 @@ impl<'raw> Allocator<'raw> {
 
             let stage = &self.heap.shared[self.id];
             let version = stage
-                .store_versioned::<region::meta::shared::Extent>(None)
+                .store_versioned::<region::meta::shared::Length>(None)
                 .version();
 
             // Then try from global shared
@@ -137,7 +137,7 @@ impl<'raw> Allocator<'raw> {
 
         let stage = &self.heap.shared[self.id];
         let version = stage
-            .store_versioned::<region::meta::shared::Extent>(None)
+            .store_versioned::<region::meta::shared::Length>(None)
             .version();
 
         if let Ok(index) = self

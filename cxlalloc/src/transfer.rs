@@ -21,7 +21,7 @@ macro_rules! dispatch {
 }
 
 pub trait Transfer {
-    type State: Packed;
+    type State: Copy + Packed;
     type Context: ?Sized;
 
     type Write: Copy + Packed + Debug;
@@ -42,7 +42,11 @@ pub trait Transfer {
         &self,
         context: &Self::Context,
         operation: Self::Read,
-        state: Self::State,
+        // Note: need to expose versioning here due
+        // to implementation detail of barrier. We require
+        // that each barrier occurs exactly once for
+        // each heap extension or large allocation mmap.
+        state: Versioned<Self::State>,
     ) -> Self::State;
 
     fn interpose_write(
@@ -137,6 +141,19 @@ pub struct Stage(Atomic<u64>);
 
 #[repr(transparent)]
 pub struct Claim<R, W>(Atomic<Versioned<Option<ClaimInner<R, W>>>>);
+
+impl<R: Packed, W: Packed> Claim<R, W> {
+    pub fn read(&self) -> Option<R> {
+        self.0
+            .load()
+            .inner()
+            .map(|inner| inner.operation())
+            .and_then(|operation| match operation {
+                Operation::Read(read) => Some(read),
+                Operation::Write(_) => None,
+            })
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 struct ClaimInner<R, W> {
@@ -419,7 +436,7 @@ fn complete<T: Transfer + ?Sized>(
                 let _ =
                     stages[id].compare_exchange(Versioned::new(None, version_local), Some(output));
 
-                let new = global.finish_read(context, operation, old.inner());
+                let new = global.finish_read(context, operation, old);
                 let new = Versioned::new(new, old.next_version());
 
                 let _ = global.state().0.compare_exchange(old, new);

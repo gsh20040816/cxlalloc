@@ -18,8 +18,10 @@ use core::ptr::NonNull;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
+use crate::atomic::Versioned;
 use crate::bitset::Bit;
 use crate::raw;
+use crate::region::meta::shared::Length;
 use crate::size;
 use crate::transfer;
 use crate::Transfer;
@@ -30,8 +32,12 @@ use crate::SIZE_SLAB;
 pub(crate) struct Index(NonZeroU32);
 
 impl Index {
-    pub(crate) fn from_length(length: u32) -> Self {
-        NonZeroU32::new(length + 1).map(Self).unwrap()
+    pub(crate) fn from_length(length: Length) -> Self {
+        NonZeroU32::new(u32::from(length) + 1).map(Self).unwrap()
+    }
+
+    pub(crate) const fn dangling() -> Self {
+        Self(NonZeroU32::MAX)
     }
 
     #[inline]
@@ -289,9 +295,9 @@ impl<'raw> Transfer for GlobalStack<'raw> {
         &self,
         slabs: &Self::Context,
         Pop: Self::Read,
-        head: Self::State,
+        head: Versioned<Self::State>,
     ) -> Self::State {
-        let index = head.expect("Non-empty head");
+        let index = head.inner().expect("Non-empty head");
         slabs[index].meta.load().next()
     }
 

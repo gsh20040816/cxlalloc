@@ -13,11 +13,13 @@ use crate::slab;
 use crate::thread;
 use crate::transfer;
 use crate::transfer::TransferExt;
+use crate::Barrier;
 use crate::Transfer;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Shared<'raw> {
     capacity: u32,
+    process_count: usize,
     meta: &'raw Meta<'raw>,
     pub(crate) slabs: slab::Slice<'raw, slab::Shared>,
 }
@@ -42,9 +44,36 @@ impl<'raw> Shared<'raw> {
 
         Self {
             capacity: raw.capacity,
+            process_count: raw.process_count,
             meta: raw.shared.base().cast::<Meta>().as_ref(),
             slabs: slab::Slice::from_raw(&raw.shared, offset),
         }
+    }
+
+    pub(crate) fn barrier(&self) -> &Barrier {
+        &self.meta.barrier
+    }
+
+    pub(crate) fn request(&self) -> Option<Request> {
+        self.meta.map.claim.read()
+    }
+
+    pub(crate) fn extend(
+        &self,
+        id: thread::Id,
+        epoch: Epoch,
+        version: Option<Version>,
+    ) -> Result<(), Epoch> {
+        self.meta
+            .map
+            .read(
+                &self.process_count,
+                &self.meta.stages,
+                id,
+                Request::Extend(epoch),
+                version,
+            )
+            .map(drop)
     }
 
     pub(crate) fn allocate(
@@ -54,17 +83,17 @@ impl<'raw> Shared<'raw> {
         version: Option<Version>,
     ) -> Result<Range<slab::Index>, Epoch> {
         self.meta
+            .bump
             .read(
-                &self.capacity,
+                &(self.capacity, self.meta.map.epoch.load()),
                 &self.meta.stages,
                 id,
-                Read::Allocate(count),
+                Allocate(count),
                 version,
             )
-            .map(|extent| extent.length())
             .map(|length| {
                 let end = slab::Index::from_length(length);
-                let start = slab::Index::from_length(length - u32::from(count));
+                let start = slab::Index::from_length(Length(length.0 - u32::from(count)));
                 start..end
             })
     }
@@ -115,41 +144,13 @@ impl Index<thread::Id> for Shared<'_> {
 pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
-    claim: transfer::Claim<Read, Infallible>,
-    extent: transfer::State<Extent>,
     stages: thread::Array<transfer::Stage>,
+
+    bump: Bump,
+    map: Map,
+
+    barrier: Barrier,
 }
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct Extent(u64);
-
-impl Extent {
-    fn new(epoch: Epoch, length: u32) -> Self {
-        Self(((epoch.0 as u64) << 32) | length as u64)
-    }
-
-    pub(crate) fn epoch(&self) -> Epoch {
-        Epoch((self.0 >> 32) as u8)
-    }
-
-    pub(crate) fn length(&self) -> u32 {
-        self.0 as u32
-    }
-}
-
-unsafe impl Packed for Extent {
-    const BITS: u8 = 48;
-
-    fn pack(&self) -> u64 {
-        self.0
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-unsafe impl NonZero for Extent {}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Epoch(u8);
@@ -158,48 +159,165 @@ impl Epoch {
     fn capacity(&self, initial: u32) -> u32 {
         2u32.pow(self.0 as u32) * initial
     }
+
+    fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
 }
 
-impl<'raw> Transfer for Meta<'raw> {
-    type State = Extent;
-    type Context = u32;
+unsafe impl Packed for Epoch {
+    const BITS: u8 = 8;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value as u8)
+    }
+}
+
+struct Bump {
+    claim: transfer::Claim<Allocate, Infallible>,
+    length: transfer::State<Length>,
+}
+
+impl Transfer for Bump {
+    type State = Length;
+    type Context = (u32, Epoch);
 
     type Write = Infallible;
     type Input = Infallible;
 
-    type Read = Read;
-    type Output = Extent;
+    type Read = Allocate;
+    type Output = Length;
 
     type Abort = Epoch;
 
     fn try_read(
         &self,
-        initial: &Self::Context,
-        operation: Self::Read,
-        extent: Self::State,
+        (initial, epoch): &Self::Context,
+        Allocate(count): Self::Read,
+        Length(length): Self::State,
     ) -> Result<Self::Output, Self::Abort> {
-        let epoch = extent.epoch();
-        let length = extent.length();
-        match operation {
-            Read::Allocate(count) if length + count as u32 <= epoch.capacity(*initial) => {
-                Ok(Extent::new(epoch, length + count as u32))
-            }
-            Read::Allocate(_) => Err(epoch),
-            Read::Extend(_) => todo!(),
+        if length + count as u32 <= epoch.capacity(*initial) {
+            Ok(Length(length + count as u32))
+        } else {
+            Err(*epoch)
         }
     }
 
     fn finish_read(
         &self,
         _: &Self::Context,
-        operation: Self::Read,
-        extent: Self::State,
+        Allocate(count): Self::Read,
+        length: Versioned<Self::State>,
     ) -> Self::State {
-        let epoch = extent.epoch();
-        let length = extent.length();
-        match operation {
-            Read::Allocate(count) => Extent::new(epoch, length + count as u32),
-            Read::Extend(_) => todo!(),
+        Length(length.inner().0 + count as u32)
+    }
+
+    fn interpose_write(&self, _: &Self::Context, _: Self::Write, _: Self::State, _: &Self::Input) {
+        unreachable!()
+    }
+
+    fn finish_write(&self, _: &Self::Context, _: Self::Write, _: Self::Input) -> Self::State {
+        unreachable!()
+    }
+
+    fn claim(&self) -> &transfer::Claim<Self::Read, Self::Write> {
+        &self.claim
+    }
+
+    fn state(&self) -> &transfer::State<Self::State> {
+        &self.length
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Length(u32);
+
+impl From<Length> for u32 {
+    fn from(Length(length): Length) -> Self {
+        length
+    }
+}
+
+unsafe impl Packed for Length {
+    const BITS: u8 = 32;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(value as u32)
+    }
+}
+
+// Note: initially is zero, but we only
+// serialize and deserialize in Transfer::Output,
+// in the staging area, and there it is always nonzero.
+unsafe impl NonZero for Length {}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Allocate(u16);
+
+unsafe impl Packed for Allocate {
+    const BITS: u8 = 15;
+
+    fn pack(&self) -> u64 {
+        self.0 as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self((value & Self::MASK) as u16)
+    }
+}
+
+struct Map {
+    claim: transfer::Claim<Request, Infallible>,
+    epoch: transfer::State<Epoch>,
+    barrier: Barrier,
+}
+
+impl Transfer for Map {
+    type State = Epoch;
+    type Context = usize;
+
+    type Write = Infallible;
+    type Input = Infallible;
+
+    type Read = Request;
+    type Output = slab::Index;
+
+    type Abort = Epoch;
+
+    fn try_read(
+        &self,
+        _: &Self::Context,
+        request: Self::Read,
+        state: Self::State,
+    ) -> Result<Self::Output, Self::Abort> {
+        match request {
+            Request::Map(_) => todo!(),
+            // Caller should not use this index--cannot return `None` because
+            // we need `Output: NonZero` to support `Option<Output>`.
+            Request::Extend(epoch) if epoch == state => Ok(slab::Index::dangling()),
+            Request::Extend(_) => Err(state),
+        }
+    }
+
+    fn finish_read(
+        &self,
+        process_count: &Self::Context,
+        request: Self::Read,
+        state: Versioned<Self::State>,
+    ) -> Self::State {
+        self.barrier.request(*process_count, state.version());
+
+        match request {
+            Request::Map(_) => state.inner(),
+            Request::Extend(_) => state.inner().next(),
         }
     }
 
@@ -208,7 +326,7 @@ impl<'raw> Transfer for Meta<'raw> {
     }
 
     fn finish_write(&self, _: &Self::Context, _: Self::Write, _: Self::Input) -> Self::State {
-        todo!()
+        unreachable!()
     }
 
     fn claim(&self) -> &transfer::Claim<Self::Read, Self::Write> {
@@ -216,31 +334,30 @@ impl<'raw> Transfer for Meta<'raw> {
     }
 
     fn state(&self) -> &transfer::State<Self::State> {
-        &self.extent
+        &self.epoch
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub(crate) enum Read {
-    Allocate(u16),
+pub(crate) enum Request {
+    Map(u16),
     Extend(Epoch),
 }
 
-unsafe impl Packed for Read {
+unsafe impl Packed for Request {
     const BITS: u8 = 15;
 
     fn pack(&self) -> u64 {
         match self {
-            #[allow(clippy::identity_op)]
-            Self::Allocate(count) => (0 << 14) | *count as u64,
-            Self::Extend(_) => todo!(),
+            Request::Map(count) => *count as u64,
+            Request::Extend(epoch) => epoch.pack() | (1 << Self::BITS),
         }
     }
 
     fn unpack(value: u64) -> Self {
-        match value & (1 << 14) > 0 {
-            false => Read::Allocate((value & ((1 << 14) - 1)) as u16),
-            true => todo!(),
+        match value & (1 << Self::BITS) > 0 {
+            false => Self::Map(value as u16),
+            true => Self::Extend(Epoch(value as u8)),
         }
     }
 }

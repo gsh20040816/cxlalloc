@@ -1,8 +1,11 @@
 mod allocator;
 pub mod atomic;
+mod barrier;
 mod bitset;
 mod r#box;
 pub mod cell;
+#[cfg(feature = "extend")]
+mod extend;
 mod heap;
 mod link;
 pub mod raw;
@@ -16,6 +19,7 @@ pub mod transfer;
 
 pub use allocator::Allocator;
 pub use atomic::Atomic;
+pub(crate) use barrier::Barrier;
 pub use cell::UnsafeCell;
 pub use heap::Heap;
 pub use r#box::Box;

@@ -9,16 +9,16 @@ use crate::thread;
 use crate::Allocator;
 use crate::SIZE_SLAB;
 
-#[cfg(not(feature = "operation-expand"))]
+#[cfg(not(feature = "extend"))]
 pub type Heap = Inner;
 
-#[cfg(feature = "operation-expand")]
+#[cfg(feature = "extend")]
 pub type Heap = std::sync::Arc<Inner>;
 
 /// This type represents sole ownership of an initialized backing store
-/// for the heap. If heap expansion is enabled, we need to use an
+/// for the heap. If heap extension is enabled, we need to use an
 /// [`std::sync::Arc`] internally to pass the store to the background
-/// heap expansion thread, but the public interface remains the same.
+/// heap extension thread, but the public interface remains the same.
 pub struct Inner {
     pub(crate) backend: Backend,
     pub(crate) shared: Region,
@@ -29,13 +29,10 @@ pub struct Inner {
     pub(crate) capacity: u32,
 
     /// The process identifier and count are used to coordinate
-    /// between heap expansion threads, which must mmap exactly
+    /// between heap extension threads, which must mmap exactly
     /// once per process as opposed to once per thread.
-    #[cfg_attr(not(feature = "operation-expand"), allow(dead_code))]
-    process_id: usize,
-
-    #[cfg_attr(not(feature = "operation-expand"), allow(dead_code))]
-    process_count: usize,
+    pub(crate) process_id: usize,
+    pub(crate) process_count: usize,
 }
 
 /// # Safety
@@ -79,7 +76,7 @@ impl Inner {
         let id = raw::region::Id::new(id);
         let slab_count = size.next_multiple_of(SIZE_SLAB) / SIZE_SLAB;
 
-        // TODO: If heap expansion is enabled, ensure that the shared and owned
+        // TODO: If heap extension is enabled, ensure that the shared and owned
         // region will be page size aligned, so we can mmap new regions
         // with MAP_FIXED at contiguous addresses.
         let shared_layout = region::meta::Shared::layout(slab_count);
@@ -96,7 +93,7 @@ impl Inner {
             slab_count * SIZE_SLAB
         );
 
-        Ok(Self {
+        let raw = Self {
             backend,
             shared,
             owned,
@@ -104,8 +101,19 @@ impl Inner {
             capacity: slab_count.try_into().unwrap(),
             process_id,
             process_count,
+        };
+
+        #[cfg(feature = "extend")]
+        {
+            let raw = std::sync::Arc::new(raw);
+            crate::extend::spawn(&raw);
+            Ok(raw)
         }
-        .into())
+
+        #[cfg(not(feature = "extend"))]
+        {
+            Ok(raw)
+        }
     }
 
     pub fn allocator(&self, id: thread::Id) -> Allocator {
@@ -117,22 +125,12 @@ impl Inner {
         // TODO: safety?
         unsafe { crate::Heap::from_raw(self) }
     }
-}
 
-#[cfg(feature = "operation-expand")]
-impl Inner {
-    pub(crate) fn process_id(&self) -> usize {
-        self.process_id
-    }
-
-    pub(crate) fn process_count(&self) -> usize {
-        self.process_count
-    }
-
-    pub(crate) fn expand(&self) -> io::Result<()> {
-        self.backend.expand(&self.owned)?;
-        self.backend.expand(&self.shared)?;
-        self.backend.expand(&self.data)?;
+    #[cfg(feature = "extend")]
+    pub(crate) fn extend(&self) -> io::Result<()> {
+        self.backend.extend(&self.owned)?;
+        self.backend.extend(&self.shared)?;
+        self.backend.extend(&self.data)?;
         Ok(())
     }
 }
