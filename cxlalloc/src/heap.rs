@@ -6,14 +6,14 @@ use crate::slab;
 use crate::Root;
 
 pub struct Heap<'raw> {
-    pub(crate) shared: region::meta::Shared<'raw>,
+    pub(crate) shared: region::Shared<'raw>,
     pub(crate) data: region::Data<'raw>,
 }
 
 impl<'raw> Heap<'raw> {
     pub(crate) unsafe fn from_raw(heap: &'raw raw::heap::Inner) -> Self {
         Heap {
-            shared: region::meta::Shared::from_raw(heap),
+            shared: region::Shared::from_raw(heap),
             data: region::Data::from_raw(heap),
         }
     }

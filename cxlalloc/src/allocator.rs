@@ -16,14 +16,14 @@ use crate::SIZE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
-    owned: region::meta::Owned<'raw>,
+    owned: region::Owned<'raw>,
     heap: Heap<'raw>,
 }
 
 impl<'raw> Allocator<'raw> {
     pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
         let heap = Heap::from_raw(raw);
-        let owned = region::meta::Owned::from_raw(raw, id);
+        let owned = region::Owned::from_raw(raw, id);
 
         Self { id, owned, heap }
     }
@@ -80,7 +80,7 @@ impl<'raw> Allocator<'raw> {
 
             let stage = &self.heap.shared[self.id];
             let version = stage
-                .store_versioned::<region::meta::shared::Length>(None)
+                .store_versioned::<region::shared::Length>(None)
                 .version();
 
             // Then try from global shared
@@ -137,7 +137,7 @@ impl<'raw> Allocator<'raw> {
 
         let stage = &self.heap.shared[self.id];
         let version = stage
-            .store_versioned::<region::meta::shared::Length>(None)
+            .store_versioned::<region::shared::Length>(None)
             .version();
 
         if let Ok(index) = self

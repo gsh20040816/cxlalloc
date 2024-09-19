@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::thread;
 
 use crate::raw;
-use crate::region::meta::shared;
+use crate::region::shared;
 
 /// This thread is responsible for heap extension.
 ///

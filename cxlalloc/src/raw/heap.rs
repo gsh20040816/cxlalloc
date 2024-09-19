@@ -79,10 +79,10 @@ impl Inner {
         // TODO: If heap extension is enabled, ensure that the shared and owned
         // region will be page size aligned, so we can mmap new regions
         // with MAP_FIXED at contiguous addresses.
-        let shared_layout = region::meta::Shared::layout(slab_count);
+        let shared_layout = region::Shared::layout(slab_count);
         let shared = backend.allocate(id.with_suffix("shared"), shared_layout.size())?;
 
-        let owned_layout = region::meta::Owned::layout(slab_count);
+        let owned_layout = region::Owned::layout(slab_count);
         let owned = backend.allocate(id.with_suffix("owned"), owned_layout.size())?;
 
         let data_layout = region::Data::layout(slab_count);

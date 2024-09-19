@@ -21,7 +21,7 @@ use crate::atomic::Packed;
 use crate::atomic::Versioned;
 use crate::bitset::Bit;
 use crate::raw;
-use crate::region::meta::shared::Length;
+use crate::region::shared::Length;
 use crate::size;
 use crate::transfer;
 use crate::Transfer;
