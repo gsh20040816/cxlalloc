@@ -52,7 +52,7 @@ impl<'raw> Shared<'raw> {
     }
 
     pub(crate) fn barrier(&self) -> &Barrier {
-        &self.meta.barrier
+        &self.meta.map.barrier
     }
 
     pub(crate) fn request(&self) -> Option<Request> {
@@ -149,8 +149,6 @@ pub(crate) struct Meta<'raw> {
 
     bump: Bump,
     map: Map,
-
-    barrier: Barrier,
 }
 
 struct Bump {
