@@ -1,6 +1,5 @@
 use core::marker::PhantomData;
 
-use crate::region;
 use crate::slab;
 use crate::Allocator;
 use crate::COUNT_ROOT;

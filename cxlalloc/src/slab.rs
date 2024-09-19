@@ -177,7 +177,7 @@ impl<S: Slab> Slice<'_, S> {
     }
 }
 
-trait Slab: private::Seal {}
+pub(crate) trait Slab: private::Seal {}
 
 impl private::Seal for Owned {}
 impl Slab for Owned {}

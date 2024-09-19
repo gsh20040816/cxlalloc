@@ -182,7 +182,7 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
         return 0;
     };
 
-    with(|allocator| allocator.class_untyped(pointer))
+    with(|allocator| allocator.heap().class(pointer))
 }
 
 #[no_mangle]

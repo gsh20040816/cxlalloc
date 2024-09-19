@@ -38,7 +38,7 @@ impl<'raw> Allocator<'raw> {
 
     pub fn allocate_at<'root, T: Default, L: link::Erase<'raw, 'root, T>>(
         &mut self,
-        link: L,
+        _: L,
     ) -> &'root mut T {
         let layout = Layout::new::<T>();
         let class = match size::Class::new(layout.pad_to_align().size()) {
@@ -182,18 +182,12 @@ impl<'raw> Allocator<'raw> {
 }
 
 impl<'raw> Allocator<'raw> {
-    pub unsafe fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
-        let offset = self.heap.pointer_to_offset(pointer);
-        let index = slab::Index::from(offset);
-        self.heap.shared.slabs[index].owner.load().class().size()
-    }
-
     pub unsafe fn realloc_untyped(
         &mut self,
         old_pointer: NonNull<ffi::c_void>,
         new_size: usize,
     ) -> *mut ffi::c_void {
-        let old_size = self.class_untyped(old_pointer);
+        let old_size = self.heap.class(old_pointer);
 
         if old_size >= new_size {
             return old_pointer.as_ptr();

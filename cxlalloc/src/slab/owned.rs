@@ -4,7 +4,6 @@ use crate::cell::UnsafeCell;
 use crate::slab;
 use crate::Atomic;
 use crate::SIZE_BIT_SET;
-use crate::SIZE_CACHE_LINE;
 
 #[repr(C, align(64))]
 pub(crate) struct Owned {

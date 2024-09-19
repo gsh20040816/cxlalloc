@@ -26,10 +26,10 @@ impl<'raw> Heap<'raw> {
         self.data.pointer_to_offset(pointer)
     }
 
-    pub fn class<T>(&self, pointer: NonNull<T>) {
-        // let offset = self.pointer_to_offset(pointer);
-        // let index = self.
-        todo!()
+    pub fn class<T>(&self, pointer: NonNull<T>) -> usize {
+        let offset = self.pointer_to_offset(pointer);
+        let index = slab::Index::from(offset);
+        self.shared.slabs[index].owner.load().class().size()
     }
 
     pub unsafe fn root<'root, T>(&self, root: &'root Root<'raw, T>) -> Option<&'root T> {
