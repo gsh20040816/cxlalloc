@@ -11,6 +11,7 @@ pub enum Allocator {
     Je,
     CxlOld,
     CxlNew,
+    CxlShm,
 }
 
 impl Allocator {
@@ -22,6 +23,7 @@ impl Allocator {
             Allocator::CxlOld => "cxlalloc-old/target/debug/libcxlalloc_dynamic",
             Allocator::CxlNew if release => "cxlalloc-new/target/release/libcxlalloc_dynamic",
             Allocator::CxlNew => "cxlalloc-new/target/debug/libcxlalloc_dynamic",
+            Allocator::CxlShm => "cxl-shm/build/libcxlmalloc-dynamic.so",
         };
 
         // TODO: change for MacOS
