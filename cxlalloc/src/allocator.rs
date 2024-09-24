@@ -2,6 +2,7 @@ use core::alloc::Layout;
 use core::ffi;
 use core::ptr::NonNull;
 
+use crate::extend::Epoch;
 use crate::link;
 use crate::raw;
 use crate::region;
@@ -404,7 +405,7 @@ impl<'raw> Allocator<'raw> {
         let _ = self.heap.shared.extend(self.id, epoch, Some(version));
     }
 
-    pub fn epoch(&self) -> u8 {
-        u8::from(self.heap.shared.epoch())
+    pub fn epoch(&self) -> Epoch {
+        self.heap.shared.epoch()
     }
 }

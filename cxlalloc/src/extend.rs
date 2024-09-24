@@ -96,10 +96,15 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Epoch(u8);
+pub struct Epoch(u8);
 
 impl Epoch {
-    /// The total size of all epochs up to and including this one.
+    /// The total size of all epochs up to and including this one in bytes.
+    pub fn total_byte(&self, initial: usize) -> usize {
+        2usize.pow(self.0 as u32) * initial
+    }
+
+    /// The total size of all epochs up to and including this one in slabs.
     pub(crate) fn total(&self, initial: u32) -> u32 {
         2u32.pow(self.0 as u32) * initial
     }

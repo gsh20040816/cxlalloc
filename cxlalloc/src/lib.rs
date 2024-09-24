@@ -20,6 +20,7 @@ pub use allocator::Allocator;
 pub use atomic::Atomic;
 pub(crate) use barrier::Barrier;
 pub use cell::UnsafeCell;
+pub use extend::Epoch;
 pub use heap::Heap;
 pub use r#box::Box;
 pub use root::Root;
