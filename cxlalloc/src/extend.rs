@@ -5,9 +5,6 @@ use crate::atomic::Packed;
 use crate::raw;
 use crate::region::shared;
 
-#[cfg(not(feature = "extend"))]
-pub(crate) fn spawn(raw: &raw::Heap) {}
-
 /// This thread is responsible for heap extension.
 ///
 /// We use a dedicated thread per process to simplify when
@@ -27,6 +24,7 @@ pub(crate) fn spawn(raw: &raw::Heap) {}
 /// backing memory by modifying `metadata.extent`.
 #[cfg(feature = "extend")]
 pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
+    let capacity = raw.capacity;
     let process_id = raw.process_id;
 
     // Maintain weak reference to allow main thread to run
@@ -53,7 +51,7 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
                 continue;
             }
 
-            match heap.shared.request() {
+            let epoch = match heap.shared.request() {
                 None => unreachable!(),
                 Some(shared::Request::Map(_)) => todo!(),
                 Some(shared::Request::Extend(epoch)) => epoch,
@@ -79,7 +77,19 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
             // barrier and updating the epoch, unless we pack the
             // barrier and epoch into the same memory location. But the
             // claim metadata already occupies 48 bits.
-            raw.extend().unwrap();
+            if cfg!(feature = "stat-extend") {
+                let start = std::time::Instant::now();
+                raw.extend().unwrap();
+                let elapsed = start.elapsed().as_nanos();
+                println!(
+                    "{},kernel,{}",
+                    epoch.total(capacity) as usize * crate::SIZE_SLAB,
+                    elapsed
+                );
+            } else {
+                raw.extend().unwrap();
+            }
+
             barrier.acknowledge(process_id);
         }
     })
