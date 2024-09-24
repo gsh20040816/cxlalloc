@@ -24,12 +24,12 @@ impl Shm {
 
 impl Backend for Shm {
     fn allocate(&self, id: Id, size: usize) -> io::Result<Region> {
-        let id = id.with_epoch(Epoch::default());
         let size = size.next_multiple_of(SIZE_PAGE);
 
         unsafe {
+            let path = id.with_epoch(Epoch::default());
             let fd = match libc::shm_open(
-                id.as_c_str().as_ptr(),
+                path.as_c_str().as_ptr(),
                 libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
                 libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
             ) {
@@ -43,7 +43,7 @@ impl Backend for Shm {
                     // process could have deleted and recreated the shared memory
                     // region between the previous call to `shm_open` and this one.
                     match libc::shm_open(
-                        id.as_c_str().as_ptr(),
+                        path.as_c_str().as_ptr(),
                         libc::O_RDWR,
                         libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
                     ) {

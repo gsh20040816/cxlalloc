@@ -5,8 +5,6 @@ use core::fmt::Display;
 use core::fmt::Write as _;
 use core::ptr;
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicU8;
-use core::sync::atomic::Ordering;
 use std::io;
 use std::os::fd::RawFd;
 
