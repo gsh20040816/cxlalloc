@@ -179,6 +179,20 @@ impl<'raw> Allocator<'raw> {
 }
 
 impl<'raw> Allocator<'raw> {
+    pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
+        let offset = self.heap.shared[root].load()?;
+        Some(self.heap.offset_to_pointer(offset))
+    }
+
+    pub unsafe fn set_root_untyped(
+        &self,
+        root: root::Index,
+        pointer: Option<NonNull<ffi::c_void>>,
+    ) {
+        let offset = pointer.map(|pointer| self.heap.pointer_to_offset(pointer));
+        self.heap.shared[root].store(offset);
+    }
+
     pub unsafe fn realloc_untyped(
         &mut self,
         old_pointer: NonNull<ffi::c_void>,
@@ -375,5 +389,22 @@ impl<'raw> Allocator<'raw> {
         let staged = stage.store_versioned(Some(index)).transpose();
 
         self.heap.shared.push(self.id, &self.owned.slabs, 1, staged);
+    }
+}
+
+#[cfg(feature = "extend")]
+impl<'raw> Allocator<'raw> {
+    pub fn extend(&mut self) {
+        let stage = &self.heap.shared[self.id];
+        let version = stage
+            .store_versioned::<region::shared::Length>(None)
+            .version();
+
+        let epoch = self.heap.shared.epoch();
+        let _ = self.heap.shared.extend(self.id, epoch, Some(version));
+    }
+
+    pub fn epoch(&self) -> u8 {
+        u8::from(self.heap.shared.epoch())
     }
 }

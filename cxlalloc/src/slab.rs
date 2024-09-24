@@ -151,6 +151,20 @@ impl From<Offset> for usize {
     }
 }
 
+unsafe impl Packed for Offset {
+    const BITS: u8 = 48;
+
+    fn pack(&self) -> u64 {
+        self.0.get() as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        unsafe { Self(NonZeroUsize::new_unchecked((value & Self::MASK) as usize)) }
+    }
+}
+
+unsafe impl NonZero for Offset {}
+
 pub(crate) struct Slice<'raw, S> {
     base: NonNull<S>,
     _raw: PhantomData<&'raw raw::Region>,

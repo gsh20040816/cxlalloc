@@ -2,6 +2,7 @@ use core::marker::PhantomData;
 
 use crate::slab;
 use crate::Allocator;
+use crate::Atomic;
 use crate::COUNT_ROOT;
 use crate::COUNT_THREAD;
 
@@ -56,10 +57,10 @@ impl From<Index> for usize {
     }
 }
 
-pub(crate) struct Array([Option<slab::Offset>; COUNT_ROOT]);
+pub(crate) struct Array([Atomic<Option<slab::Offset>>; COUNT_ROOT]);
 
 impl core::ops::Index<Index> for Array {
-    type Output = Option<slab::Offset>;
+    type Output = Atomic<Option<slab::Offset>>;
     fn index(&self, index: Index) -> &Self::Output {
         &self.0[index.0]
     }

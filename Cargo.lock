@@ -222,6 +222,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cxlalloc-extend"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "cxlalloc",
+ "env_logger",
+]
+
+[[package]]
 name = "duct"
 version = "0.13.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

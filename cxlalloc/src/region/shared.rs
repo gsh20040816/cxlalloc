@@ -14,6 +14,7 @@ use crate::slab;
 use crate::thread;
 use crate::transfer;
 use crate::transfer::TransferExt;
+use crate::Atomic;
 use crate::Barrier;
 use crate::Transfer;
 use crate::SIZE_PAGE;
@@ -49,14 +50,6 @@ impl<'raw> Shared<'raw> {
             meta: raw.shared.base().cast::<Meta>().as_ref(),
             slabs: slab::Slice::from_raw(&raw.shared, offset),
         }
-    }
-
-    pub(crate) fn barrier(&self) -> &Barrier {
-        &self.meta.map.barrier
-    }
-
-    pub(crate) fn request(&self) -> Option<Request> {
-        self.meta.map.claim.read()
     }
 
     pub(crate) fn extend(
@@ -127,8 +120,23 @@ impl<'raw> Shared<'raw> {
     }
 }
 
+#[cfg(feature = "extend")]
+impl<'raw> Shared<'raw> {
+    pub(crate) fn barrier(&self) -> &Barrier {
+        &self.meta.map.barrier
+    }
+
+    pub(crate) fn request(&self) -> Option<Request> {
+        self.meta.map.claim.read()
+    }
+
+    pub(crate) fn epoch(&self) -> Epoch {
+        self.meta.map.state().load()
+    }
+}
+
 impl Index<root::Index> for Shared<'_> {
-    type Output = Option<slab::Offset>;
+    type Output = Atomic<Option<slab::Offset>>;
     fn index(&self, index: root::Index) -> &Self::Output {
         &self.meta.roots[index]
     }
