@@ -66,7 +66,6 @@ impl<'raw> Allocator<'raw> {
 
     fn allocate_large(&mut self, class: size::Large) -> slab::Index {
         stat::inc(&stat::ALLOCATE_LARGE);
-        log::info!("malloc large {}", class);
 
         let index = 'inner: {
             // First try from unsized
@@ -140,38 +139,36 @@ impl<'raw> Allocator<'raw> {
             .store_versioned::<region::shared::Length>(None)
             .version();
 
-        if let Ok(index) = self
-            .heap
-            .shared
-            .pop(self.id, &self.owned.slabs, Some(version))
-        {
-            self.owned.slabs[index]
-                .meta
-                .store(slab::owned::Meta::new(None));
-
-            // unsized is empty
-            thread.r#unsized.set(Some(index));
-
-            log::info!(
-                "{:?} allocated from global {:?} ({})",
-                &self.id,
-                index,
-                class
-            );
-
-            stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
-        } else {
-            const COUNT: u16 = 16;
-            let range = self
+        loop {
+            if let Ok(index) = self
                 .heap
                 .shared
-                .allocate(self.id, COUNT, Some(version))
-                .unwrap();
+                .pop(self.id, &self.owned.slabs, Some(version))
+            {
+                self.owned.slabs[index]
+                    .meta
+                    .store(slab::owned::Meta::new(None));
 
-            stat::inc(&stat::ALLOCATE_SMALL_BUMP);
-            unsafe {
-                self.owned.slabs.link(range.clone(), None);
-                thread.r#unsized.set(Some(range.start));
+                // unsized is empty
+                thread.r#unsized.set(Some(index));
+
+                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
+                break;
+            }
+
+            const COUNT: u16 = 16;
+            match self.heap.shared.allocate(self.id, COUNT, Some(version)) {
+                Ok(range) => {
+                    stat::inc(&stat::ALLOCATE_SMALL_BUMP);
+                    unsafe {
+                        self.owned.slabs.link(range.clone(), None);
+                        thread.r#unsized.set(Some(range.start));
+                    }
+                    break;
+                }
+                Err(epoch) => {
+                    let _ = self.heap.shared.extend(self.id, epoch, Some(version));
+                }
             }
         }
 
@@ -244,7 +241,7 @@ impl<'raw> Allocator<'raw> {
             .pop(&self.owned.slabs)
             .unwrap();
 
-        log::info!("Detaching {:?} from {}", index, class);
+        log::info!("Detaching {} from {}", index, class);
 
         let shared = &self.heap.shared.slabs[index];
         if !shared.free.is_empty() {
@@ -267,7 +264,6 @@ impl<'raw> Allocator<'raw> {
     #[cold]
     unsafe fn malloc_slow_large(&mut self, class: size::Large) -> *mut ffi::c_void {
         let index = self.allocate_large(class);
-        log::info!("malloc large {} = {:?}", class, index);
         let offset = slab::Offset::from(index);
         self.heap.offset_to_pointer(offset).as_ptr()
     }
@@ -285,7 +281,6 @@ impl<'raw> Allocator<'raw> {
         let class = match owner.class() {
             size::Class::Small(small) => small,
             size::Class::Large(large) => {
-                log::info!("{:?} large allocation {} at {:?}", self.id, large, index);
                 return self.free_large(large, index);
             }
         };
@@ -293,8 +288,6 @@ impl<'raw> Allocator<'raw> {
         if owner.id() != Some(self.id) {
             return self.free_remote(offset, index, class);
         }
-
-        log::info!("{:?} freeing local {:?}", self.id, index);
 
         stat::inc(&stat::FREE_FAST);
         let slab = &self.owned.slabs[index];
@@ -308,13 +301,6 @@ impl<'raw> Allocator<'raw> {
         match count {
             0 => self.attach(class, index),
             count if count + 1 == class.count() => {
-                // log::info!(
-                //     "id = {:?}, free = {} ({}), removing {:?}",
-                //     &self.id,
-                //     unsafe { &*slab.free.get() }.len(),
-                //     class,
-                //     index
-                // );
                 stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned
                     .meta
@@ -343,7 +329,6 @@ impl<'raw> Allocator<'raw> {
     unsafe fn free_large(&mut self, class: size::Large, index: slab::Index) {
         stat::inc(&stat::FREE_LARGE);
 
-        log::info!("Freed large allocation {:?}", index);
         if class.count() == 1 {
             stat::inc(&stat::FREE_LARGE_UNSIZED);
             self.owned.meta.r#unsized.push(&self.owned.slabs, index);
@@ -366,8 +351,6 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_REMOTE);
 
         let slab = &self.heap.shared.slabs[index];
-
-        log::info!("free remote {:?} {}", index, class);
 
         let block = offset.index_block(class);
 

@@ -12,7 +12,7 @@ use crate::thread;
 
 macro_rules! dispatch {
     ($bump:expr, $global:expr $(,)?) => {
-        if any::type_name::<T>().contains("shared::Meta") {
+        if any::type_name::<T>().contains("shared::Bump") {
             $bump
         } else if any::type_name::<T>().contains("slab::GlobalStack") {
             $global
