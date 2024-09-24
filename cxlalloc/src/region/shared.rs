@@ -324,12 +324,12 @@ unsafe impl Packed for Request {
     fn pack(&self) -> u64 {
         match self {
             Request::Map(count) => *count as u64,
-            Request::Extend(epoch) => epoch.pack() | (1 << Self::BITS),
+            Request::Extend(epoch) => epoch.pack() | (1 << (Self::BITS - 1)),
         }
     }
 
     fn unpack(value: u64) -> Self {
-        match value & (1 << Self::BITS) > 0 {
+        match value & (1 << (Self::BITS - 1)) > 0 {
             false => Self::Map(value as u16),
             true => Self::Extend(Epoch::unpack(value)),
         }
