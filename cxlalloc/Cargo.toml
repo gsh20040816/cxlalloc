@@ -8,11 +8,13 @@ backend-shm = ["numa-sys"]
 extend = []
 stat = []
 stat-extend = []
+stat-size = ["dep:hdrhistogram"]
 validate = []
 
 [dependencies]
 arrayvec.workspace = true
 atomic_refcell.workspace = true
+hdrhistogram = { workspace = true, optional = true }
 libc.workspace = true
 log.workspace = true
 

@@ -9,7 +9,7 @@ macro_rules! stat {
             )*
         }
 
-        pub fn dump(id: usize) {
+        pub fn dump_counters(id: usize) {
             if cfg!(feature = "stat") {
                 $(
                     eprintln!("{},{},{}", id, stringify!($name), $name.get());

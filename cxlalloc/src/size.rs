@@ -13,6 +13,16 @@ pub(crate) const MIN: usize = 8;
 #[repr(transparent)]
 pub(crate) struct Array<T>([T; 1 + CLASS_COUNT]);
 
+impl<T> Array<T> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Small, &T)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(index, element)| (Small(index as u8), element))
+            .skip(1)
+    }
+}
+
 impl<T> Default for Array<T>
 where
     T: Default,

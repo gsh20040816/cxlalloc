@@ -14,3 +14,4 @@ ctor.workspace = true
 cxlalloc = { path = "../cxlalloc" }
 libc.workspace = true
 log.workspace = true
+mimalloc.workspace = true

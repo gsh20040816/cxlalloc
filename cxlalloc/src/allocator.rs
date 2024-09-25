@@ -220,7 +220,10 @@ impl<'raw> Allocator<'raw> {
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
         stat::inc(&stat::ALLOCATE);
 
-        let class = match size::Class::new(size) {
+        let class = size::Class::new(size);
+        stat::record(class);
+
+        let class = match class {
             size::Class::Large(class) => return self.malloc_slow_large(class),
             size::Class::Small(class) => class,
         };

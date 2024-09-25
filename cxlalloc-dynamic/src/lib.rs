@@ -20,6 +20,13 @@ use std::sync::LazyLock;
 
 use cxlalloc::UnsafeCell;
 
+/// We explicitly opt out of the system allocator so that
+/// `cxlalloc` can allocate DRAM internally without recursion.
+/// For now, this is mainly used for statistics, and not
+/// during actual operation.
+#[global_allocator]
+static MI_MALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[repr(transparent)]
 struct Key(core::cell::UnsafeCell<libc::pthread_key_t>);
 
@@ -341,6 +348,7 @@ unsafe extern "C" fn on_pthread_exit(_: *mut libc::c_void) {
 fn on_exit() {
     let id = THREAD_ID.get();
     GLOBAL_ID.fetch_or(1 << id, Ordering::AcqRel);
-    cxlalloc::stat::dump(id);
-    stat::dump(id);
+    cxlalloc::stat::dump_counters(id);
+    cxlalloc::stat::dump_sizes(id);
+    stat::dump_counters(id);
 }
