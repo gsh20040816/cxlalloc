@@ -7,7 +7,7 @@
 //!
 //! [mb]: https://github.com/daanx/mimalloc-bench
 
-#![allow(unused_variables)]
+mod stat;
 
 use core::alloc::Layout;
 use core::ffi;
@@ -140,7 +140,11 @@ pub unsafe extern "C" fn aligned_alloc(_alignment: usize, _size: usize) -> *mut 
 #[no_mangle]
 pub unsafe extern "C" fn calloc(count: usize, size: usize) -> *mut ffi::c_void {
     log::trace!("calloc {count} * {size}");
+    stat::inc(&stat::CALLOC);
+
     let allocation = malloc(size * count);
+    stat::dec(&stat::MALLOC);
+
     std::ptr::write_bytes(allocation, 0, size * count);
     allocation
 }
@@ -153,6 +157,8 @@ pub unsafe extern "C" fn cfree(_pointer: *mut ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
     log::trace!("free {pointer:?}");
+    stat::inc(&stat::FREE);
+
     let Some(pointer) = NonNull::new(pointer) else {
         return;
     };
@@ -163,6 +169,8 @@ pub unsafe extern "C" fn free(pointer: *mut ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn malloc(size: usize) -> *mut ffi::c_void {
     log::trace!("malloc {size}");
+    stat::inc(&stat::MALLOC);
+
     with_mut(|allocator| allocator.allocate_untyped(size))
 }
 
@@ -178,6 +186,8 @@ pub unsafe extern "C" fn malloc_size(_size: usize) -> usize {
 
 #[no_mangle]
 pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize {
+    stat::inc(&stat::MALLOC_USABLE_SIZE);
+
     let Some(pointer) = NonNull::new(pointer) else {
         return 0;
     };
@@ -187,6 +197,8 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
 
 #[no_mangle]
 pub unsafe extern "C" fn memalign(alignment: usize, size: usize) -> *mut ffi::c_void {
+    stat::inc(&stat::MEMALIGN);
+
     with_mut(|allocator| {
         // FIXME: pass layout directly
         allocator
@@ -206,11 +218,15 @@ pub unsafe extern "C" fn posix_memalign(
     alignment: usize,
     size: usize,
 ) -> ffi::c_int {
+    stat::inc(&stat::POSIX_MEMALIGN);
+
     if size == 0 {
         return -1;
     }
 
     let allocation = memalign(alignment, size);
+    stat::dec(&stat::MEMALIGN);
+
     *pointer = allocation;
     0
 }
@@ -223,8 +239,12 @@ pub unsafe extern "C" fn pvalloc(_size: usize) -> *mut ffi::c_void {
 #[no_mangle]
 pub unsafe extern "C" fn realloc(pointer: *mut ffi::c_void, size: usize) -> *mut ffi::c_void {
     log::trace!("realloc {pointer:?} {size}");
+    stat::inc(&stat::REALLOC);
+
     let Some(pointer) = NonNull::new(pointer) else {
-        return malloc(size);
+        let allocation = malloc(size);
+        stat::dec(&stat::MALLOC);
+        return allocation;
     };
 
     with_mut(|allocator| allocator.realloc_untyped(pointer.cast(), size).cast())
@@ -305,5 +325,6 @@ impl Drop for ThreadId {
     fn drop(&mut self) {
         ID.fetch_or(1 << self.0, Ordering::AcqRel);
         cxlalloc::stat::dump(self.0);
+        stat::dump(self.0);
     }
 }
