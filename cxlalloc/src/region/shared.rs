@@ -282,6 +282,7 @@ impl Transfer for Map {
     ) -> Result<Self::Output, Self::Abort> {
         match request {
             Request::Map(_) => todo!(),
+            Request::Extend(_) if !cfg!(feature = "extend") => panic!("Heap extension disabled"),
             // Caller should not use this index--cannot return `None` because
             // we need `Output: NonZero` to support `Option<Output>`.
             Request::Extend(epoch) if epoch == state => Ok(slab::Index::dangling()),
