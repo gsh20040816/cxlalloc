@@ -10,13 +10,22 @@
 mod stat;
 
 use core::alloc::Layout;
+use core::cell::Cell;
 use core::ffi;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::LazyLock;
 
 use cxlalloc::UnsafeCell;
+
+#[repr(transparent)]
+struct Key(core::cell::UnsafeCell<libc::pthread_key_t>);
+
+unsafe impl Sync for Key {}
+
+static DESTRUCTOR: Key = unsafe { Key(MaybeUninit::zeroed().assume_init()) };
 
 // Note: it would be nice to initialize this with an initialization
 // function, but that doesn't work well with `LD_PRELOAD`.
@@ -37,14 +46,19 @@ static RAW: LazyLock<cxlalloc::raw::Heap> = LazyLock::new(|| {
     log::set_max_level(log::LevelFilter::Info);
     log::set_logger(&Logger).unwrap();
 
-    let raw = cxlalloc::raw::Builder::default()
+    unsafe {
+        assert_eq!(
+            libc::pthread_key_create(DESTRUCTOR.0.get(), Some(on_pthread_exit)),
+            0,
+            "pthread_key_create failed",
+        );
+    }
+
+    cxlalloc::raw::Builder::default()
         .size(1usize << 34)
         .thread_count(64)
         .build("cxl")
-        .unwrap();
-
-    log::info!("initialized heap");
-    raw
+        .expect("Heap creation failed")
 });
 
 // The behavior of these thread locals is unfortunately quite hairy.
@@ -115,19 +129,26 @@ static RAW: LazyLock<cxlalloc::raw::Heap> = LazyLock::new(|| {
 // [impl]: https://github.com/rust-lang/rust/blob/0b5eb7ba7bd796fb39c8bb6acd9ef6c140f28b65/library/std/src/sys/thread_local/native/lazy.rs#L72-L73
 // [issue]: https://github.com/rust-lang/rust/issues/30228
 thread_local! {
-    static THREAD_ID: ThreadId = {
-        let id = ThreadId::new();
-        log::info!("Initialized id: {id:?}");
-        id
-    };
+    static THREAD_ID: Cell<usize> = Cell::new(thread_id());
 
     static ALLOCATOR: UnsafeCell<cxlalloc::Allocator<'static>> = {
-        let id = THREAD_ID.with(ThreadId::get);
+        // Ensure heap has been initialized
+        let raw = LazyLock::force(&RAW);
+
+        unsafe {
+            // Destructor will only run if key is non-null.
+            assert_eq!(
+                libc::pthread_setspecific(*DESTRUCTOR.0.get(), NonNull::dangling().as_ptr()),
+                0,
+                "pthread_setspecific failed",
+            );
+        }
+
+        let id = THREAD_ID.get();
 
         // let allocator = unsafe { RAW.allocator_assume_init(id) };
-        let allocator = RAW.allocator(unsafe { cxlalloc::thread::Id::new(id as u16) });
+        let allocator = raw.allocator(unsafe { cxlalloc::thread::Id::new(id as u16) });
 
-        log::info!("Initialized allocator: {id}");
         UnsafeCell::new(allocator)
     };
 }
@@ -298,33 +319,28 @@ impl log::Log for Logger {
     fn flush(&self) {}
 }
 
-static ID: AtomicUsize = AtomicUsize::new(0xFFFF_FFFF_FFFF_FFFF);
+static GLOBAL_ID: AtomicUsize = AtomicUsize::new(0xFFFF_FFFF_FFFF_FFFF);
 
-#[derive(Debug)]
-struct ThreadId(usize);
-
-impl ThreadId {
-    fn new() -> Self {
-        let mut prev = ID.load(Ordering::Acquire);
-        loop {
-            let next = prev & (prev - 1);
-            let id = prev & !(prev - 1);
-            match ID.compare_exchange(prev, next, Ordering::AcqRel, Ordering::Acquire) {
-                Ok(_) => break Self(id.trailing_zeros() as usize),
-                Err(current) => prev = current,
-            }
+fn thread_id() -> usize {
+    let mut prev = GLOBAL_ID.load(Ordering::Acquire);
+    loop {
+        let next = prev & (prev - 1);
+        let id = prev & !(prev - 1);
+        match GLOBAL_ID.compare_exchange(prev, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => break id.trailing_zeros() as usize,
+            Err(current) => prev = current,
         }
-    }
-
-    fn get(&self) -> usize {
-        self.0
     }
 }
 
-impl Drop for ThreadId {
-    fn drop(&mut self) {
-        ID.fetch_or(1 << self.0, Ordering::AcqRel);
-        cxlalloc::stat::dump(self.0);
-        stat::dump(self.0);
-    }
+unsafe extern "C" fn on_pthread_exit(_: *mut libc::c_void) {
+    on_exit();
+}
+
+#[ctor::dtor]
+fn on_exit() {
+    let id = THREAD_ID.get();
+    GLOBAL_ID.fetch_or(1 << id, Ordering::AcqRel);
+    cxlalloc::stat::dump(id);
+    stat::dump(id);
 }

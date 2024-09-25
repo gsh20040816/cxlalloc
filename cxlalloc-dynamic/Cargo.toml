@@ -10,5 +10,7 @@ crate-type = ["cdylib"]
 stat = []
 
 [dependencies]
+ctor.workspace = true
 cxlalloc = { path = "../cxlalloc" }
+libc.workspace = true
 log.workspace = true
