@@ -14,7 +14,7 @@ macro_rules! stat {
         }
 
         pub fn dump_counters(id: usize) {
-            if !cfg!(feature = "stat") {
+            if !cfg!(feature = "stat-count") {
                 return;
             }
 
@@ -68,7 +68,7 @@ stat![
 
 #[inline]
 pub(crate) fn inc(counter: &'static LocalKey<Cell<usize>>) {
-    if !cfg!(feature = "stat") {
+    if !cfg!(feature = "stat-count") {
         return;
     }
 

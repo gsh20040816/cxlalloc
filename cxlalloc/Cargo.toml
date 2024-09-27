@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 backend-shm = ["numa-sys"]
 extend = []
-stat = []
+stat-count = []
 stat-extend = []
 stat-size = ["dep:hdrhistogram"]
 validate = []

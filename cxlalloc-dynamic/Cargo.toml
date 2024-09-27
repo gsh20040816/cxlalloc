@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [features]
-stat = []
+stat-count = []
 
 [dependencies]
 ctor.workspace = true

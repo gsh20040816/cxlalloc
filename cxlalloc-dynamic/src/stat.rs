@@ -10,7 +10,7 @@ macro_rules! stat {
         }
 
         pub fn dump_counters(id: usize) {
-            if cfg!(feature = "stat") {
+            if cfg!(feature = "stat-count") {
                 $(
                     eprintln!("{},{},{}", id, stringify!($name), $name.get());
                     $name.set(0);
@@ -32,14 +32,14 @@ stat![
 
 #[inline]
 pub(crate) fn dec(counter: &'static LocalKey<Cell<usize>>) {
-    if cfg!(feature = "stat") {
+    if cfg!(feature = "stat-count") {
         counter.set(counter.get() - 1)
     }
 }
 
 #[inline]
 pub(crate) fn inc(counter: &'static LocalKey<Cell<usize>>) {
-    if cfg!(feature = "stat") {
+    if cfg!(feature = "stat-count") {
         counter.set(counter.get() + 1)
     }
 }
