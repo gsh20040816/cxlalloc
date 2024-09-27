@@ -1,4 +1,4 @@
-import math
+import common
 import plotly.graph_objects as go
 import sys
 
@@ -6,7 +6,7 @@ def main():
     data = None
     name = sys.argv[2]
     with open(sys.argv[1]) as file:
-        rows = [row.split(",") for row in file.read().splitlines()]
+        rows = [row.split(",") for row in file.read().strip().splitlines()]
         data = [(int(thread), name, int(count)) for thread, name, count in rows]
 
     for index, prefix in enumerate(["ALLOCATE", "FREE", "BUMP", "GLOBAL"]):
@@ -56,29 +56,17 @@ def parse(data: list[tuple[int, str, int]]):
 
         # Root node
         if prefix == suffix:
-            labels.append(f"{name}<br>{display(count)}")
+            labels.append(f"{name}<br>{common.display_count(count)}")
             continue
         else:
             parent = data[prefix]
-            labels.append(f"{name}<br>{display(count)} ({count / parent * 100:.02f}%)")
+            labels.append(f"{name}<br>{common.display_count(count)} ({count / parent * 100:.02f}%)")
 
         sources.append(indexes[prefix])
         targets.append(indexes[name])
         values.append(count)
 
     return labels, sources, targets, values
-
-
-def display(value: int) -> str:
-    suffixes = ["", "K", "M", "B", "T"]
-    if value == 0:
-        return "0"
-
-    index = int(math.log10(value) / 3)
-    if index == 0:
-        return f"{value}"
-    else:
-        return f"{value / (10**(3 * index)):.02f}{suffixes[index]}"
 
 
 if __name__ == "__main__":
