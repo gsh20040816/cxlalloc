@@ -71,14 +71,18 @@ impl Region {
                 }
                 return Err(error);
             }
-            address => NonNull::new(address).unwrap().cast(),
+            address => NonNull::new(address).unwrap(),
         };
+
+        unsafe {
+            mbind(base.as_ptr(), size).expect("Failed to mbind");
+        }
 
         Ok(Region {
             id,
             size,
             epoch: Atomic::new(Epoch::default()),
-            base,
+            base: base.cast(),
         })
     }
 
@@ -148,6 +152,11 @@ impl Region {
             libc::MAP_FAILED => Err(io::Error::last_os_error()),
             actual => {
                 assert_eq!(actual, address);
+
+                unsafe {
+                    mbind(actual, size).expect("Failed to mbind");
+                }
+
                 Ok(actual)
             }
         }
@@ -159,6 +168,32 @@ impl Region {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
         }
+    }
+}
+
+// https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
+unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+    let Some(numa) = std::env::var("CXL_NUMA_NODE")
+        .ok()
+        .and_then(|numa| numa.parse::<usize>().ok())
+    else {
+        return Ok(());
+    };
+
+    let mask = 1u64 << numa;
+    if libc::syscall(
+        libc::SYS_mbind,
+        address,
+        size as u64,
+        libc::MPOL_BIND,
+        &mask,
+        64,
+        0,
+    ) >= 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 

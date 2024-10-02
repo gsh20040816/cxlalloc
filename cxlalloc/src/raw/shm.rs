@@ -1,4 +1,3 @@
-use core::ffi;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd as _;
@@ -59,8 +58,6 @@ impl Backend for Shm {
             }
 
             let region = Region::new(id, size, Some((fd.as_raw_fd(), 0)))?;
-            mbind(region.base().as_ptr().cast(), size)?;
-
             Ok(region)
         }
     }
@@ -84,7 +81,7 @@ impl Backend for Shm {
             }
 
             region.extend(address, size, Some((fd.as_raw_fd(), 0)))?;
-            mbind(address, size)
+            Ok(())
         }
     }
 
@@ -109,35 +106,6 @@ impl Backend for Shm {
 
             Ok(())
         }
-    }
-}
-
-// Note: while the [documentation][doc] doesn't mention `shm_open`, it looks
-// like the current implementation does have a [`shm_set_policy`][pol] field.
-//
-// [doc]: https://docs.kernel.org/admin-guide/mm/numa_memory_policy.html
-// [pol]: https://elixir.bootlin.com/linux/v6.9/source/ipc/shm.c#L689
-unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
-    let Some(numa) = std::env::var("CXL_NUMA_NODE")
-        .ok()
-        .and_then(|numa| numa.parse::<usize>().ok())
-    else {
-        return Ok(());
-    };
-
-    let mask = 1u64 << numa;
-    if numa_sys::mbind(
-        address,
-        size as u64,
-        numa_sys::MPOL_BIND as i32,
-        &mask,
-        64,
-        0,
-    ) >= 0
-    {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
     }
 }
 

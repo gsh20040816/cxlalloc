@@ -23,7 +23,6 @@
       with pkgs; {
         devShells.default = mkShell {
           nativeBuildInputs = [
-            numactl
             pkg-config
             rustToolchain
             taplo
