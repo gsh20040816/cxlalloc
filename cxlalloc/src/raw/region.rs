@@ -185,10 +185,12 @@ unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
         libc::SYS_mbind,
         address,
         size as u64,
-        libc::MPOL_BIND,
+        libc::MPOL_BIND | libc::MPOL_F_STATIC_NODES,
         &mask,
         64,
-        0,
+        // MPOL_MF_STRICT
+        // https://github.com/torvalds/linux/blob/0c559323bbaabee7346c12e74b497e283aaafef5/include/uapi/linux/mempolicy.h#L48
+        1,
     ) >= 0
     {
         Ok(())
