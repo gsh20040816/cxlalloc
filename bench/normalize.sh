@@ -50,4 +50,4 @@ if test -d "$cpu/smt"; then
 fi
 
 # Disable CPUs on NUMA node 1
-echo 0 | sudo tee $system/node/node1/cpu*{0..9}*/online
+echo 0 | sudo tee $system/node/node0/cpu*{0..9}*/online
