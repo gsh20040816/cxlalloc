@@ -54,3 +54,10 @@ echo 0 | sudo tee $system/node/node0/cpu*{0..9}*/online
 
 # Set up CXL device
 sudo daxctl reconfigure-device --mode=system-ram dax0.0 --force
+
+# Restrict system threads
+# https://documentation.suse.com/sle-rt/15-SP6/html/SLE-RT-all/cha-shielding-with-systemd.html
+sudo systemctl set-property --runtime init.scope AllowedCPUs=0 AllowedMemoryNodes=0
+sudo systemctl set-property --runtime system.slice AllowedCPUs=0 AllowedMemoryNodes=0
+echo "[Slice]\nAllowedCpus=40-79" | sudo tee /etc/systemd/system/workload.slice
+
