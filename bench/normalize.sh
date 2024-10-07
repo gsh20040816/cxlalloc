@@ -49,5 +49,8 @@ if test -d "$cpu/smt"; then
     echo off | sudo tee $cpu/smt/control >/dev/null 2>&1
 fi
 
-# Disable CPUs on NUMA node 1
+# Disable CPUs on NUMA node 0
 echo 0 | sudo tee $system/node/node0/cpu*{0..9}*/online
+
+# Set up CXL device
+sudo daxctl reconfigure-device --mode=system-ram dax0.0 --force
