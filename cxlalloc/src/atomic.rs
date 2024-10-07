@@ -69,6 +69,7 @@ unsafe impl Packed for Infallible {
 unsafe impl NonZero for Infallible {}
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct Atomic<T> {
     value: AtomicU64,
     _type: PhantomData<T>,

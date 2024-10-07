@@ -58,3 +58,11 @@ impl<T> Index<Id> for Array<T> {
         &self.0[index.0.get() as usize]
     }
 }
+
+impl<'a, T> IntoIterator for &'a Array<T> {
+    type Item = &'a T;
+    type IntoIter = core::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}

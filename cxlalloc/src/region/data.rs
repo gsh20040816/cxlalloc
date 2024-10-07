@@ -1,4 +1,5 @@
 use core::alloc::Layout;
+use core::ffi;
 use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
@@ -22,6 +23,10 @@ impl<'raw> Data<'raw> {
             base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
             _raw: PhantomData,
         }
+    }
+
+    pub(crate) fn base(&self) -> *mut ffi::c_void {
+        self.base.as_ptr().cast()
     }
 
     pub(crate) fn offset_to_pointer<T>(&self, offset: slab::Offset) -> NonNull<T> {

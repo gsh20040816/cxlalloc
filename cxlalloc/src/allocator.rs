@@ -281,6 +281,13 @@ impl<'raw> Allocator<'raw> {
 
     #[cold]
     unsafe fn malloc_slow_large(&mut self, class: size::Large) -> *mut ffi::c_void {
+        if class.size() > 32768 {
+            return self
+                .heap
+                .shared
+                .allocate_log(self.id, self.heap.data.base(), class.size());
+        }
+
         let index = self.allocate_large(class);
         let offset = slab::Offset::from(index);
         self.heap.offset_to_pointer(offset).as_ptr()
@@ -289,6 +296,15 @@ impl<'raw> Allocator<'raw> {
     #[inline]
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
+
+        if pointer.as_ptr() < self.heap.data.base()
+            || pointer.as_ptr() >= self.heap.data.base().wrapping_byte_add(1 << 40)
+        {
+            return self
+                .heap
+                .shared
+                .free_log(self.id, self.heap.data.base(), pointer);
+        }
 
         let offset = self.heap.pointer_to_offset(pointer);
         let index = slab::Index::from(offset);

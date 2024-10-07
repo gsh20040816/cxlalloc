@@ -172,7 +172,7 @@ impl Region {
 }
 
 // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+pub(crate) unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
     let Some(numa) = std::env::var("CXL_NUMA_NODE")
         .ok()
         .and_then(|numa| numa.parse::<usize>().ok())
