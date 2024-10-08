@@ -4,6 +4,7 @@ use core::ptr::NonNull;
 
 use crate::extend::Epoch;
 use crate::link;
+use crate::log;
 use crate::raw;
 use crate::region;
 use crate::root;
@@ -17,6 +18,7 @@ use crate::SIZE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
+    state: log::Dram,
     owned: region::Owned<'raw>,
     heap: Heap<'raw>,
 }
@@ -26,7 +28,12 @@ impl<'raw> Allocator<'raw> {
         let heap = Heap::from_raw(raw);
         let owned = region::Owned::from_raw(raw, id);
 
-        Self { id, owned, heap }
+        Self {
+            id,
+            state: log::Dram::default(),
+            owned,
+            heap,
+        }
     }
 
     pub fn heap(&self) -> &Heap<'raw> {
@@ -259,7 +266,7 @@ impl<'raw> Allocator<'raw> {
             .pop(&self.owned.slabs)
             .unwrap();
 
-        log::info!("Detaching {} from {}", index, class);
+        ::log::info!("Detaching {} from {}", index, class);
 
         let shared = &self.heap.shared.slabs[index];
         if !shared.free.is_empty() {
@@ -285,7 +292,14 @@ impl<'raw> Allocator<'raw> {
             return self
                 .heap
                 .shared
-                .allocate_log(self.id, self.heap.data.base(), class.size());
+                .allocate_log(
+                    &mut self.state,
+                    self.id,
+                    self.heap.data.huge(),
+                    class.size(),
+                )
+                .as_ptr()
+                .cast();
         }
 
         let index = self.allocate_large(class);
@@ -297,13 +311,22 @@ impl<'raw> Allocator<'raw> {
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
 
-        if pointer.as_ptr() < self.heap.data.base()
-            || pointer.as_ptr() >= self.heap.data.base().wrapping_byte_add(1 << 40)
+        if pointer.as_ptr() >= self.heap.data.huge().as_ptr().cast::<ffi::c_void>()
+            && pointer.as_ptr()
+                < self
+                    .heap
+                    .data
+                    .huge()
+                    .as_ptr()
+                    .cast::<ffi::c_void>()
+                    .wrapping_byte_add(1 << 40)
         {
-            return self
-                .heap
-                .shared
-                .free_log(self.id, self.heap.data.base(), pointer);
+            return self.heap.shared.free_log(
+                &mut self.state,
+                self.id,
+                self.heap.data.huge(),
+                pointer,
+            );
         }
 
         let offset = self.heap.pointer_to_offset(pointer);
@@ -354,7 +377,7 @@ impl<'raw> Allocator<'raw> {
 
         self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
 
-        log::info!("Attaching {} to {}", index, class);
+        ::log::info!("Attaching {} to {}", index, class);
 
         stat::inc(&stat::FREE_FAST_ATTACH);
     }

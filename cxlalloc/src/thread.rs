@@ -7,7 +7,7 @@ use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::COUNT_THREAD;
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Id(NonZeroU16);
 
 impl Id {
@@ -37,15 +37,9 @@ impl From<Id> for u16 {
     }
 }
 
-impl Debug for Id {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&u16::from(*self), f)
-    }
-}
-
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&u16::from(*self), f)
+        Display::fmt(&self.0, f)
     }
 }
 
@@ -59,10 +53,11 @@ impl<T> Index<Id> for Array<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a Array<T> {
-    type Item = &'a T;
-    type IntoIter = core::slice::Iter<'a, T>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+impl<T> Array<T> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Id, &T)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (unsafe { Id::new(index as u16) }, value))
     }
 }

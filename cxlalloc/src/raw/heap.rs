@@ -1,3 +1,5 @@
+use core::ptr;
+use core::ptr::NonNull;
 use std::io;
 
 use crate::raw;
@@ -24,6 +26,7 @@ pub struct Inner {
     pub(crate) shared: Region,
     pub(crate) owned: Region,
     pub(crate) data: Region,
+    pub(crate) huge: NonNull<u64>,
 
     /// Initial capacity
     pub(crate) capacity: u32,
@@ -93,11 +96,29 @@ impl Inner {
             slab_count * SIZE_SLAB
         );
 
+        let huge = unsafe {
+            let address = match libc::mmap64(
+                ptr::null_mut(),
+                1 << 40,
+                libc::PROT_NONE,
+                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                -1,
+                0,
+            ) {
+                libc::MAP_FAILED => todo!(),
+                address => address,
+            };
+
+            assert_eq!(libc::munmap(address, 1 << 40), 0);
+            NonNull::new(address).unwrap().cast()
+        };
+
         let raw = Self {
             backend,
             shared,
             owned,
             data,
+            huge,
             capacity: slab_count.try_into().unwrap(),
             process_id,
             process_count,

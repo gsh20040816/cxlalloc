@@ -5,11 +5,14 @@ use core::ops::Index;
 use core::ops::Range;
 use core::ptr::NonNull;
 
+use interval::IntervalSet;
+
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::atomic::Versioned;
 use crate::extend::Epoch;
+use crate::log;
 use crate::raw;
 use crate::root;
 use crate::slab;
@@ -18,7 +21,6 @@ use crate::transfer;
 use crate::transfer::TransferExt;
 use crate::Atomic;
 use crate::Barrier;
-use crate::Log;
 use crate::Transfer;
 use crate::SIZE_PAGE;
 
@@ -99,24 +101,31 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn allocate_log(
         &self,
+        state: &mut log::Dram,
         id: thread::Id,
-        hint: *mut ffi::c_void,
+        base: NonNull<u64>,
         size: usize,
-    ) -> *mut ffi::c_void {
+    ) -> NonNull<u64> {
         self.meta
             .log
-            .allocate(id, self.process_count, self.process_id, hint, size)
+            .allocate(state, id, self.process_count, self.process_id, base, size)
     }
 
     pub(crate) fn free_log(
         &self,
+        state: &mut log::Dram,
         id: thread::Id,
-        hint: *mut ffi::c_void,
+        base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
     ) {
-        self.meta
-            .log
-            .free(id, self.process_count, self.process_id, hint, pointer)
+        self.meta.log.free(
+            state,
+            id,
+            self.process_count,
+            self.process_id,
+            base,
+            pointer,
+        )
     }
 
     pub(crate) fn push(
@@ -181,7 +190,7 @@ pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
     stages: thread::Array<transfer::Stage>,
-    pub(crate) log: Log<256>,
+    pub(crate) log: log::Cxl<256>,
 
     bump: Bump,
     map: Map,

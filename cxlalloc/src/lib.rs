@@ -23,7 +23,6 @@ pub(crate) use barrier::Barrier;
 pub use cell::UnsafeCell;
 pub use extend::Epoch;
 pub use heap::Heap;
-pub(crate) use log::Log;
 pub use r#box::Box;
 pub use root::Root;
 pub use transfer::Transfer;

@@ -1,5 +1,4 @@
 use core::alloc::Layout;
-use core::ffi;
 use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
@@ -10,6 +9,7 @@ use crate::SIZE_SLAB;
 
 pub(crate) struct Data<'raw> {
     base: NonNull<u64>,
+    huge: NonNull<u64>,
     _raw: PhantomData<&'raw raw::Region>,
 }
 
@@ -21,12 +21,13 @@ impl<'raw> Data<'raw> {
     pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Inner) -> Self {
         Self {
             base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
+            huge: region.huge,
             _raw: PhantomData,
         }
     }
 
-    pub(crate) fn base(&self) -> *mut ffi::c_void {
-        self.base.as_ptr().cast()
+    pub(crate) fn huge(&self) -> NonNull<u64> {
+        self.huge
     }
 
     pub(crate) fn offset_to_pointer<T>(&self, offset: slab::Offset) -> NonNull<T> {

@@ -10,8 +10,10 @@ clap = { version = "4.5", features = ["derive"] }
 ctor = "0.2"
 duct = "0.13"
 env_logger = "0.11"
+gcollections = "1.5"
 hdrhistogram = "7.5"
 homedir = "0.3"
+intervallum = "1.4"
 libc = "0.2"
 log = { version = "0.4", features = ["release_max_level_off"] }
 mimalloc = "0.1"

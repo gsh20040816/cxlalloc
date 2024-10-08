@@ -12,6 +12,7 @@ mod stat;
 use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi;
+use core::mem::ManuallyDrop;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicUsize;
@@ -138,7 +139,7 @@ static RAW: LazyLock<cxlalloc::raw::Heap> = LazyLock::new(|| {
 thread_local! {
     static THREAD_ID: Cell<usize> = Cell::new(thread_id());
 
-    static ALLOCATOR: UnsafeCell<cxlalloc::Allocator<'static>> = {
+    static ALLOCATOR: UnsafeCell<ManuallyDrop<cxlalloc::Allocator<'static>>> = {
         // Ensure heap has been initialized
         let raw = LazyLock::force(&RAW);
 
@@ -152,11 +153,9 @@ thread_local! {
         }
 
         let id = THREAD_ID.get();
-
-        // let allocator = unsafe { RAW.allocator_assume_init(id) };
         let allocator = raw.allocator(unsafe { cxlalloc::thread::Id::new(id as u16) });
 
-        UnsafeCell::new(allocator)
+        UnsafeCell::new(ManuallyDrop::new(allocator))
     };
 }
 
@@ -303,11 +302,11 @@ pub unsafe extern "C" fn vfree(_pointer: *mut ffi::c_void) {
 }
 
 unsafe fn with<F: FnOnce(&cxlalloc::Allocator) -> T, T>(apply: F) -> T {
-    ALLOCATOR.with(|allocator| allocator.with(apply))
+    ALLOCATOR.with(|allocator| allocator.with(|allocator| apply(allocator)))
 }
 
 unsafe fn with_mut<F: FnOnce(&mut cxlalloc::Allocator) -> T, T>(apply: F) -> T {
-    ALLOCATOR.with(|allocator| allocator.with_mut(apply))
+    ALLOCATOR.with(|allocator| allocator.with_mut(|allocator| apply(allocator)))
 }
 
 struct Logger;
@@ -351,4 +350,6 @@ fn on_exit() {
     cxlalloc::stat::dump_counters(id);
     cxlalloc::stat::dump_sizes(id);
     stat::dump_counters(id);
+    ALLOCATOR
+        .with(|allocator| unsafe { allocator.with_mut(|allocator| ManuallyDrop::drop(allocator)) });
 }
