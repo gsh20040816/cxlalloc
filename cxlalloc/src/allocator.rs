@@ -3,8 +3,8 @@ use core::ffi;
 use core::ptr::NonNull;
 
 use crate::extend::Epoch;
+use crate::huge;
 use crate::link;
-use crate::log;
 use crate::raw;
 use crate::region;
 use crate::root;
@@ -18,7 +18,7 @@ use crate::SIZE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
-    state: log::Dram,
+    state: huge::Dram,
     owned: region::Owned<'raw>,
     heap: Heap<'raw>,
 }
@@ -30,7 +30,7 @@ impl<'raw> Allocator<'raw> {
 
         Self {
             id,
-            state: log::Dram::default(),
+            state: huge::Dram::default(),
             owned,
             heap,
         }

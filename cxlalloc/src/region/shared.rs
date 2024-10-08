@@ -10,7 +10,7 @@ use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::atomic::Versioned;
 use crate::extend::Epoch;
-use crate::log;
+use crate::huge;
 use crate::raw;
 use crate::root;
 use crate::slab;
@@ -99,7 +99,7 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn allocate_log(
         &self,
-        state: &mut log::Dram,
+        state: &mut huge::Dram,
         id: thread::Id,
         base: NonNull<u64>,
         size: usize,
@@ -111,7 +111,7 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn free_log(
         &self,
-        state: &mut log::Dram,
+        state: &mut huge::Dram,
         id: thread::Id,
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
@@ -183,7 +183,7 @@ pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
     stages: thread::Array<transfer::Stage>,
-    pub(crate) log: log::Cxl<256>,
+    pub(crate) log: huge::Cxl<256>,
 
     bump: Bump,
     map: Map,
