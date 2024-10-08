@@ -5,8 +5,6 @@ use core::ops::Index;
 use core::ops::Range;
 use core::ptr::NonNull;
 
-use interval::IntervalSet;
-
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
@@ -108,7 +106,7 @@ impl<'raw> Shared<'raw> {
     ) -> NonNull<u64> {
         self.meta
             .log
-            .allocate(state, id, self.process_count, self.process_id, base, size)
+            .allocate(state, id, self.process_id, base, size)
     }
 
     pub(crate) fn free_log(
@@ -118,14 +116,9 @@ impl<'raw> Shared<'raw> {
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
     ) {
-        self.meta.log.free(
-            state,
-            id,
-            self.process_count,
-            self.process_id,
-            base,
-            pointer,
-        )
+        self.meta
+            .log
+            .free(state, id, self.process_id, base, pointer)
     }
 
     pub(crate) fn push(

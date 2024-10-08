@@ -25,15 +25,14 @@ use crate::SIZE_PAGE;
 pub(crate) struct Dram {
     free: IntervalSet<usize>,
 
-    /// The last LSN this thread has processed
-    seen: Option<Lsn>,
+    next: u16,
 }
 
 impl Default for Dram {
     fn default() -> Self {
         Self {
             free: (0, (1 << 40) - 1).to_interval_set(),
-            seen: None,
+            next: 0,
         }
     }
 }
@@ -47,31 +46,30 @@ impl Dram {
             .lower()
     }
 
-    fn mark_allocated(&mut self, lsn: Lsn, offset: usize, size: NonZeroUsize) {
-        self.seen = Some(lsn);
+    fn mark_allocated(&mut self, offset: usize, size: NonZeroUsize, id: thread::Id, lsn: Lsn) {
         let allocation = (offset, offset + size.get() - 1).to_interval_set();
         assert_eq!(
             self.free.intersection(&allocation).size(),
             allocation.size(),
-            "Local view inconsistent with global order",
+            "Local view inconsistent with global order on thread {id} lsn {lsn:?}",
         );
         self.free = self.free.difference(&allocation);
     }
 
-    fn mark_deallocated(&mut self, lsn: Lsn, offset: usize, size: NonZeroUsize) {
-        self.seen = Some(lsn);
+    fn mark_deallocated(&mut self, offset: usize, size: NonZeroUsize) {
         let allocation = (offset, offset + size.get() - 1).to_interval_set();
-        assert_eq!(
-            self.free.intersection(&allocation).size(),
-            0,
-            "Local view inconsistent with global order",
-        );
+        if self.free.intersection(&allocation).size() > 0 {
+            log::info!("Skipped freed allocation {offset:#x} ({size:#x})");
+        }
         self.free.extend(allocation);
     }
 }
 
 pub(crate) struct Cxl<const SIZE: usize> {
-    tail: Atomic<Option<Tail>>,
+    global: Atomic<Option<Tail>>,
+
+    local: thread::Array<Atomic<Option<Lsn>>>,
+
     logs: thread::Array<[UnsafeCell<Entry>; SIZE]>,
 }
 
@@ -80,47 +78,48 @@ impl<const SIZE: usize> Cxl<SIZE> {
         &self,
         state: &mut Dram,
         id: thread::Id,
-        process_count: usize,
         process_id: usize,
         base: NonNull<u64>,
         size: usize,
     ) -> NonNull<u64> {
-        let index = self.next(id, process_count).unwrap();
+        let index = self.next(state, id);
         let size = size.next_multiple_of(SIZE_PAGE) + SIZE_PAGE;
         let size = NonZeroUsize::new(size).unwrap();
 
-        let tail = self.tail(state, base, process_id);
-        let next = Tail::new(
-            id,
-            index,
-            tail.map(Tail::lsn).map(Lsn::next).unwrap_or(Lsn::MIN),
-        );
+        loop {
+            let tail = self.tail(state, id, base, process_id);
+            let next = Tail::new(
+                id,
+                index,
+                tail.map(Tail::lsn).map(Lsn::next).unwrap_or(Lsn::MIN),
+            );
 
-        let offset = state.allocate(size.get());
+            let offset = state.allocate(size.get());
 
-        unsafe {
-            *self.logs[id][index as usize].get() = Entry::Allocate {
-                valid: AtomicBool::new(false),
-                freed: AtomicBool::new(false),
-                lsn: next.lsn(),
-                offset,
-                size,
-            };
-        }
-
-        match self.tail.compare_exchange(tail, Some(next)) {
-            Ok(_) => {
-                self.validate(next);
-                self.apply(state, base, process_id, next);
-                log::info!("Applied allocate {next:?}",);
-                NonNull::new(
-                    base.as_ptr()
-                        .wrapping_byte_add(offset)
-                        .wrapping_byte_add(SIZE_PAGE),
-                )
-                .unwrap()
+            unsafe {
+                *self.logs[id][index as usize].get() = Entry::Allocate {
+                    valid: AtomicBool::new(false),
+                    freed: AtomicBool::new(false),
+                    lsn: next.lsn(),
+                    offset,
+                    size,
+                };
             }
-            Err(_) => todo!(),
+
+            match self.global.compare_exchange(tail, Some(next)) {
+                Ok(_) => {
+                    self.validate(next);
+                    self.apply(state, base, process_id, id, next);
+                    log::info!("Applied allocate {next:?}",);
+                    return NonNull::new(
+                        base.as_ptr()
+                            .wrapping_byte_add(offset)
+                            .wrapping_byte_add(SIZE_PAGE),
+                    )
+                    .unwrap();
+                }
+                Err(_) => log::info!("Conflict at {next:?}"),
+            }
         }
     }
 
@@ -128,7 +127,6 @@ impl<const SIZE: usize> Cxl<SIZE> {
         &self,
         state: &mut Dram,
         id: thread::Id,
-        process_count: usize,
         process_id: usize,
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
@@ -158,75 +156,94 @@ impl<const SIZE: usize> Cxl<SIZE> {
             }
         };
 
-        let tail = self
-            .tail(state, base, process_id)
-            .expect("Called free with no allocation log entry");
+        let index = self.next(state, id);
 
-        let index = self.next(id, process_count).unwrap();
-        let next = Tail::new(id, index, tail.lsn().next());
+        loop {
+            let tail = self
+                .tail(state, id, base, process_id)
+                .expect("Called free with no allocation log entry");
 
-        unsafe {
-            *self.logs[id][index as usize].get() = Entry::Free {
-                valid: AtomicBool::new(false),
-                acked: AtomicU64::new(0),
-                lsn: next.lsn(),
-                offset,
-                size,
-            };
-        }
+            let next = Tail::new(id, index, tail.lsn().next());
 
-        match self.tail.compare_exchange(Some(tail), Some(next)) {
-            Ok(_) => {
-                self.validate(next);
-                self.apply(state, base, process_id, next);
-                log::info!("Applied free {next:?}",);
+            unsafe {
+                *self.logs[id][index as usize].get() = Entry::Free {
+                    valid: AtomicBool::new(false),
+                    acked: AtomicU64::new(0),
+                    lsn: next.lsn(),
+                    offset,
+                    size,
+                };
             }
-            Err(_) => todo!(),
+
+            match self.global.compare_exchange(Some(tail), Some(next)) {
+                Ok(_) => {
+                    self.validate(next);
+                    self.apply(state, base, process_id, id, next);
+                    log::info!("Applied free {next:?}");
+                    return;
+                }
+                Err(_) => log::info!("Conflict at {next:?}"),
+            }
         }
     }
 
-    pub(crate) fn next(&self, id: thread::Id, process_count: usize) -> Option<u16> {
+    pub(crate) fn next(&self, state: &mut Dram, id: thread::Id) -> u16 {
         const {
             assert!(SIZE < u16::MAX as usize);
         }
 
-        self.logs[id]
+        let index = self.logs[id]
             .iter()
-            .position(|entry| match unsafe { &*entry.get() } {
-                Entry::Empty => true,
+            .enumerate()
+            .cycle()
+            .skip(state.next as usize)
+            .take(SIZE)
+            .find_map(|(index, entry)| match unsafe { &*entry.get() } {
+                Entry::Empty => Some(index),
                 Entry::Allocate { valid, .. } | Entry::Free { valid, .. }
                     if !valid.load(Ordering::Acquire) =>
                 {
                     log::info!("Reuse invalid at {entry:?}");
-                    true
+                    Some(index)
                 }
                 Entry::Allocate { freed, .. } if freed.load(Ordering::Acquire) => {
                     log::info!("Reuse allocate at {entry:?}");
-                    true
+                    Some(index)
                 }
-                Entry::Allocate { .. } => false,
+                Entry::Allocate { .. } => None,
 
-                Entry::Free { acked, .. }
-                    if acked.load(Ordering::Acquire).count_ones() as usize == process_count =>
+                Entry::Free { lsn, .. }
+                    if self.local.iter().all(|(_, tail)| tail.load() >= Some(*lsn)) =>
                 {
                     log::info!("Reuse free at {entry:?}");
-                    true
+                    None
                 }
-                Entry::Free { .. } => false,
+                Entry::Free { .. } => None,
             })
             .map(|index| index as u16)
+            .expect("Out of log slots");
+
+        state.next = index + 1;
+        index
     }
 
-    fn tail(&self, state: &mut Dram, base: NonNull<u64>, process_id: usize) -> Option<Tail> {
-        let tail = self.tail.load()?;
+    fn tail(
+        &self,
+        state: &mut Dram,
+        id: thread::Id,
+        base: NonNull<u64>,
+        process_id: usize,
+    ) -> Option<Tail> {
+        let tail = self.global.load()?;
+        let seen = self.local[id].load();
 
-        match Some(tail.lsn()).cmp(&state.seen) {
+        match Some(tail.lsn()).cmp(&seen) {
             cmp::Ordering::Less => unreachable!(),
             cmp::Ordering::Equal => return Some(tail),
             cmp::Ordering::Greater => self.validate(tail),
         }
 
-        self.replay(state, base, process_id);
+        self.replay(state, id, base, process_id);
         Some(tail)
     }
 
@@ -244,7 +261,8 @@ impl<const SIZE: usize> Cxl<SIZE> {
         }
     }
 
-    fn replay(&self, state: &mut Dram, base: NonNull<u64>, process_id: usize) {
+    fn replay(&self, state: &mut Dram, id: thread::Id, base: NonNull<u64>, process_id: usize) {
+        let seen = self.local[id].load();
         let mut entries = self
             .logs
             .iter()
@@ -256,7 +274,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             })
             .filter_map(|(id, index, entry)| match unsafe { &*entry.get() } {
                 Entry::Allocate { valid, lsn, .. } | Entry::Free { valid, lsn, .. }
-                    if valid.load(Ordering::Acquire) && Some(*lsn) >= state.seen =>
+                    if valid.load(Ordering::Acquire) && Some(*lsn) > seen =>
                 {
                     Some(Tail::new(id, index as u16, *lsn))
                 }
@@ -265,21 +283,39 @@ impl<const SIZE: usize> Cxl<SIZE> {
             .collect::<Vec<_>>();
 
         entries.sort_unstable();
+        log::info!(
+            "Replaying {:?}-{:?} for {}",
+            seen,
+            entries.last().map(|entry| entry.lsn()),
+            id,
+        );
 
         for entry in entries {
-            self.apply(state, base, process_id, entry);
+            self.apply(state, base, process_id, id, entry);
         }
     }
 
-    fn apply(&self, state: &mut Dram, base: NonNull<u64>, process_id: usize, entry: Tail) {
-        match unsafe { &*self.logs[entry.id()][entry.index() as usize].get() } {
-            Entry::Empty => unreachable!(),
+    fn apply(
+        &self,
+        state: &mut Dram,
+        base: NonNull<u64>,
+        process_id: usize,
+        id: thread::Id,
+        entry: Tail,
+    ) {
+        let lsn = match unsafe { &*self.logs[entry.id()][entry.index() as usize].get() } {
+            Entry::Empty => unreachable!("Applied empty at {entry:?}"),
+            Entry::Allocate { lsn, .. } if *lsn != entry.lsn() => entry.lsn(),
             Entry::Allocate {
-                lsn, offset, size, ..
+                valid,
+                lsn,
+                offset,
+                size,
+                ..
             } => unsafe {
-                assert_eq!(*lsn, entry.lsn());
+                assert!(valid.load(Ordering::Acquire));
 
-                state.mark_allocated(*lsn, *offset, *size);
+                state.mark_allocated(*offset, *size, id, *lsn);
 
                 let address = base
                     .as_ptr()
@@ -300,7 +336,6 @@ impl<const SIZE: usize> Cxl<SIZE> {
                             address,
                             size
                         );
-                        return;
                     }
                     actual => {
                         assert_eq!(address, actual);
@@ -313,17 +348,21 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .as_ref()
                     .unwrap()
                     .store(entry);
+
+                *lsn
             },
             Entry::Free {
+                valid,
                 lsn,
                 acked,
                 offset,
                 size,
                 ..
             } => {
+                assert!(valid.load(Ordering::Acquire));
                 assert_eq!(*lsn, entry.lsn());
 
-                state.mark_deallocated(*lsn, *offset, *size);
+                state.mark_deallocated(*offset, *size);
 
                 // Note: assumes that the individual thread cannot crash between
                 // this acknowledgement and the unmap call. A process crash is
@@ -359,8 +398,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
                 unsafe {
                     assert_eq!(libc::munmap(address, size.get()), 0);
                 }
+
+                *lsn
             }
-        }
+        };
+
+        self.local[id].store(Some(lsn));
     }
 }
 
@@ -380,7 +423,7 @@ impl Debug for Tail {
 
 impl Tail {
     fn new(id: thread::Id, index: u16, lsn: Lsn) -> Self {
-        Self(id.pack() | ((index as u64) << 16) | ((lsn.0.get() as u64) << 32))
+        Self(id.pack() | ((index as u64) << 16) | (lsn.pack() << 32))
     }
 
     fn id(self) -> thread::Id {
@@ -392,7 +435,7 @@ impl Tail {
     }
 
     fn lsn(self) -> Lsn {
-        NonZeroU32::new((self.0 >> 32) as u32).map(Lsn).unwrap()
+        Lsn::unpack(self.0 >> 32)
     }
 }
 
@@ -418,6 +461,20 @@ impl Lsn {
 
     fn next(self) -> Self {
         self.0.checked_add(1).map(Self).unwrap()
+    }
+}
+
+unsafe impl NonZero for Lsn {}
+
+unsafe impl Packed for Lsn {
+    const BITS: u8 = 32;
+
+    fn pack(&self) -> u64 {
+        self.0.get() as u64
+    }
+
+    fn unpack(value: u64) -> Self {
+        Self(NonZeroU32::new(value as u32).unwrap())
     }
 }
 

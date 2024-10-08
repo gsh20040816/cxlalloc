@@ -43,7 +43,7 @@ impl Display for Id {
     }
 }
 
-#[repr(C)]
+#[repr(C, align(64))]
 pub struct Array<T>([T; COUNT_THREAD + 1]);
 
 impl<T> Index<Id> for Array<T> {
