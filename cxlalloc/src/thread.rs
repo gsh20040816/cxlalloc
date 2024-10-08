@@ -44,7 +44,7 @@ impl Display for Id {
 }
 
 #[repr(C)]
-pub struct Array<T>([T; COUNT_THREAD]);
+pub struct Array<T>([T; COUNT_THREAD + 1]);
 
 impl<T> Index<Id> for Array<T> {
     type Output = T;
@@ -58,6 +58,7 @@ impl<T> Array<T> {
         self.0
             .iter()
             .enumerate()
-            .map(|(index, value)| (unsafe { Id::new(index as u16) }, value))
+            .skip(1)
+            .map(|(index, value)| (Id(NonZeroU16::new(index as u16).unwrap()), value))
     }
 }
