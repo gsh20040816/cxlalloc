@@ -1,3 +1,4 @@
+import common
 import plotly.graph_objects as go
 import sys
 from collections import defaultdict
@@ -7,7 +8,7 @@ data = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
 
 with open(sys.argv[1]) as file:
     for row in file.read().strip().splitlines():
-        benchmark, allocator, time, rss, user, sys, faults, reclaims = row.split()
+        benchmark, allocator, time, rss, _, _, _, _ = row.split()
         benchmarks.add(benchmark)
         slot = data[benchmark][allocator]
 
@@ -17,15 +18,16 @@ with open(sys.argv[1]) as file:
         else:
             slot["time"] = float(time)
 
-        slot["rss"] = float(rss)
+        slot["rss"] = int(rss)
 
 
+metric = sys.argv[2]
 benchmarks = list(sorted(benchmarks))
-allocators = ["mi2", "cxlalloc", "cxl-shm", "r"]
+allocators = ["mi2", "je", "cxlalloc", "cxl-shm", "r"]
 bars = []
-mins = [data[benchmark]["mi2"]["time"] for benchmark in benchmarks]
+mins = [data[benchmark]["mi2"][metric] for benchmark in benchmarks]
 
-print(f"Benchmark", end="")
+print("Benchmark", end="")
 for allocator in allocators:
     print(f" & {allocator} (s)", end="")
 print(" \\\\")
@@ -34,11 +36,13 @@ for i, benchmark in enumerate(benchmarks):
     print(f"{benchmark}", end="")
 
     for allocator in allocators:
-        time = data[benchmark][allocator]["time"]
+        value = data[benchmark][allocator][metric]
+        pretty = f"{value:.02f}" if metric == "time" else common.display_size(value)
+
         if allocator == "mi2":
-            print(f" & {time:.02f}", end="")
-        elif time > 0.0001:
-            print(f" & {time:.02f} ({time / mins[i]:.02f}x)", end="")
+            print(f" & {pretty}", end="")
+        elif value > 0.0001:
+            print(f" & {pretty} ({value / mins[i]:.02f}x)", end="")
         else:
             print(" & ", end="")
     print(" \\\\")
