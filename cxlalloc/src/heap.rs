@@ -1,3 +1,4 @@
+use core::ffi;
 use core::ptr::NonNull;
 use std::sync::Mutex;
 
@@ -31,6 +32,21 @@ impl<'raw> Heap<'raw> {
     }
 
     pub fn class<T>(&self, pointer: NonNull<T>) -> usize {
+        if pointer.as_ptr().cast::<ffi::c_void>() >= self.data.huge().as_ptr().cast::<ffi::c_void>()
+            && pointer.as_ptr().cast::<ffi::c_void>()
+                < self
+                    .data
+                    .huge()
+                    .as_ptr()
+                    .cast::<ffi::c_void>()
+                    .wrapping_byte_add(1 << 40)
+        {
+            return unsafe {
+                self.shared
+                    .size_log(self.data.huge(), pointer.cast::<ffi::c_void>())
+            };
+        }
+
         let offset = self.pointer_to_offset(pointer);
         let index = slab::Index::from(offset);
         self.shared.slabs[index].owner.load().class().size()

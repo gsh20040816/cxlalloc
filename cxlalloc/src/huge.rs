@@ -175,31 +175,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
     ) {
-        let tail = unsafe {
-            pointer
-                .as_ptr()
-                .wrapping_byte_sub(SIZE_PAGE)
-                .cast::<Atomic<Tail>>()
-                .as_ref()
-                .unwrap()
-                .load()
-        };
-
-        let (offset, size) =
-            match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
-                Entry::Empty | Entry::Free { .. } => unreachable!(),
-                Entry::Allocate {
-                    lsn,
-                    valid,
-                    freed: _,
-                    offset,
-                    size,
-                } => {
-                    assert_eq!(*lsn, tail.lsn());
-                    assert!(valid.load(Ordering::Acquire));
-                    (*offset, *size)
-                }
-            };
+        let (offset, size) = unsafe { self.metadata(base, pointer) };
 
         let state = &mut *state.lock().unwrap();
         let index = self.next(state, process_count, process_id);
@@ -228,6 +204,44 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     return;
                 }
                 Err(_) => log::info!("Conflict at {next:?}"),
+            }
+        }
+    }
+
+    pub(crate) unsafe fn size(&self, base: NonNull<u64>, pointer: NonNull<ffi::c_void>) -> usize {
+        self.metadata(base, pointer).1.get() - SIZE_PAGE
+    }
+
+    unsafe fn metadata(
+        &self,
+        base: NonNull<u64>,
+        pointer: NonNull<ffi::c_void>,
+    ) -> (usize, NonZeroUsize) {
+        let tail = pointer
+            .as_ptr()
+            .wrapping_byte_sub(SIZE_PAGE)
+            .cast::<Atomic<Option<Tail>>>()
+            .as_ref()
+            .unwrap()
+            .load()
+            .unwrap();
+
+        match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
+            Entry::Empty | Entry::Free { .. } => unreachable!(),
+            Entry::Allocate {
+                lsn,
+                valid,
+                freed: _,
+                offset,
+                size,
+            } => {
+                assert_eq!(*lsn, tail.lsn());
+                assert!(valid.load(Ordering::Acquire));
+                assert_eq!(
+                    *offset,
+                    pointer.as_ptr() as usize - base.as_ptr() as usize - SIZE_PAGE,
+                );
+                (*offset, *size)
             }
         }
     }
@@ -432,7 +446,14 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .cast::<ffi::c_void>()
                     .wrapping_byte_add(*offset);
 
-                let tail = unsafe { address.cast::<Atomic<Tail>>().as_ref().unwrap().load() };
+                let tail = unsafe {
+                    address
+                        .cast::<Atomic<Option<Tail>>>()
+                        .as_ref()
+                        .unwrap()
+                        .load()
+                        .unwrap()
+                };
 
                 // Unmap for process
                 unsafe {

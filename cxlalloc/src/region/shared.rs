@@ -109,7 +109,7 @@ impl<'raw> Shared<'raw> {
             .allocate(state, self.process_count, self.process_id, base, size)
     }
 
-    pub(crate) fn free_log(
+    pub(crate) unsafe fn free_log(
         &self,
         state: &Mutex<huge::Dram>,
         base: NonNull<u64>,
@@ -118,6 +118,14 @@ impl<'raw> Shared<'raw> {
         self.meta
             .log
             .free(state, self.process_count, self.process_id, base, pointer)
+    }
+
+    pub(crate) unsafe fn size_log(
+        &self,
+        base: NonNull<u64>,
+        pointer: NonNull<ffi::c_void>,
+    ) -> usize {
+        self.meta.log.size(base, pointer)
     }
 
     pub(crate) fn push(
