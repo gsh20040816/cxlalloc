@@ -190,10 +190,10 @@ pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
     stages: thread::Array<transfer::Stage>,
-    pub(crate) log: huge::Cxl<256>,
 
     bump: Bump,
     map: Map,
+    pub(crate) log: huge::Cxl<1024>,
 }
 
 struct Bump {

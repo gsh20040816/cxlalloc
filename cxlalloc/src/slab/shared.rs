@@ -51,7 +51,7 @@ impl Owner {
     }
 
     pub(crate) fn id(&self) -> Option<thread::Id> {
-        Option::<_>::unpack(self.0)
+        Option::<_>::unpack((self.0) as u16 as u64)
     }
 }
 
