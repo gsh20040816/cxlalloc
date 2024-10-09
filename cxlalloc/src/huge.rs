@@ -4,10 +4,13 @@ use core::ffi;
 use core::fmt::Debug;
 use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
+use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::sync::Arc;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -18,6 +21,7 @@ use interval::IntervalSet;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
+use crate::raw;
 use crate::thread;
 use crate::Atomic;
 use crate::SIZE_PAGE;
@@ -71,6 +75,47 @@ pub(crate) struct Cxl<const SIZE: usize> {
     local: thread::Array<Atomic<Option<Lsn>>>,
 
     logs: thread::Array<[UnsafeCell<Entry>; SIZE]>,
+}
+
+pub fn spawn() {
+    extern "C" {
+        // https://man7.org/linux/man-pages/man3/pthread_attr_setstack.3.html
+        fn pthread_attr_setstack(
+            attr: *mut libc::pthread_attr_t,
+            stackaddr: *mut ffi::c_void,
+            stacksize: usize,
+        );
+    }
+
+    unsafe {
+        let mut attr = {
+            let mut attr = core::mem::MaybeUninit::<libc::pthread_attr_t>::zeroed();
+            libc::pthread_attr_init(attr.as_mut_ptr());
+            attr.assume_init()
+        };
+
+        let address = match libc::mmap64(
+            ptr::null_mut(),
+            libc::PTHREAD_STACK_MIN,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+            -1,
+            0,
+        ) {
+            libc::MAP_FAILED => panic!("Failed to create stack"),
+            address => address,
+        };
+
+        let mut id = core::mem::MaybeUninit::<libc::pthread_t>::zeroed().assume_init();
+
+        pthread_attr_setstack(&mut attr, address, libc::PTHREAD_STACK_MIN);
+        libc::pthread_create(&mut id, &attr, run, ptr::null_mut());
+    }
+}
+
+extern "C" fn run(_: *mut ffi::c_void) -> *mut ffi::c_void {
+    log::info!("hello, world");
+    ptr::null_mut()
 }
 
 impl<const SIZE: usize> Cxl<SIZE> {
@@ -168,7 +213,6 @@ impl<const SIZE: usize> Cxl<SIZE> {
             unsafe {
                 *self.logs[id][index as usize].get() = Entry::Free {
                     valid: AtomicBool::new(false),
-                    acked: AtomicU64::new(0),
                     lsn: next.lsn(),
                     offset,
                     size,
@@ -206,7 +250,10 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     log::info!("Reuse invalid at {entry:?}");
                     Some(index)
                 }
-                Entry::Allocate { freed, .. } if freed.load(Ordering::Acquire) => {
+                Entry::Allocate { freed, lsn, .. }
+                    if freed.load(Ordering::Acquire)
+                        && self.local.iter().all(|(_, tail)| tail.load() >= Some(*lsn)) =>
+                {
                     log::info!("Reuse allocate at {entry:?}");
                     Some(index)
                 }
@@ -354,7 +401,6 @@ impl<const SIZE: usize> Cxl<SIZE> {
             Entry::Free {
                 valid,
                 lsn,
-                acked,
                 offset,
                 size,
                 ..
@@ -364,13 +410,6 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
                 state.mark_deallocated(*offset, *size);
 
-                // Note: assumes that the individual thread cannot crash between
-                // this acknowledgement and the unmap call. A process crash is
-                // fine, as the mapping will be destroyed.
-                if acked.fetch_or(1 << process_id, Ordering::AcqRel) & (1 << process_id) > 0 {
-                    return;
-                }
-
                 let address = base
                     .as_ptr()
                     .cast::<ffi::c_void>()
@@ -378,25 +417,35 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
                 let tail = unsafe { address.cast::<Atomic<Tail>>().as_ref().unwrap().load() };
 
-                // Mark corresponding allocation log entry as freed
-                match unsafe { &*self.logs[tail.id()][tail.index() as usize].get() } {
-                    Entry::Allocate {
-                        lsn,
-                        valid,
-                        freed,
-                        offset: offset_,
-                        size: size_,
-                    } if *lsn == tail.lsn() => {
-                        assert!(valid.load(Ordering::Acquire));
-                        assert_eq!(offset, offset_);
-                        assert_eq!(size, size_);
-                        freed.store(true, Ordering::Release);
+                // FIXME: last thread in process
+                if self
+                    .local
+                    .iter()
+                    .filter(|(other, _)| *other != id)
+                    .all(|(_, lsn)| lsn.load() >= Some(tail.lsn()))
+                {
+                    // Unmap for process
+                    unsafe {
+                        log::info!("unmap {:#x?} ({:#x})", address, size.get());
+                        assert_eq!(libc::munmap(address, size.get()), 0);
                     }
-                    _ => (),
-                }
 
-                unsafe {
-                    assert_eq!(libc::munmap(address, size.get()), 0);
+                    // Mark for reuse
+                    match unsafe { &*self.logs[tail.id()][tail.index() as usize].get() } {
+                        Entry::Allocate {
+                            lsn,
+                            valid,
+                            freed,
+                            offset: offset_,
+                            size: size_,
+                        } if *lsn == tail.lsn() => {
+                            assert!(valid.load(Ordering::Acquire));
+                            assert_eq!(offset, offset_);
+                            assert_eq!(size, size_);
+                            freed.store(true, Ordering::Release);
+                        }
+                        _ => (),
+                    }
                 }
 
                 *lsn
@@ -495,7 +544,6 @@ enum Entry {
         lsn: Lsn,
 
         valid: AtomicBool,
-        acked: AtomicU64,
 
         offset: usize,
         size: NonZeroUsize,
