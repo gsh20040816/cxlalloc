@@ -1,11 +1,14 @@
 use core::ptr::NonNull;
+use std::sync::Mutex;
 
+use crate::huge;
 use crate::raw;
 use crate::region;
 use crate::slab;
 use crate::Root;
 
 pub struct Heap<'raw> {
+    pub(crate) state: &'raw Mutex<huge::Dram>,
     pub(crate) shared: region::Shared<'raw>,
     pub(crate) data: region::Data<'raw>,
 }
@@ -13,6 +16,7 @@ pub struct Heap<'raw> {
 impl<'raw> Heap<'raw> {
     pub(crate) unsafe fn from_raw(heap: &'raw raw::heap::Inner) -> Self {
         Heap {
+            state: &heap.state,
             shared: region::Shared::from_raw(heap),
             data: region::Data::from_raw(heap),
         }

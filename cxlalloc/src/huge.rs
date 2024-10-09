@@ -7,10 +7,8 @@ use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
-use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::Mutex;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -21,8 +19,6 @@ use interval::IntervalSet;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
-use crate::raw;
-use crate::thread;
 use crate::Atomic;
 use crate::SIZE_PAGE;
 
@@ -50,12 +46,12 @@ impl Dram {
             .lower()
     }
 
-    fn mark_allocated(&mut self, offset: usize, size: NonZeroUsize, id: thread::Id, lsn: Lsn) {
+    fn mark_allocated(&mut self, offset: usize, size: NonZeroUsize) {
         let allocation = (offset, offset + size.get() - 1).to_interval_set();
         assert_eq!(
             self.free.intersection(&allocation).size(),
             allocation.size(),
-            "Local view inconsistent with global order on thread {id} lsn {lsn:?}",
+            "Local view inconsistent with global order",
         );
         self.free = self.free.difference(&allocation);
     }
@@ -69,12 +65,14 @@ impl Dram {
     }
 }
 
+const COUNT_PROCESS: usize = 64;
+
 pub(crate) struct Cxl<const SIZE: usize> {
     global: Atomic<Option<Tail>>,
 
-    local: thread::Array<Atomic<Option<Lsn>>>,
+    local: [Atomic<Option<Lsn>>; COUNT_PROCESS],
 
-    logs: thread::Array<[UnsafeCell<Entry>; SIZE]>,
+    logs: [[UnsafeCell<Entry>; SIZE]; COUNT_PROCESS],
 }
 
 pub fn spawn() {
@@ -121,20 +119,21 @@ extern "C" fn run(_: *mut ffi::c_void) -> *mut ffi::c_void {
 impl<const SIZE: usize> Cxl<SIZE> {
     pub(crate) fn allocate(
         &self,
-        state: &mut Dram,
-        id: thread::Id,
+        state: &Mutex<Dram>,
+        process_count: usize,
         process_id: usize,
         base: NonNull<u64>,
         size: usize,
     ) -> NonNull<u64> {
-        let index = self.next(state, id);
+        let state = &mut *state.lock().unwrap();
+        let index = self.next(state, process_count, process_id);
         let size = size.next_multiple_of(SIZE_PAGE) + SIZE_PAGE;
         let size = NonZeroUsize::new(size).unwrap();
 
         loop {
-            let tail = self.tail(state, id, base, process_id);
+            let tail = self.tail(state, base, process_count, process_id);
             let next = Tail::new(
-                id,
+                process_id,
                 index,
                 tail.map(Tail::lsn).map(Lsn::next).unwrap_or(Lsn::MIN),
             );
@@ -142,7 +141,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             let offset = state.allocate(size.get());
 
             unsafe {
-                *self.logs[id][index as usize].get() = Entry::Allocate {
+                *self.logs[process_id][index as usize].get() = Entry::Allocate {
                     valid: AtomicBool::new(false),
                     freed: AtomicBool::new(false),
                     lsn: next.lsn(),
@@ -154,7 +153,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             match self.global.compare_exchange(tail, Some(next)) {
                 Ok(_) => {
                     self.validate(next);
-                    self.apply(state, base, process_id, id, next);
+                    self.apply(state, base, process_count, process_id, next);
                     log::info!("Applied allocate {next:?}",);
                     return NonNull::new(
                         base.as_ptr()
@@ -170,8 +169,8 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
     pub(crate) fn free(
         &self,
-        state: &mut Dram,
-        id: thread::Id,
+        state: &Mutex<Dram>,
+        process_count: usize,
         process_id: usize,
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
@@ -186,32 +185,34 @@ impl<const SIZE: usize> Cxl<SIZE> {
                 .load()
         };
 
-        let (offset, size) = match unsafe { &*self.logs[tail.id()][tail.index() as usize].get() } {
-            Entry::Empty | Entry::Free { .. } => unreachable!(),
-            Entry::Allocate {
-                lsn,
-                valid,
-                freed: _,
-                offset,
-                size,
-            } => {
-                assert_eq!(*lsn, tail.lsn());
-                assert!(valid.load(Ordering::Acquire));
-                (*offset, *size)
-            }
-        };
+        let (offset, size) =
+            match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
+                Entry::Empty | Entry::Free { .. } => unreachable!(),
+                Entry::Allocate {
+                    lsn,
+                    valid,
+                    freed: _,
+                    offset,
+                    size,
+                } => {
+                    assert_eq!(*lsn, tail.lsn());
+                    assert!(valid.load(Ordering::Acquire));
+                    (*offset, *size)
+                }
+            };
 
-        let index = self.next(state, id);
+        let state = &mut *state.lock().unwrap();
+        let index = self.next(state, process_count, process_id);
 
         loop {
             let tail = self
-                .tail(state, id, base, process_id)
+                .tail(state, base, process_count, process_id)
                 .expect("Called free with no allocation log entry");
 
-            let next = Tail::new(id, index, tail.lsn().next());
+            let next = Tail::new(process_id, index, tail.lsn().next());
 
             unsafe {
-                *self.logs[id][index as usize].get() = Entry::Free {
+                *self.logs[process_id][index as usize].get() = Entry::Free {
                     valid: AtomicBool::new(false),
                     lsn: next.lsn(),
                     offset,
@@ -222,7 +223,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             match self.global.compare_exchange(Some(tail), Some(next)) {
                 Ok(_) => {
                     self.validate(next);
-                    self.apply(state, base, process_id, id, next);
+                    self.apply(state, base, process_count, process_id, next);
                     log::info!("Applied free {next:?}");
                     return;
                 }
@@ -231,12 +232,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
         }
     }
 
-    pub(crate) fn next(&self, state: &mut Dram, id: thread::Id) -> u16 {
+    pub(crate) fn next(&self, state: &mut Dram, process_count: usize, process_id: usize) -> u16 {
         const {
             assert!(SIZE < u16::MAX as usize);
         }
 
-        let index = self.logs[id]
+        let index = self.logs[process_id]
             .iter()
             .enumerate()
             .cycle()
@@ -250,39 +251,47 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     log::info!("Reuse invalid at {entry:?}");
                     Some(index)
                 }
-                Entry::Allocate { freed, lsn, .. }
+                entry @ Entry::Allocate { freed, lsn, .. }
                     if freed.load(Ordering::Acquire)
-                        && self.local.iter().all(|(_, tail)| tail.load() >= Some(*lsn)) =>
+                        && self
+                            .local
+                            .iter()
+                            .take(process_count)
+                            .all(|tail| tail.load() >= Some(*lsn)) =>
                 {
                     log::info!("Reuse allocate at {entry:?}");
                     Some(index)
                 }
                 Entry::Allocate { .. } => None,
 
-                Entry::Free { lsn, .. }
-                    if self.local.iter().all(|(_, tail)| tail.load() >= Some(*lsn)) =>
+                entry @ Entry::Free { lsn, .. }
+                    if self
+                        .local
+                        .iter()
+                        .take(process_count)
+                        .all(|tail| tail.load() >= Some(*lsn)) =>
                 {
                     log::info!("Reuse free at {entry:?}");
-                    None
+                    Some(index)
                 }
                 Entry::Free { .. } => None,
             })
             .map(|index| index as u16)
             .expect("Out of log slots");
 
-        state.next = index + 1;
+        state.next = (index + 1) % SIZE as u16;
         index
     }
 
     fn tail(
         &self,
         state: &mut Dram,
-        id: thread::Id,
         base: NonNull<u64>,
+        process_count: usize,
         process_id: usize,
     ) -> Option<Tail> {
         let tail = self.global.load()?;
-        let seen = self.local[id].load();
+        let seen = self.local[process_id].load();
 
         match Some(tail.lsn()).cmp(&seen) {
             cmp::Ordering::Less => unreachable!(),
@@ -290,12 +299,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
             cmp::Ordering::Greater => self.validate(tail),
         }
 
-        self.replay(state, id, base, process_id);
+        self.replay(state, base, process_count, process_id);
         Some(tail)
     }
 
     fn validate(&self, tail: Tail) {
-        match unsafe { &*self.logs[tail.id()][tail.index() as usize].get() } {
+        match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
             Entry::Empty => unreachable!(),
 
             Entry::Allocate { valid, lsn, .. } | Entry::Free { valid, lsn, .. }
@@ -308,25 +317,34 @@ impl<const SIZE: usize> Cxl<SIZE> {
         }
     }
 
-    fn replay(&self, state: &mut Dram, id: thread::Id, base: NonNull<u64>, process_id: usize) {
-        let seen = self.local[id].load();
+    fn replay(
+        &self,
+        state: &mut Dram,
+        base: NonNull<u64>,
+        process_count: usize,
+        process_id: usize,
+    ) {
+        let seen = self.local[process_id].load();
         let mut entries = self
             .logs
             .iter()
-            .flat_map(|(id, entries)| {
+            .enumerate()
+            .flat_map(|(process_id, entries)| {
                 entries
                     .iter()
                     .enumerate()
-                    .map(move |(index, entry)| (id, index, entry))
+                    .map(move |(index, entry)| (process_id, index, entry))
             })
-            .filter_map(|(id, index, entry)| match unsafe { &*entry.get() } {
-                Entry::Allocate { valid, lsn, .. } | Entry::Free { valid, lsn, .. }
-                    if valid.load(Ordering::Acquire) && Some(*lsn) > seen =>
-                {
-                    Some(Tail::new(id, index as u16, *lsn))
-                }
-                _ => None,
-            })
+            .filter_map(
+                |(process_id, index, entry)| match unsafe { &*entry.get() } {
+                    Entry::Allocate { valid, lsn, .. } | Entry::Free { valid, lsn, .. }
+                        if valid.load(Ordering::Acquire) && Some(*lsn) > seen =>
+                    {
+                        Some(Tail::new(process_id, index as u16, *lsn))
+                    }
+                    _ => None,
+                },
+            )
             .collect::<Vec<_>>();
 
         entries.sort_unstable();
@@ -334,11 +352,11 @@ impl<const SIZE: usize> Cxl<SIZE> {
             "Replaying {:?}-{:?} for {}",
             seen,
             entries.last().map(|entry| entry.lsn()),
-            id,
+            process_id,
         );
 
         for entry in entries {
-            self.apply(state, base, process_id, id, entry);
+            self.apply(state, base, process_count, process_id, entry);
         }
     }
 
@@ -346,11 +364,11 @@ impl<const SIZE: usize> Cxl<SIZE> {
         &self,
         state: &mut Dram,
         base: NonNull<u64>,
+        process_count: usize,
         process_id: usize,
-        id: thread::Id,
         entry: Tail,
     ) {
-        let lsn = match unsafe { &*self.logs[entry.id()][entry.index() as usize].get() } {
+        let lsn = match unsafe { &*self.logs[entry.process_id()][entry.index() as usize].get() } {
             Entry::Empty => unreachable!("Applied empty at {entry:?}"),
             Entry::Allocate { lsn, .. } if *lsn != entry.lsn() => entry.lsn(),
             Entry::Allocate {
@@ -362,7 +380,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             } => unsafe {
                 assert!(valid.load(Ordering::Acquire));
 
-                state.mark_allocated(*offset, *size, id, *lsn);
+                state.mark_allocated(*offset, *size);
 
                 let address = base
                     .as_ptr()
@@ -378,10 +396,9 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     0,
                 ) {
                     libc::MAP_FAILED => {
-                        log::info!(
+                        panic!(
                             "Mapping already established: {:#x?} ({:#x?})",
-                            address,
-                            size
+                            address, size
                         );
                     }
                     actual => {
@@ -417,21 +434,23 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
                 let tail = unsafe { address.cast::<Atomic<Tail>>().as_ref().unwrap().load() };
 
+                // Unmap for process
+                unsafe {
+                    log::info!("unmap {:#x?} ({:#x})", address, size.get());
+                    assert_eq!(libc::munmap(address, size.get()), 0);
+                }
+
                 // FIXME: last thread in process
                 if self
                     .local
                     .iter()
-                    .filter(|(other, _)| *other != id)
+                    .take(process_count)
+                    .enumerate()
+                    .filter(|(id, _)| *id != process_id)
                     .all(|(_, lsn)| lsn.load() >= Some(tail.lsn()))
                 {
-                    // Unmap for process
-                    unsafe {
-                        log::info!("unmap {:#x?} ({:#x})", address, size.get());
-                        assert_eq!(libc::munmap(address, size.get()), 0);
-                    }
-
                     // Mark for reuse
-                    match unsafe { &*self.logs[tail.id()][tail.index() as usize].get() } {
+                    match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
                         Entry::Allocate {
                             lsn,
                             valid,
@@ -452,7 +471,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             }
         };
 
-        self.local[id].store(Some(lsn));
+        self.local[process_id].store(Some(lsn));
     }
 }
 
@@ -463,7 +482,7 @@ struct Tail(u64);
 impl Debug for Tail {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Tail")
-            .field("id", &self.id())
+            .field("process_id", &self.process_id())
             .field("index", &self.index())
             .field("lsn", &self.lsn())
             .finish()
@@ -471,12 +490,12 @@ impl Debug for Tail {
 }
 
 impl Tail {
-    fn new(id: thread::Id, index: u16, lsn: Lsn) -> Self {
-        Self(id.pack() | ((index as u64) << 16) | (lsn.pack() << 32))
+    fn new(process_id: usize, index: u16, lsn: Lsn) -> Self {
+        Self(process_id as u64 | ((index as u64) << 16) | (lsn.pack() << 32))
     }
 
-    fn id(self) -> thread::Id {
-        thread::Id::unpack(self.0)
+    fn process_id(self) -> usize {
+        self.0 as u16 as usize
     }
 
     fn index(self) -> u16 {

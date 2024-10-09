@@ -4,6 +4,7 @@ use core::ffi;
 use core::ops::Index;
 use core::ops::Range;
 use core::ptr::NonNull;
+use std::sync::Mutex;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
@@ -99,26 +100,24 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn allocate_log(
         &self,
-        state: &mut huge::Dram,
-        id: thread::Id,
+        state: &Mutex<huge::Dram>,
         base: NonNull<u64>,
         size: usize,
     ) -> NonNull<u64> {
         self.meta
             .log
-            .allocate(state, id, self.process_id, base, size)
+            .allocate(state, self.process_count, self.process_id, base, size)
     }
 
     pub(crate) fn free_log(
         &self,
-        state: &mut huge::Dram,
-        id: thread::Id,
+        state: &Mutex<huge::Dram>,
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
     ) {
         self.meta
             .log
-            .free(state, id, self.process_id, base, pointer)
+            .free(state, self.process_count, self.process_id, base, pointer)
     }
 
     pub(crate) fn push(

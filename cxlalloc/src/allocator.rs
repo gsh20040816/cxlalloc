@@ -18,7 +18,6 @@ use crate::SIZE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
-    state: huge::Dram,
     owned: region::Owned<'raw>,
     heap: Heap<'raw>,
 }
@@ -28,12 +27,7 @@ impl<'raw> Allocator<'raw> {
         let heap = Heap::from_raw(raw);
         let owned = region::Owned::from_raw(raw, id);
 
-        Self {
-            id,
-            state: huge::Dram::default(),
-            owned,
-            heap,
-        }
+        Self { id, owned, heap }
     }
 
     pub fn heap(&self) -> &Heap<'raw> {
@@ -292,12 +286,7 @@ impl<'raw> Allocator<'raw> {
             return self
                 .heap
                 .shared
-                .allocate_log(
-                    &mut self.state,
-                    self.id,
-                    self.heap.data.huge(),
-                    class.size(),
-                )
+                .allocate_log(self.heap.state, self.heap.data.huge(), class.size())
                 .as_ptr()
                 .cast();
         }
@@ -321,12 +310,10 @@ impl<'raw> Allocator<'raw> {
                     .cast::<ffi::c_void>()
                     .wrapping_byte_add(1 << 40)
         {
-            return self.heap.shared.free_log(
-                &mut self.state,
-                self.id,
-                self.heap.data.huge(),
-                pointer,
-            );
+            return self
+                .heap
+                .shared
+                .free_log(self.heap.state, self.heap.data.huge(), pointer);
         }
 
         let offset = self.heap.pointer_to_offset(pointer);

@@ -1,7 +1,9 @@
 use core::ptr;
 use core::ptr::NonNull;
 use std::io;
+use std::sync::Mutex;
 
+use crate::huge;
 use crate::raw;
 use crate::raw::backend;
 use crate::raw::Backend;
@@ -36,6 +38,8 @@ pub struct Inner {
     /// once per process as opposed to once per thread.
     pub(crate) process_id: usize,
     pub(crate) process_count: usize,
+
+    pub(crate) state: Mutex<huge::Dram>,
 }
 
 /// # Safety
@@ -120,6 +124,7 @@ impl Inner {
             data,
             huge,
             capacity: slab_count.try_into().unwrap(),
+            state: Mutex::default(),
             process_id,
             process_count,
         };
