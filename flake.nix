@@ -24,6 +24,7 @@
         devShells.default = mkShell {
           nativeBuildInputs = [
             pkg-config
+            rust-cbindgen
             rustToolchain
             taplo
           ];

@@ -1,0 +1,17 @@
+[package]
+name = "cxlalloc-static"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[features]
+backend-shm = ["cxlalloc/backend-shm"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cxlalloc = { path = "../cxlalloc" }
+env_logger.workspace = true
+log.workspace = true

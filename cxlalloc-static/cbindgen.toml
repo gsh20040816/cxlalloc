@@ -1,0 +1,6 @@
+# Generate with `cbindgen -c cbindgen.toml -o include/cxlalloc.h`
+language = "C"
+include_guard = "CXLALLOC_STATIC_H"
+cpp_compat = true
+documentation = true
+usize_is_size_t = true
