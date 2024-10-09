@@ -75,47 +75,6 @@ pub(crate) struct Cxl<const SIZE: usize> {
     logs: [[UnsafeCell<Entry>; SIZE]; COUNT_PROCESS],
 }
 
-pub fn spawn() {
-    extern "C" {
-        // https://man7.org/linux/man-pages/man3/pthread_attr_setstack.3.html
-        fn pthread_attr_setstack(
-            attr: *mut libc::pthread_attr_t,
-            stackaddr: *mut ffi::c_void,
-            stacksize: usize,
-        );
-    }
-
-    unsafe {
-        let mut attr = {
-            let mut attr = core::mem::MaybeUninit::<libc::pthread_attr_t>::zeroed();
-            libc::pthread_attr_init(attr.as_mut_ptr());
-            attr.assume_init()
-        };
-
-        let address = match libc::mmap64(
-            ptr::null_mut(),
-            libc::PTHREAD_STACK_MIN,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-            -1,
-            0,
-        ) {
-            libc::MAP_FAILED => panic!("Failed to create stack"),
-            address => address,
-        };
-
-        let mut id = core::mem::MaybeUninit::<libc::pthread_t>::zeroed().assume_init();
-
-        pthread_attr_setstack(&mut attr, address, libc::PTHREAD_STACK_MIN);
-        libc::pthread_create(&mut id, &attr, run, ptr::null_mut());
-    }
-}
-
-extern "C" fn run(_: *mut ffi::c_void) -> *mut ffi::c_void {
-    log::info!("hello, world");
-    ptr::null_mut()
-}
-
 impl<const SIZE: usize> Cxl<SIZE> {
     pub(crate) fn allocate(
         &self,
