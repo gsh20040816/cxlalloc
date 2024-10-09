@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use clap::ValueEnum;
 use duct::cmd;
@@ -8,20 +10,28 @@ use cxlalloc_bench::Benchmark;
 #[derive(Parser)]
 enum Cli {
     Run {
+        /// Root of mimalloc-bench directory
+        #[arg(long, default_value = "extern/mimalloc-bench")]
+        root: PathBuf,
+
+        /// Allocator name
         #[arg(short, long)]
         allocator: Allocator,
 
+        /// Benchmark name
         #[arg(short, long)]
         benchmark: Benchmark,
 
-        #[arg(short, long)]
-        release: bool,
-
+        /// Wrapper program
         #[arg(short, long)]
         wrapper: Option<Wrapper>,
     },
 
     Bench {
+        /// Root of mimalloc-bench directory
+        #[arg(long, default_value = "extern/mimalloc-bench")]
+        root: PathBuf,
+
         #[arg(short, long, value_delimiter = ',')]
         allocators: Vec<Allocator>,
 
@@ -47,6 +57,7 @@ enum Wrapper {
 fn main() -> anyhow::Result<()> {
     match Cli::parse() {
         Cli::Bench {
+            root,
             allocators,
             benchmarks,
             warmup,
@@ -54,7 +65,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             let mut iter = allocators
                 .iter()
-                .map(|allocator| allocator.path(true))
+                .map(|allocator| Ok(root.join(allocator.path()).canonicalize()?))
                 .collect::<anyhow::Result<Vec<_>>>()?
                 .into_iter()
                 .map(|allocator| allocator.display().to_string());
@@ -91,12 +102,15 @@ fn main() -> anyhow::Result<()> {
             .map(drop)?
         }
         Cli::Run {
+            root,
             allocator,
             benchmark,
-            release,
             wrapper,
         } => {
-            let ld = format!("LD_PRELOAD={}", allocator.path(release)?.display());
+            let ld = format!(
+                "LD_PRELOAD={}",
+                root.join(allocator.path()).canonicalize()?.display()
+            );
 
             match &wrapper {
                 None => cmd!["env", ld],
@@ -121,7 +135,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             .before_spawn(move |command| {
-                command.arg(benchmark.path());
+                command.arg(root.join(benchmark.path()));
                 command.args(benchmark.args());
                 Ok(())
             })
