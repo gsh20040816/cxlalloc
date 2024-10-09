@@ -41,6 +41,30 @@ impl<'raw> Data<'raw> {
         unsafe { self.base.byte_add(NonZeroUsize::from(offset).get()) }.cast()
     }
 
+    pub(crate) fn checked_offset_to_offset(&self, offset: usize) -> Option<slab::Offset> {
+        // FIXME: check epoch
+        if offset > crate::raw::region::RESERVATION * 2 {
+            None
+        } else {
+            unsafe { NonZeroUsize::new(offset).map(|offset| slab::Offset::new(offset)) }
+        }
+    }
+
+    pub(crate) fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<slab::Offset> {
+        // FIXME: check epoch
+        if pointer.as_ptr().cast::<u64>() < self.base.as_ptr().wrapping_byte_add(SIZE_SLAB)
+            || pointer.as_ptr().cast::<u64>()
+                >= self
+                    .huge
+                    .as_ptr()
+                    .wrapping_byte_add(crate::raw::region::RESERVATION)
+        {
+            None
+        } else {
+            Some(self.pointer_to_offset(pointer))
+        }
+    }
+
     pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> slab::Offset {
         unsafe {
             slab::Offset::new(NonZeroUsize::new_unchecked(

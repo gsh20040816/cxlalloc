@@ -31,6 +31,14 @@ impl<'raw> Heap<'raw> {
         self.data.pointer_to_offset(pointer)
     }
 
+    pub fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<slab::Offset> {
+        self.data.checked_pointer_to_offset(pointer)
+    }
+
+    pub fn checked_offset_to_offset(&self, offset: usize) -> Option<slab::Offset> {
+        self.data.checked_offset_to_offset(offset)
+    }
+
     pub fn class<T>(&self, pointer: NonNull<T>) -> usize {
         if pointer.as_ptr().cast::<ffi::c_void>() >= self.data.huge().as_ptr().cast::<ffi::c_void>()
             && pointer.as_ptr().cast::<ffi::c_void>()
