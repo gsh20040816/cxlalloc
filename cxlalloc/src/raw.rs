@@ -22,18 +22,20 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub(crate) fn allocate(&self, id: Id, size: usize) -> io::Result<Region> {
-        self.as_backend().allocate(id, size).map(|region| {
-            log::info!(
-                "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
-                region.size(),
-                region.base().as_ptr(),
-                unsafe { region.base().as_ptr().byte_add(region.size()) },
-                any::type_name::<Self>(),
-            );
+    pub(crate) fn allocate(&self, id: Id, size: usize, reserved: usize) -> io::Result<Region> {
+        self.as_backend()
+            .allocate(id, size, reserved)
+            .map(|region| {
+                log::info!(
+                    "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
+                    region.size(),
+                    region.base().as_ptr(),
+                    unsafe { region.base().as_ptr().byte_add(region.size()) },
+                    any::type_name::<Self>(),
+                );
 
-            region
-        })
+                region
+            })
     }
 
     #[cfg_attr(not(feature = "extend"), allow(dead_code))]
@@ -73,7 +75,7 @@ pub mod backend {
     // This trait is an implementation detail for requiring
     // our backend implementations to expose the same interface.
     pub(super) trait Backend: Send + Sync {
-        fn allocate(&self, id: region::Id, size: usize) -> io::Result<Region>;
+        fn allocate(&self, id: region::Id, size: usize, reserved: usize) -> io::Result<Region>;
 
         fn extend(&self, region: &Region) -> io::Result<()>;
 

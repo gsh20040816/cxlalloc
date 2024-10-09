@@ -13,12 +13,17 @@ use arrayvec::ArrayString;
 use crate::extend::Epoch;
 use crate::Atomic;
 
+pub(crate) const RESERVATION: usize = 2usize.pow(40);
+
 pub(crate) struct Region {
     /// Unique identifier of this memory region
     id: Id,
 
     /// Size of this memory region in bytes
     size: usize,
+
+    /// Size of the reserved virtual address space in bytes
+    reserved: usize,
 
     /// Number of heap extensions this memory region has undergone.
     epoch: Atomic<Epoch>,
@@ -28,16 +33,19 @@ pub(crate) struct Region {
 }
 
 impl Region {
-    const RESERVATION: usize = 2usize.pow(40);
-
-    pub(super) fn new(id: Id, size: usize, file: Option<(RawFd, i64)>) -> io::Result<Self> {
+    pub(super) fn new(
+        id: Id,
+        size: usize,
+        reserved: usize,
+        file: Option<(RawFd, i64)>,
+    ) -> io::Result<Self> {
         // In order to keep heap regions contiguous when extending, we need
         // to reserve an unbacked region of virtual address space via `mmap` with
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
-        let reserved = match unsafe {
+        let reservation = match unsafe {
             libc::mmap64(
                 ptr::null_mut(),
-                Self::RESERVATION,
+                reserved,
                 libc::PROT_NONE,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
                 -1,
@@ -55,7 +63,7 @@ impl Region {
 
         let base = match unsafe {
             libc::mmap64(
-                reserved,
+                reservation,
                 size,
                 libc::PROT_READ | libc::PROT_WRITE,
                 flags | libc::MAP_FIXED,
@@ -66,7 +74,7 @@ impl Region {
             libc::MAP_FAILED => {
                 // Save `mmap64` error before calling `munmap`.
                 let error = io::Error::last_os_error();
-                if unsafe { libc::munmap(reserved, Self::RESERVATION) != 0 } {
+                if unsafe { libc::munmap(reservation, reserved) != 0 } {
                     log::warn!("Failed to munmap reserved virtual address space");
                 }
                 return Err(error);
@@ -81,6 +89,7 @@ impl Region {
         Ok(Region {
             id,
             size,
+            reserved,
             epoch: Atomic::new(Epoch::default()),
             base: base.cast(),
         })
@@ -164,7 +173,7 @@ impl Region {
 
     /// Remove all virtual address space mappings for this region.
     pub(super) fn unmap(&self) -> io::Result<()> {
-        match unsafe { libc::munmap(self.base.as_ptr().cast(), Self::RESERVATION) } {
+        match unsafe { libc::munmap(self.base.as_ptr().cast(), self.reserved) } {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
         }

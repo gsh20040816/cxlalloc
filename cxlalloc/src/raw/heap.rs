@@ -28,7 +28,6 @@ pub struct Inner {
     pub(crate) shared: Region,
     pub(crate) owned: Region,
     pub(crate) data: Region,
-    pub(crate) huge: NonNull<u64>,
 
     /// Initial capacity
     pub(crate) capacity: u32,
@@ -87,42 +86,36 @@ impl Inner {
         // region will be page size aligned, so we can mmap new regions
         // with MAP_FIXED at contiguous addresses.
         let shared_layout = region::Shared::layout(slab_count);
-        let shared = backend.allocate(id.with_suffix("shared"), shared_layout.size())?;
+        let shared = backend.allocate(
+            id.with_suffix("shared"),
+            shared_layout.size(),
+            raw::region::RESERVATION,
+        )?;
 
         let owned_layout = region::Owned::layout(slab_count);
-        let owned = backend.allocate(id.with_suffix("owned"), owned_layout.size())?;
+        let owned = backend.allocate(
+            id.with_suffix("owned"),
+            owned_layout.size(),
+            raw::region::RESERVATION,
+        )?;
 
         let data_layout = region::Data::layout(slab_count);
-        let data = backend.allocate(id.with_suffix("slab"), data_layout.size())?;
+        let data = backend.allocate(
+            id.with_suffix("slab"),
+            data_layout.size(),
+            raw::region::RESERVATION * 2,
+        )?;
 
         log::info!(
             "Constructing heap with aligned size {}",
             slab_count * SIZE_SLAB
         );
 
-        let huge = unsafe {
-            let address = match libc::mmap64(
-                ptr::null_mut(),
-                1 << 40,
-                libc::PROT_NONE,
-                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                -1,
-                0,
-            ) {
-                libc::MAP_FAILED => todo!(),
-                address => address,
-            };
-
-            assert_eq!(libc::munmap(address, 1 << 40), 0);
-            NonNull::new(address).unwrap().cast()
-        };
-
         let raw = Self {
             backend,
             shared,
             owned,
             data,
-            huge,
             capacity: slab_count.try_into().unwrap(),
             state: Mutex::default(),
             process_id,

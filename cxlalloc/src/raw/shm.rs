@@ -22,7 +22,7 @@ impl Shm {
 }
 
 impl Backend for Shm {
-    fn allocate(&self, id: Id, size: usize) -> io::Result<Region> {
+    fn allocate(&self, id: Id, size: usize, reserved: usize) -> io::Result<Region> {
         let size = size.next_multiple_of(SIZE_PAGE);
 
         unsafe {
@@ -57,7 +57,7 @@ impl Backend for Shm {
                 return Err(io::Error::last_os_error());
             }
 
-            let region = Region::new(id, size, Some((fd.as_raw_fd(), 0)))?;
+            let region = Region::new(id, size, reserved, Some((fd.as_raw_fd(), 0)))?;
             Ok(region)
         }
     }

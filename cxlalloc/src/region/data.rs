@@ -21,7 +21,14 @@ impl<'raw> Data<'raw> {
     pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Inner) -> Self {
         Self {
             base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
-            huge: region.huge,
+            huge: NonNull::new(
+                region
+                    .data
+                    .base()
+                    .as_ptr()
+                    .wrapping_byte_add(crate::raw::region::RESERVATION),
+            )
+            .unwrap(),
             _raw: PhantomData,
         }
     }

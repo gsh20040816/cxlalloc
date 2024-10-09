@@ -364,16 +364,11 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     address,
                     size.get(),
                     libc::PROT_WRITE | libc::PROT_READ,
-                    libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_FIXED_NOREPLACE,
+                    libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_FIXED,
                     -1,
                     0,
                 ) {
-                    libc::MAP_FAILED => {
-                        panic!(
-                            "Mapping already established: {:#x?} ({:#x?})",
-                            address, size
-                        );
-                    }
+                    libc::MAP_FAILED => panic!("mmap {:#x?} ({:#x?})", address, size),
                     actual => {
                         assert_eq!(address, actual);
                         crate::raw::region::mbind(actual, size.get()).unwrap();

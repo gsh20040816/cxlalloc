@@ -9,8 +9,8 @@ use crate::raw::Region;
 pub struct Mmap;
 
 impl Backend for Mmap {
-    fn allocate(&self, id: region::Id, size: usize) -> io::Result<Region> {
-        Region::new(id, size, None)
+    fn allocate(&self, id: region::Id, size: usize, reserved: usize) -> io::Result<Region> {
+        Region::new(id, size, reserved, None)
     }
 
     fn extend(&self, region: &Region) -> io::Result<()> {
