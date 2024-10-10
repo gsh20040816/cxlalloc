@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use anyhow::anyhow;
+use anyhow::Context;
 use clap::Parser;
 use clap::ValueEnum;
 use duct::cmd;
@@ -65,7 +67,11 @@ fn main() -> anyhow::Result<()> {
         } => {
             let mut iter = allocators
                 .iter()
-                .map(|allocator| Ok(root.join(allocator.path()).canonicalize()?))
+                .map(|allocator| {
+                    let path = root.join(allocator.path());
+                    path.canonicalize()
+                        .with_context(|| anyhow!("Failed to find path {}", path.display()))
+                })
                 .collect::<anyhow::Result<Vec<_>>>()?
                 .into_iter()
                 .map(|allocator| allocator.display().to_string());
@@ -99,7 +105,8 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             })
             .run()
-            .map(drop)?
+            .map(drop)
+            .context("Failed to run command")?
         }
         Cli::Run {
             root,
@@ -107,9 +114,12 @@ fn main() -> anyhow::Result<()> {
             benchmark,
             wrapper,
         } => {
+            let path = root.join(allocator.path());
             let ld = format!(
                 "LD_PRELOAD={}",
-                root.join(allocator.path()).canonicalize()?.display()
+                path.canonicalize()
+                    .with_context(|| anyhow!("Failed to find path {}", path.display()))?
+                    .display()
             );
 
             match &wrapper {
@@ -139,7 +149,8 @@ fn main() -> anyhow::Result<()> {
                 command.args(benchmark.args());
                 Ok(())
             })
-            .run()?;
+            .run()
+            .context("Failed to run command")?;
 
             if let Some(Wrapper::PerfRecord) = wrapper {
                 let home = homedir::my_home()?.expect("No home directory");
