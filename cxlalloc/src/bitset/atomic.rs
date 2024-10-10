@@ -1,4 +1,5 @@
 use core::array;
+use core::fmt::Debug;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
@@ -8,7 +9,6 @@ use crate::bitset::Bit;
 ///
 /// `SIZE` is in units of 8 bytes.
 #[repr(C, align(8))]
-#[derive(Debug)]
 pub(crate) struct AtomicBitSet<const SIZE: usize>([AtomicU64; SIZE]);
 
 impl<const SIZE: usize> Default for AtomicBitSet<SIZE> {
@@ -50,5 +50,11 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
                 self.0[rows].load(Ordering::Acquire).count_ones() as usize == remainder
             }
         }
+    }
+}
+
+impl<const SIZE: usize> Debug for AtomicBitSet<SIZE> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        super::debug(f, self.0.iter().map(|row| row.load(Ordering::Acquire)))
     }
 }

@@ -50,6 +50,7 @@ stat![
     FREE_REMOTE,
     FREE_REMOTE_GLOBAL,
     FREE_REMOTE_GLOBAL_WIN,
+    FREE_REMOTE_GLOBAL_WIN_STEAL,
     FREE_REMOTE_GLOBAL_LOSE,
     BUMP,
     BUMP_ALLOCATE,
@@ -110,7 +111,7 @@ pub(crate) fn record(class: size::Class) {
             LARGE.with(|histogram| {
                 histogram
                     .borrow_mut()
-                    .record(_large.count() as u64)
+                    .record(_large.count().get() as u64)
                     .unwrap()
             })
         }

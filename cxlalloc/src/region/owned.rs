@@ -61,9 +61,8 @@ impl Meta {
 
         let slab = &owned[index];
         let next = slab.meta.load().next();
-        slab.meta.store(slab::owned::Meta::new(None));
         unsafe {
-            slab.free.with_mut(|free| free.fill(class.count()));
+            (*slab.free.get()).fill(class.count());
         }
 
         shared[index].owner.store(slab::shared::Owner::new(
@@ -71,7 +70,7 @@ impl Meta {
             Some(id),
         ));
 
-        self.r#sized[class].set(Some(index));
+        self.r#sized[class].push(owned, index);
         self.r#unsized.set(next);
 
         true

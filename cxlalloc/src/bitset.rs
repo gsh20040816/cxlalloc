@@ -37,3 +37,33 @@ impl From<Bit> for usize {
         (bit.row << 6) | bit.col
     }
 }
+
+fn debug<I>(f: &mut core::fmt::Formatter, iter: I) -> core::fmt::Result
+where
+    I: IntoIterator<Item = u64>,
+{
+    write!(f, "[")?;
+
+    for (i, row) in iter.into_iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+
+        if row == 0 {
+            write!(f, "_")?;
+            continue;
+        } else {
+            write!(f, "{}:", i)?;
+        }
+
+        for byte in 0..8 {
+            match ((row >> (byte * 8)) as u8).reverse_bits() {
+                0 => write!(f, "0-")?,
+                0xFF => write!(f, "1-")?,
+                byte => write!(f, "{:08b}", byte)?,
+            }
+        }
+    }
+
+    write!(f, "]")
+}

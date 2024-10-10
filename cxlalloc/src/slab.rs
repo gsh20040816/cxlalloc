@@ -23,6 +23,7 @@ use crate::bitset::Bit;
 use crate::raw;
 use crate::region::shared::Length;
 use crate::size;
+use crate::thread;
 use crate::transfer;
 use crate::Transfer;
 use crate::SIZE_SLAB;
@@ -383,5 +384,62 @@ unsafe impl Packed for Push {
 
     fn unpack(value: u64) -> Self {
         Push((value & Self::MASK) as u16)
+    }
+}
+
+#[inline]
+pub(crate) fn transfer(
+    shared: &Slice<Shared>,
+    owned: &Slice<Owned>,
+    index: Index,
+    old: Option<thread::Id>,
+    new: Option<thread::Id>,
+) {
+    if !cfg!(feature = "validate") {
+        return;
+    }
+
+    let Err(actual) = owned[index].owner.transfer(old, new) else {
+        return;
+    };
+
+    let meta = shared[index].meta.load();
+    let owner = shared[index].owner.load();
+
+    panic!(
+        "Slab {index} transfer failed: \
+        old = {old:?}, \
+        new = {new:?}, \
+        actual = {actual:?}, \
+        version = {:?}, \
+        claim = {:?}, \
+        class = {}, \
+        owner = {:?}, \
+        owned = {:?}, \
+        shared = {:?}",
+        meta.version(),
+        meta.claim(),
+        owner.class(),
+        owner.id(),
+        unsafe { &*owned[index].free.get() },
+        &shared[index].free,
+    );
+}
+
+#[inline]
+pub(crate) fn transfer_all(
+    shared: &Slice<Shared>,
+    owned: &Slice<Owned>,
+    index: Index,
+    count: usize,
+    old: Option<thread::Id>,
+    new: Option<thread::Id>,
+) {
+    if !cfg!(feature = "validate") {
+        return;
+    }
+
+    for i in 0..count {
+        transfer(shared, owned, unsafe { index.add(i as u32) }, old, new);
     }
 }

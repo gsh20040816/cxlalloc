@@ -13,7 +13,6 @@ validate = []
 
 [dependencies]
 arrayvec.workspace = true
-atomic_refcell.workspace = true
 hdrhistogram = { workspace = true, optional = true }
 gcollections.workspace = true
 intervallum.workspace = true

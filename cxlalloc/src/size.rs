@@ -160,8 +160,8 @@ impl Large {
         self.0.get() as usize * SIZE_SLAB
     }
 
-    pub(crate) fn count(&self) -> usize {
-        self.0.get() as usize
+    pub(crate) fn count(&self) -> NonZeroU16 {
+        self.0
     }
 }
 

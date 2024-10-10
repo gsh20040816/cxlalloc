@@ -11,6 +11,7 @@ mod stat;
 
 use core::alloc::Layout;
 use core::cell::Cell;
+use core::cell::UnsafeCell;
 use core::ffi;
 use core::mem::ManuallyDrop;
 use core::mem::MaybeUninit;
@@ -18,8 +19,6 @@ use core::ptr::NonNull;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::LazyLock;
-
-use cxlalloc::UnsafeCell;
 
 /// We explicitly opt out of the system allocator so that
 /// `cxlalloc` can allocate DRAM internally without recursion.
@@ -302,11 +301,11 @@ pub unsafe extern "C" fn vfree(_pointer: *mut ffi::c_void) {
 }
 
 unsafe fn with<F: FnOnce(&cxlalloc::Allocator) -> T, T>(apply: F) -> T {
-    ALLOCATOR.with(|allocator| allocator.with(|allocator| apply(allocator)))
+    ALLOCATOR.with(|allocator| apply(&*allocator.get()))
 }
 
 unsafe fn with_mut<F: FnOnce(&mut cxlalloc::Allocator) -> T, T>(apply: F) -> T {
-    ALLOCATOR.with(|allocator| allocator.with_mut(|allocator| apply(allocator)))
+    ALLOCATOR.with(|allocator| apply(&mut *allocator.get()))
 }
 
 struct Logger;
@@ -350,6 +349,5 @@ fn on_exit() {
     cxlalloc::stat::dump_counters(id);
     cxlalloc::stat::dump_sizes(id);
     stat::dump_counters(id);
-    ALLOCATOR
-        .with(|allocator| unsafe { allocator.with_mut(|allocator| ManuallyDrop::drop(allocator)) });
+    ALLOCATOR.with(|allocator| unsafe { ManuallyDrop::drop(&mut *allocator.get()) });
 }

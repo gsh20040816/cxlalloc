@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::bitset::Bit;
 
 #[repr(C, align(8))]
@@ -8,6 +10,8 @@ pub(crate) struct HiBitSet<const SIZE: usize> {
 }
 
 impl<const SIZE: usize> HiBitSet<SIZE> {
+    const INVARIANT: () = assert!(SIZE <= 64);
+
     pub(crate) fn fill(&mut self, count: usize) {
         let rows = count / 64;
 
@@ -86,6 +90,8 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
 
     #[track_caller]
     fn validate(&self) {
+        const { Self::INVARIANT }
+
         if !cfg!(feature = "validate") {
             return;
         }
@@ -111,5 +117,19 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
                 "Sparse bitset does not overflow",
             );
         }
+    }
+}
+
+impl<const SIZE: usize> Debug for HiBitSet<SIZE> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{{ count: {}, sparse: {:b}, dense: ",
+            self.count, self.sparse
+        )?;
+
+        super::debug(f, self.dense.iter().copied())?;
+
+        write!(f, " }}")
     }
 }

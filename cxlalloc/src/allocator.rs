@@ -2,6 +2,7 @@ use core::alloc::Layout;
 use core::ffi;
 use core::ptr::NonNull;
 
+use crate::atomic::Version;
 use crate::link;
 use crate::raw;
 use crate::region;
@@ -12,7 +13,6 @@ use crate::stat;
 use crate::thread;
 use crate::Heap;
 use crate::Root;
-use crate::SIZE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
@@ -48,7 +48,7 @@ impl<'raw> Allocator<'raw> {
 
         let index = self.allocate_small(class).unwrap();
         let slab = &self.owned.slabs[index];
-        let block = unsafe { slab.free.with(|free| free.peek()) };
+        let block = unsafe { (*slab.free.get()).peek() };
         let offset = unsafe { index.offset_block(class, block) };
         let mut pointer = self.heap.offset_to_pointer::<T>(offset);
 
@@ -69,7 +69,7 @@ impl<'raw> Allocator<'raw> {
 
         let index = 'inner: {
             // First try from unsized
-            if class.count() == 1 {
+            if class.count().get() == 1 {
                 if let Some(index) = self.owned.meta.r#unsized.peek() {
                     self.owned.meta.r#unsized.pop(&self.owned.slabs);
                     stat::inc(&stat::ALLOCATE_LARGE_UNSIZED);
@@ -83,28 +83,29 @@ impl<'raw> Allocator<'raw> {
                 .version();
 
             // Then try from global shared
-            if class.count() == 1 {
+            if class.count().get() == 1 {
                 if let Ok(index) = self
                     .heap
                     .shared
                     .pop(self.id, &self.owned.slabs, Some(version))
                 {
                     stat::inc(&stat::ALLOCATE_LARGE_GLOBAL);
+                    self.transfer(index, None, Some(self.id));
                     break 'inner index;
                 }
             }
 
             // Then try from bump pointer
             stat::inc(&stat::ALLOCATE_LARGE_BUMP);
-            self.heap
+            let index = self
+                .heap
                 .shared
-                .allocate(
-                    self.id,
-                    u16::try_from(class.size() / SIZE_SLAB).unwrap(),
-                    Some(version),
-                )
+                .allocate(self.id, class.count().get(), Some(version))
                 .unwrap()
-                .start
+                .start;
+
+            self.transfer_all(index, class.count().get() as usize, None, Some(self.id));
+            index
         };
 
         self.heap.shared.slabs[index]
@@ -145,13 +146,14 @@ impl<'raw> Allocator<'raw> {
                 .shared
                 .pop(self.id, &self.owned.slabs, Some(version))
             {
-                self.owned.slabs[index]
-                    .meta
-                    .store(slab::owned::Meta::new(None));
-
-                // unsized is empty
-                thread.r#unsized.set(Some(index));
-
+                thread.r#unsized.push(&self.owned.slabs, index);
+                slab::transfer(
+                    &self.heap.shared.slabs,
+                    &self.owned.slabs,
+                    index,
+                    None,
+                    Some(self.id),
+                );
                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 break;
             }
@@ -163,6 +165,14 @@ impl<'raw> Allocator<'raw> {
                     unsafe {
                         self.owned.slabs.link(range.clone(), None);
                         thread.r#unsized.set(Some(range.start));
+                        slab::transfer_all(
+                            &self.heap.shared.slabs,
+                            &self.owned.slabs,
+                            range.start,
+                            COUNT as usize,
+                            None,
+                            Some(self.id),
+                        );
                     }
                     break;
                 }
@@ -238,13 +248,11 @@ impl<'raw> Allocator<'raw> {
             },
         };
 
-        let (block, empty) = self.owned.slabs[index].free.with_mut(|free| {
-            let block = free.peek();
-            free.unset(block);
-            (block, free.is_empty())
-        });
+        let free = unsafe { &mut *self.owned.slabs[index].free.get() };
+        let block = free.peek();
+        free.unset(block);
 
-        if empty {
+        if free.is_empty() {
             self.detach(class);
         }
 
@@ -267,6 +275,7 @@ impl<'raw> Allocator<'raw> {
             shared
                 .owner
                 .store(slab::shared::Owner::new(owner.class(), None));
+            self.transfer(index, Some(self.id), None);
         } else {
             stat::inc(&stat::ALLOCATE_FAST_DETACH);
         }
@@ -334,11 +343,9 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_FAST);
         let slab = &self.owned.slabs[index];
         let block = offset.index_block(class);
-        let count = slab.free.with_mut(|free| {
-            let count = free.len();
-            free.set(block);
-            count
-        });
+        let free = &mut *slab.free.get();
+        let count = free.len();
+        free.set(block);
 
         match count {
             0 => self.attach(class, index),
@@ -371,8 +378,11 @@ impl<'raw> Allocator<'raw> {
     unsafe fn free_large(&mut self, class: size::Large, index: slab::Index) {
         stat::inc(&stat::FREE_LARGE);
 
-        if class.count() == 1 {
+        self.transfer_all(index, class.count().get() as usize, Some(self.id), None);
+
+        if class.count().get() == 1 {
             stat::inc(&stat::FREE_LARGE_UNSIZED);
+            self.transfer(index, None, Some(self.id));
             self.owned.meta.r#unsized.push(&self.owned.slabs, index);
             return;
         }
@@ -385,7 +395,7 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_LARGE_GLOBAL);
         self.heap
             .shared
-            .push(self.id, &self.owned.slabs, class.count() as u16, staged);
+            .push(self.id, &self.owned.slabs, class.count().get(), staged);
     }
 
     #[cold]
@@ -393,23 +403,27 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_REMOTE);
 
         let slab = &self.heap.shared.slabs[index];
-
         let block = offset.index_block(class);
+        let version = slab.meta.load().version();
 
         slab.free.set(block);
 
         if slab.free.is_full(class.count()) {
-            self.claim(index);
+            self.claim(index, version);
         }
     }
 
     #[cold]
-    fn claim(&mut self, index: slab::Index) {
+    fn claim(&mut self, index: slab::Index, version: Version) {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
         let slab = &self.heap.shared.slabs[index];
-        let old = slab.meta.load();
-        let new = slab::shared::Meta::new(old.version().next(), Some(self.id));
+
+        // Note: must use version from *before* we set our bit,
+        // or else the full slab becomes globally visible and
+        // some other thread can update the version.
+        let old = slab::shared::Meta::new(version, slab.meta.load().claim());
+        let new = slab::shared::Meta::new(version.next(), Some(self.id));
 
         match slab.meta.compare_exchange(old, new) {
             Ok(_) => stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN),
@@ -418,6 +432,9 @@ impl<'raw> Allocator<'raw> {
                 return;
             }
         }
+
+        let victim = slab.owner.load().id();
+        self.transfer(index, victim, Some(self.id));
 
         if cfg!(feature = "validate") {
             assert!(
@@ -430,8 +447,38 @@ impl<'raw> Allocator<'raw> {
             );
         }
 
+        if victim.is_some() {
+            stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
+            slab.owner.store(slab::shared::Owner::new(
+                size::Class::Small(size::Small::default()),
+                Some(self.id),
+            ));
+        }
         slab.free.clear();
         self.owned.meta.r#unsized.push(&self.owned.slabs, index);
+    }
+
+    #[inline]
+    fn transfer(&self, index: slab::Index, old: Option<thread::Id>, new: Option<thread::Id>) {
+        slab::transfer(&self.heap.shared.slabs, &self.owned.slabs, index, old, new);
+    }
+
+    #[inline]
+    fn transfer_all(
+        &self,
+        index: slab::Index,
+        count: usize,
+        old: Option<thread::Id>,
+        new: Option<thread::Id>,
+    ) {
+        slab::transfer_all(
+            &self.heap.shared.slabs,
+            &self.owned.slabs,
+            index,
+            count,
+            old,
+            new,
+        );
     }
 }
 

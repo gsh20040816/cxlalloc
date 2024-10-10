@@ -23,6 +23,10 @@ impl Meta {
         Self(claim.pack() << Version::BITS | version.pack())
     }
 
+    pub(crate) fn claim(&self) -> Option<thread::Id> {
+        Option::<thread::Id>::unpack(self.0 >> Version::BITS)
+    }
+
     pub(crate) fn version(&self) -> Version {
         Version::unpack(self.0)
     }
