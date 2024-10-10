@@ -1,9 +1,4 @@
-use std::sync::Arc;
-use std::thread;
-
 use crate::atomic::Packed;
-use crate::raw;
-use crate::region::shared;
 
 /// This thread is responsible for heap extension.
 ///
@@ -23,7 +18,7 @@ use crate::region::shared;
 /// by heap extension until they specifically request additional
 /// backing memory by modifying `metadata.extent`.
 #[cfg(feature = "extend")]
-pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
+pub(crate) fn spawn(raw: &crate::raw::Heap) -> std::thread::JoinHandle<()> {
     let capacity = raw.capacity;
     let process_id = raw.process_id;
 
@@ -34,7 +29,7 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
     // blocking on deallocation if the extension thread holds a
     // strong reference, either while it's polling or in the
     // middle of an extension. But
-    let weak = Arc::downgrade(raw);
+    let weak = std::sync::Arc::downgrade(raw);
 
     std::thread::spawn(move || {
         loop {
@@ -51,10 +46,11 @@ pub(crate) fn spawn(raw: &raw::Heap) -> thread::JoinHandle<()> {
                 continue;
             }
 
+            use crate::region::shared::Request;
             let epoch = match heap.shared.request() {
                 None => unreachable!(),
-                Some(shared::Request::Map(_)) => todo!(),
-                Some(shared::Request::Extend(epoch)) => epoch,
+                Some(Request::Map(_)) => todo!(),
+                Some(Request::Extend(epoch)) => epoch,
             };
 
             // Execute `mmap` if we haven't already

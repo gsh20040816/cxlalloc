@@ -1,5 +1,4 @@
 use core::cell::Cell;
-use core::cell::RefCell;
 use core::fmt::Write as _;
 use std::thread::LocalKey;
 
@@ -90,7 +89,7 @@ thread_local! {
     // the cxlalloc-dynamic main thread destructor, which tries to dump
     // statistics and panics.
     #[cfg(feature = "stat-size")]
-    static LARGE: core::mem::ManuallyDrop<RefCell<hdrhistogram::Histogram<u64>>>  = core::mem::ManuallyDrop::new(RefCell::new(
+    static LARGE: core::mem::ManuallyDrop<core::cell::RefCell<hdrhistogram::Histogram<u64>>>  = core::mem::ManuallyDrop::new(core::cell::RefCell::new(
         hdrhistogram::Histogram::new(3).unwrap()
     ));
 }

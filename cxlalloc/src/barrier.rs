@@ -9,11 +9,7 @@ use crate::Atomic;
 pub(crate) struct Barrier(Atomic<Versioned<Set>>);
 
 impl Barrier {
-    pub fn version(&self) -> Version {
-        self.0.load().version()
-    }
-
-    pub fn request(&self, count: usize, version: Version) {
+    pub(crate) fn request(&self, count: usize, version: Version) {
         let old = version;
         let new = version.next();
 
@@ -36,12 +32,19 @@ impl Barrier {
             hint::spin_loop();
         }
     }
+}
 
-    pub fn has_request(&self, id: usize) -> bool {
+#[cfg_attr(not(feature = "extend"), expect(unused))]
+impl Barrier {
+    pub(crate) fn version(&self) -> Version {
+        self.0.load().version()
+    }
+
+    pub(crate) fn has_request(&self, id: usize) -> bool {
         self.0.load().inner().value() & (1 << (id as u64)) > 0
     }
 
-    pub fn acknowledge(&self, id: usize) {
+    pub(crate) fn acknowledge(&self, id: usize) {
         self.0.fetch_xor(1 << id);
     }
 }

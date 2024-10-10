@@ -52,13 +52,3 @@ impl<T> Index<Id> for Array<T> {
         &self.0[index.0.get() as usize]
     }
 }
-
-impl<T> Array<T> {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Id, &T)> {
-        self.0
-            .iter()
-            .enumerate()
-            .skip(1)
-            .map(|(index, value)| (Id(NonZeroU16::new(index as u16).unwrap()), value))
-    }
-}

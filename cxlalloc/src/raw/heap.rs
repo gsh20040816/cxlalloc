@@ -1,5 +1,3 @@
-use core::ptr;
-use core::ptr::NonNull;
 use std::io;
 use std::sync::Mutex;
 

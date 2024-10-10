@@ -4,7 +4,6 @@ use core::ffi;
 use core::fmt::Debug;
 use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
-use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
@@ -523,6 +522,8 @@ unsafe impl Packed for Lsn {
 
 #[derive(Debug)]
 enum Entry {
+    // Implicitly created through zero-initialization.
+    #[expect(unused)]
     Empty,
     Allocate {
         lsn: Lsn,
