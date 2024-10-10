@@ -37,6 +37,7 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
             .for_each(|row| *row = 0);
 
         self.count = count as u64;
+        self.validate();
     }
 
     pub(crate) fn peek(&self) -> Bit {
@@ -50,9 +51,14 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         let col = bit.col();
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
+        if cfg!(feature = "validate") {
+            assert!(*cols & (1 << col) == 0, "Double free");
+        }
+
         *cols |= 1 << col;
         self.sparse |= 1 << row;
         self.count += 1;
+        self.validate();
     }
 
     pub(crate) fn unset(&mut self, bit: Bit) {
@@ -60,9 +66,14 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         let col = bit.col();
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
+        if cfg!(feature = "validate") {
+            assert!(*cols & (1 << col) > 0, "Double allocate");
+        }
+
         *cols &= !(1 << col);
         self.sparse &= !((*cols == 0) as u64) << row;
         self.count -= 1;
+        self.validate();
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -71,5 +82,34 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
 
     pub(crate) fn len(&self) -> usize {
         self.count as usize
+    }
+
+    #[track_caller]
+    fn validate(&self) {
+        if !cfg!(feature = "validate") {
+            return;
+        }
+
+        let total = self.dense.iter().copied().map(u64::count_ones).sum::<u32>();
+        assert_eq!(
+            total as u64, self.count,
+            "Count is consistent with dense bitset"
+        );
+
+        for bit in 0..SIZE {
+            assert_eq!(
+                (self.sparse & (1 << bit)) > 0,
+                self.dense[bit] > 0,
+                "Sparse bitset is consistent with dense bitset",
+            );
+        }
+
+        for bit in SIZE..64 {
+            assert_eq!(
+                self.sparse & (1 << bit),
+                0,
+                "Sparse bitset does not overflow",
+            );
+        }
     }
 }
