@@ -332,7 +332,7 @@ impl<'raw> Allocator<'raw> {
         let class = match owner.class() {
             size::Class::Small(small) => small,
             size::Class::Large(large) => {
-                return self.free_large(large, index);
+                return self.free_large(owner.id().unwrap(), large, index);
             }
         };
 
@@ -369,16 +369,16 @@ impl<'raw> Allocator<'raw> {
 
         self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
 
-        ::log::info!("Attaching {} to {}", index, class);
+        // ::log::info!("Attaching {} to {}", index, class);
 
         stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
     #[cold]
-    unsafe fn free_large(&mut self, class: size::Large, index: slab::Index) {
+    unsafe fn free_large(&mut self, owner: thread::Id, class: size::Large, index: slab::Index) {
         stat::inc(&stat::FREE_LARGE);
 
-        self.transfer_all(index, class.count().get() as usize, Some(self.id), None);
+        self.transfer_all(index, class.count().get() as usize, Some(owner), None);
 
         if class.count().get() == 1 {
             stat::inc(&stat::FREE_LARGE_UNSIZED);
