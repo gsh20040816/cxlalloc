@@ -17,12 +17,12 @@ pub(crate) struct Shared {
 pub(crate) struct Meta(u64);
 
 impl Meta {
-    pub(crate) fn new(version: Version) -> Self {
-        Self(version.pack())
+    pub(crate) fn new(version: Version, claim: Option<thread::Id>) -> Self {
+        Self(claim.pack() << Version::BITS | version.pack())
     }
 
     pub(crate) fn version(&self) -> Version {
-        Version::unpack(self.0 >> 32)
+        Version::unpack(self.0)
     }
 }
 

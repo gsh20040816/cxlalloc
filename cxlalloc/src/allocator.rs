@@ -410,15 +410,19 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
         let slab = &self.heap.shared.slabs[index];
-        let version = slab.meta.load().version();
+        let old = slab.meta.load();
+        let new = slab::shared::Meta::new(old.version().next(), Some(self.id));
 
-        slab.meta.store(slab::shared::Meta::new(version.next()));
+        match slab.meta.compare_exchange(old, new) {
+            Ok(_) => stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN),
+            Err(_) => {
+                stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
+                return;
+            }
+        }
+
         slab.free.clear();
-
-        let stage = &self.heap.shared[self.id];
-        let staged = stage.store_versioned(Some(index)).transpose();
-
-        self.heap.shared.push(self.id, &self.owned.slabs, 1, staged);
+        self.owned.meta.r#unsized.push(&self.owned.slabs, index);
     }
 }
 
