@@ -401,12 +401,12 @@ impl<'raw> Allocator<'raw> {
         slab.free.set(block);
 
         if slab.free.is_full(class.count()) {
-            self.transfer(index);
+            self.claim(index);
         }
     }
 
     #[cold]
-    fn transfer(&mut self, index: slab::Index) {
+    fn claim(&mut self, index: slab::Index) {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
         let slab = &self.heap.shared.slabs[index];
@@ -419,6 +419,17 @@ impl<'raw> Allocator<'raw> {
                 stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
                 return;
             }
+        }
+
+        if cfg!(feature = "validate") {
+            assert!(
+                self.owned
+                    .meta
+                    .r#unsized
+                    .trace(&self.owned.slabs)
+                    .all(|other| other != index),
+                "Claim does not introduce alias",
+            );
         }
 
         slab.free.clear();

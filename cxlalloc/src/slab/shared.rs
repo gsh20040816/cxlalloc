@@ -13,6 +13,8 @@ pub(crate) struct Shared {
     pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
 }
 
+const _: [(); 8 * 64] = [(); size_of::<Shared>()];
+
 #[repr(C)]
 pub(crate) struct Meta(u64);
 

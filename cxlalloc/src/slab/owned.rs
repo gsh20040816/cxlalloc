@@ -11,6 +11,8 @@ pub(crate) struct Owned {
     pub(crate) free: UnsafeCell<HiBitSet<SIZE_BIT_SET>>,
 }
 
+const _: [(); 8 * 64] = [(); size_of::<Owned>()];
+
 pub(crate) struct Meta(u64);
 
 impl Meta {
