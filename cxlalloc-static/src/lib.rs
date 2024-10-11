@@ -1,6 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
+use core::ops::Deref;
 use core::sync::atomic::AtomicIsize;
+use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -21,12 +23,37 @@ static BACKEND: OnceLock<raw::Backend> = OnceLock::new();
 
 thread_local! {
     // Using a const initializer was causing some linking errors when using clang-15.
-    static THREAD_ID: Cell<Option<cxlalloc::thread::Id>> = const { Cell::new(None) };
+    static THREAD_ID: RefCell<Option<Id>> = const { RefCell::new(None) };
 
     // > Initialization is dynamically performed on the first call to with within a thread...
     //
     // https://doc.rust-lang.org/std/thread/struct.LocalKey.html
     static ALLOCATOR: RefCell<Allocator<'static>> = RefCell::new(raw().allocator(thread_id()));
+}
+
+static POOL: AtomicU64 = AtomicU64::new(u64::MAX);
+
+struct Id {
+    id: cxlalloc::thread::Id,
+    pool: bool,
+}
+
+impl Deref for Id {
+    type Target = cxlalloc::thread::Id;
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl Drop for Id {
+    fn drop(&mut self) {
+        cxlalloc::stat::dump_counters(u16::from(self.id) as usize);
+        cxlalloc::stat::dump_sizes(u16::from(self.id) as usize);
+
+        if self.pool {
+            POOL.fetch_or(1 << u16::from(self.id), Ordering::AcqRel);
+        }
+    }
 }
 
 /// Override the default backend. Must be called before `cxlalloc_init`.
@@ -117,13 +144,13 @@ pub unsafe extern "C" fn cxlalloc_init(
                 }
 
                 // Color-coded thread ID if there is more than one thread
-                match THREAD_ID.get() {
-                    Some(thread) if thread_count > 1 => {
+                match THREAD_ID.with(|id| u16::from(id.borrow().as_ref().unwrap().id)) {
+                    thread if thread_count > 1 => {
                         let style_thread =
-                            style::Ansi256Color::from(u16::from(thread) as u8 + 16).on_default();
+                            style::Ansi256Color::from(thread as u8 + 16).on_default();
                         write!(buffer, "[{style_thread}T{thread:02}{style_thread:#}]")?;
                     }
-                    None | Some(_) => (),
+                    _ => (),
                 }
 
                 // Abbreviated log level
@@ -156,7 +183,31 @@ pub unsafe extern "C" fn cxlalloc_init(
             .unwrap()
     });
 
-    THREAD_ID.set(Some(unsafe { cxlalloc::thread::Id::new(thread_id as u16) }));
+    THREAD_ID.set(Some(unsafe {
+        if thread_id == 0xFF {
+            let mut pool = POOL.load(Ordering::Acquire);
+            let id = loop {
+                match POOL.compare_exchange(
+                    pool,
+                    pool & !(1 << pool.trailing_zeros()),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => break pool.trailing_zeros(),
+                    Err(next) => pool = next,
+                }
+            };
+            Id {
+                id: cxlalloc::thread::Id::new(id as u16),
+                pool: true,
+            }
+        } else {
+            Id {
+                id: cxlalloc::thread::Id::new(thread_id as u16),
+                pool: false,
+            }
+        }
+    }));
 
     // Eagerly initialize thread-local state to fail fast on buggy recovery.
     ALLOCATOR.with(|_| ());
@@ -169,10 +220,7 @@ thread_local! {
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
     let allocation = ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size));
-    assert!(
-        SAVE.replace(Some(allocation)).is_none(),
-        "Called malloc twice without linking",
-    );
+    SAVE.replace(Some(allocation));
     allocation
 }
 
@@ -190,7 +238,6 @@ pub unsafe extern "C" fn cxlalloc_link(pointer: *mut ffi::c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
     let Some(pointer) = NonNull::new(pointer) else {
-        log::error!("Called cxlalloc_free with null pointer");
         return;
     };
 
@@ -305,7 +352,10 @@ fn raw() -> &'static raw::Heap {
 }
 
 fn thread_id() -> cxlalloc::thread::Id {
-    THREAD_ID
-        .get()
-        .expect("Uninitialized thread ID: was cxlalloc_init called for this thread?")
+    THREAD_ID.with(|id| {
+        id.borrow()
+            .as_ref()
+            .expect("Uninitialized thread ID: was cxlalloc_init called for this thread?")
+            .id
+    })
 }
