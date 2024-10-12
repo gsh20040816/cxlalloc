@@ -54,17 +54,14 @@ impl Display for Class {
     }
 }
 
-// 8..1024 + 2k, 4k, 8k, ..., 32k
-const CLASS_COUNT: usize = 128 + 5;
+// 8..1024
+const CLASS_COUNT: usize = 128;
 
 impl Class {
     #[inline]
     pub(crate) fn new(size: usize) -> Option<Self> {
         match size {
             0..1024 => Some(Class(((size + 7) / 8) as u8)),
-            1024..=32768 => Some(Class(
-                128 + size.next_power_of_two().trailing_zeros() as u8 - 10,
-            )),
             _ => None,
         }
     }
@@ -76,10 +73,7 @@ impl Class {
 
     #[inline]
     pub(crate) fn size(&self) -> usize {
-        match self.0.checked_sub(128) {
-            None => self.0 as usize * 8,
-            Some(power) => 1024 << power,
-        }
+        self.0 as usize * 8
     }
 
     #[inline]
@@ -100,13 +94,8 @@ const fn counts() -> Array<u16> {
     counts[1] = (SIZE_BIT_SET * 64) as u16;
 
     let mut i = 2;
-    while i < 128 {
+    while i < counts.len() {
         counts[i] = (SIZE_SLAB / (i * 8)) as u16;
-        i += 1;
-    }
-
-    while i <= CLASS_COUNT {
-        counts[i] = (SIZE_SLAB / (1024 << (i - 128))) as u16;
         i += 1;
     }
 
