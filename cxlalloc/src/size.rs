@@ -5,11 +5,13 @@ use core::ops;
 
 use crate::atomic::Packed;
 use crate::SIZE_BIT_SET;
+use crate::SIZE_PAGE;
 use crate::SIZE_SLAB;
 
 pub(crate) const MIN: usize = 8;
 
 #[repr(transparent)]
+#[derive(Debug)]
 pub(crate) struct Array<T>([T; 1 + CLASS_COUNT]);
 
 impl<T> Array<T> {
@@ -54,14 +56,22 @@ impl Display for Class {
     }
 }
 
-// 8..1024
-const CLASS_COUNT: usize = 128;
+// 8..1024 4k..32k
+const CLASS_COUNT: usize = 128 + 5;
+
+pub(crate) const SLAB: Class = match Class::new(SIZE_SLAB) {
+    None => unreachable!(),
+    Some(class) => class,
+};
 
 impl Class {
     #[inline]
-    pub(crate) fn new(size: usize) -> Option<Self> {
+    pub(crate) const fn new(size: usize) -> Option<Self> {
         match size {
             0..1024 => Some(Class(((size + 7) / 8) as u8)),
+            1024..=32768 => Some(Class(
+                128 + size.next_power_of_two().trailing_zeros() as u8 - 10,
+            )),
             _ => None,
         }
     }
@@ -73,7 +83,10 @@ impl Class {
 
     #[inline]
     pub(crate) fn size(&self) -> usize {
-        self.0 as usize * 8
+        match self.0.checked_sub(128) {
+            None => self.0 as usize * 8,
+            Some(p) => 1024 << p,
+        }
     }
 
     #[inline]
@@ -94,8 +107,13 @@ const fn counts() -> Array<u16> {
     counts[1] = (SIZE_BIT_SET * 64) as u16;
 
     let mut i = 2;
-    while i < counts.len() {
+    while i <= 128 {
         counts[i] = (SIZE_SLAB / (i * 8)) as u16;
+        i += 1;
+    }
+
+    while i < counts.len() {
+        counts[i] = (SIZE_SLAB / (1024 << (i - 128))) as u16;
         i += 1;
     }
 

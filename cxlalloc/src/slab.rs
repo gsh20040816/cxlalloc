@@ -18,14 +18,14 @@ use core::ptr::NonNull;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
-use crate::atomic::Versioned;
+use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::raw;
+use crate::region::shared::Help;
 use crate::region::shared::Length;
 use crate::size;
 use crate::thread;
-use crate::transfer;
-use crate::Transfer;
+use crate::Atomic;
 use crate::SIZE_SLAB;
 
 #[repr(C)]
@@ -234,6 +234,7 @@ impl<'raw, S> core::ops::Index<Index> for Slice<'raw, S> {
 #[repr(C)]
 pub(crate) struct LocalStack {
     head: Option<Index>,
+    count: usize,
 }
 
 impl LocalStack {
@@ -241,19 +242,26 @@ impl LocalStack {
         self.head
     }
 
-    pub(crate) fn set(&mut self, head: Option<Index>) {
+    pub(crate) fn len(&self) -> usize {
+        self.count
+    }
+
+    pub(crate) fn set(&mut self, head: Option<Index>, count: usize) {
+        self.count = count;
         self.head = head;
     }
 
     pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) -> Option<Index> {
         let index = self.head?;
+        self.count -= 1;
         self.head = slabs[index].meta.load().next();
         Some(index)
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
         slabs[index].meta.store(owned::Meta::new(self.head));
-        self.set(Some(index));
+        self.count += 1;
+        self.head = Some(index);
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slice<Owned>) -> impl Iterator<Item = Index> + 'a {
@@ -268,122 +276,101 @@ impl LocalStack {
 
 #[repr(C)]
 pub(crate) struct GlobalStack<'raw> {
-    claim: transfer::Claim<Pop, Push>,
-    head: transfer::State<Option<Index>>,
+    head: Atomic<Head>,
     _raw: PhantomData<&'raw raw::Heap>,
 }
 
 impl<'raw> GlobalStack<'raw> {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.head.load().is_none()
-    }
-}
-
-#[derive(Debug)]
-pub struct Empty;
-
-impl<'raw> Transfer for GlobalStack<'raw> {
-    type State = Option<Index>;
-    type Context = Slice<'raw, Owned>;
-
-    type Write = Push;
-    type Input = Index;
-
-    type Read = Pop;
-    type Output = Index;
-
-    type Abort = Empty;
-
-    fn try_read(
+    pub(crate) fn push(
         &self,
-        _: &Self::Context,
-        Pop: Self::Read,
-        head: Self::State,
-    ) -> Result<Self::Output, Self::Abort> {
-        match head {
-            Some(index) => Ok(index),
-            None => Err(Empty),
-        }
-    }
-
-    fn finish_read(
-        &self,
-        slabs: &Self::Context,
-        Pop: Self::Read,
-        head: Versioned<Self::State>,
-    ) -> Self::State {
-        let index = head.inner().expect("Non-empty head");
-        slabs[index].meta.load().next()
-    }
-
-    fn interpose_write(
-        &self,
-        slabs: &Self::Context,
-        Push(count): Self::Write,
-        head: Self::State,
-        index: &Self::Input,
+        id: thread::Id,
+        slabs: &Slice<Owned>,
+        helps: &thread::Array<Help>,
+        index: Index,
     ) {
-        // FIXME: this only needs to be done once, but `interpose_write` is called
-        // every time there is a conflicting operation and we need to restart.
-        // One solution would be to pass another parameter indicating whether
-        // this is the first time?
-        unsafe {
-            slabs.link(*index..index.add(u32::from(count)), head);
+        let mut head = self.head.load();
+        let version = helps[id].peek();
+        helps[id].prepare(version.next());
+
+        loop {
+            if let Some(prev) = head.id() {
+                helps[prev].notify(head.version());
+            }
+
+            slabs[index].meta.store(owned::Meta::new(head.index()));
+            match self
+                .head
+                .compare_exchange(head, Head::new(id, version.next(), Some(index)))
+            {
+                Ok(_) => break,
+                Err(next) => head = next,
+            }
         }
     }
 
-    fn finish_write(
+    pub(crate) fn pop(
         &self,
-        _: &Self::Context,
-        Push(_): Self::Write,
-        index: Self::Input,
-    ) -> Self::State {
-        Some(index)
-    }
+        id: thread::Id,
+        slabs: &Slice<Owned>,
+        helps: &thread::Array<Help>,
+    ) -> Option<Index> {
+        let mut head = self.head.load();
+        let version = helps[id].peek();
+        helps[id].prepare(version.next());
 
-    fn claim(&self) -> &transfer::Claim<Self::Read, Self::Write> {
-        &self.claim
-    }
+        loop {
+            if let Some(prev) = head.id() {
+                helps[prev].notify(head.version());
+            }
 
-    fn state(&self) -> &transfer::State<Self::State> {
-        &self.head
+            let goal = head.index()?;
+
+            match self.head.compare_exchange(
+                head,
+                Head::new(id, version.next(), slabs[goal].meta.load().next()),
+            ) {
+                Ok(_) => break Some(goal),
+                Err(next) => head = next,
+            }
+        }
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct Pop;
+impl<'raw> GlobalStack<'raw> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.head.load().index().is_none()
+    }
+}
 
-unsafe impl Packed for Pop {
-    const BITS: u8 = 1;
+struct Head(u64);
+
+impl Head {
+    fn new(id: thread::Id, version: Version, index: Option<Index>) -> Self {
+        Self((id.pack() << 48) | (version.pack() << 32) | index.pack())
+    }
+
+    fn index(&self) -> Option<Index> {
+        Packed::unpack(self.0)
+    }
+
+    fn version(&self) -> Version {
+        Packed::unpack((self.0 >> 32) as u16 as u64)
+    }
+
+    fn id(&self) -> Option<thread::Id> {
+        Packed::unpack(self.0 >> 48)
+    }
+}
+
+unsafe impl Packed for Head {
+    const BITS: u8 = 64;
 
     fn pack(&self) -> u64 {
-        0
-    }
-
-    fn unpack(_: u64) -> Self {
-        Self
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct Push(u16);
-
-impl Push {
-    pub(crate) fn new(count: u16) -> Self {
-        assert!(count as u64 <= <Self as Packed>::MASK);
-        Self(count)
-    }
-}
-
-unsafe impl Packed for Push {
-    const BITS: u8 = 15;
-
-    fn pack(&self) -> u64 {
-        self.0 as u64
+        self.0
     }
 
     fn unpack(value: u64) -> Self {
-        Push((value & Self::MASK) as u16)
+        Self(value)
     }
 }
 

@@ -85,8 +85,6 @@ mod validate {
             old: Option<thread::Id>,
             new: Option<thread::Id>,
         ) -> Result<(), Option<thread::Id>> {
-            assert!(old.is_some() || new.is_some());
-
             let old_bit = old.map(|id| 1 << u16::from(id)).unwrap_or(0);
             let new_bit = new.map(|id| 1 << u16::from(id)).unwrap_or(0);
 

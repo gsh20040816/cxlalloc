@@ -70,7 +70,8 @@ impl Meta {
             .store(slab::shared::Owner::new(class, Some(id)));
 
         self.r#sized[class].push(owned, index);
-        self.r#unsized.set(next);
+        let count = self.r#unsized.len();
+        self.r#unsized.set(next, count - 1);
 
         true
     }
@@ -87,7 +88,8 @@ impl Meta {
         let mut walk = self.r#sized[class].peek().unwrap();
 
         if walk == index {
-            self.r#sized[class].set(next);
+            let count = self.r#sized[class].len();
+            self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
                 match slabs[walk].meta.load().next() {

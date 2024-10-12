@@ -59,17 +59,8 @@ impl<'raw> Allocator<'raw> {
             return thread.r#sized[class].peek();
         }
 
-        let stage = &self.heap.shared[self.id];
-        let version = stage
-            .store_versioned::<region::shared::Length>(None)
-            .version();
-
         loop {
-            if let Ok(index) = self
-                .heap
-                .shared
-                .pop(self.id, &self.owned.slabs, Some(version))
-            {
+            if let Some(index) = self.heap.shared.pop(self.id, &self.owned.slabs) {
                 thread.r#unsized.push(&self.owned.slabs, index);
                 slab::transfer(
                     &self.heap.shared.slabs,
@@ -83,12 +74,12 @@ impl<'raw> Allocator<'raw> {
             }
 
             const COUNT: u16 = 16;
-            match self.heap.shared.allocate(self.id, COUNT, Some(version)) {
-                Ok(range) => {
+            match self.heap.shared.allocate(self.id, COUNT) {
+                Some(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
                     unsafe {
                         self.owned.slabs.link(range.clone(), None);
-                        thread.r#unsized.set(Some(range.start));
+                        thread.r#unsized.set(Some(range.start), COUNT as usize);
                         slab::transfer_all(
                             &self.heap.shared.slabs,
                             &self.owned.slabs,
@@ -100,8 +91,8 @@ impl<'raw> Allocator<'raw> {
                     }
                     break;
                 }
-                Err(epoch) => {
-                    let _ = self.heap.shared.extend(self.id, epoch, Some(version));
+                None => {
+                    todo!()
                 }
             }
         }
@@ -181,6 +172,13 @@ impl<'raw> Allocator<'raw> {
             },
         };
 
+        // if class == size::SLAB {
+        //     return self
+        //         .heap
+        //         .offset_to_pointer::<ffi::c_void>(slab::Offset::from(index))
+        //         .as_ptr();
+        // }
+
         let free = unsafe { &mut *self.owned.slabs[index].free.get() };
         let block = free.peek();
         free.unset(block);
@@ -252,6 +250,13 @@ impl<'raw> Allocator<'raw> {
             return self.free_remote(offset, index, class);
         }
 
+        // if class == size::SLAB {
+        //     return self
+        //         .owned
+        //         .meta
+        //         .sized_to_unsized(&self.owned.slabs, class, index);
+        // }
+
         stat::inc(&stat::FREE_FAST);
         let slab = &self.owned.slabs[index];
         let block = offset.index_block(class);
@@ -262,10 +267,15 @@ impl<'raw> Allocator<'raw> {
         match count {
             0 => self.attach(class, index),
             count if count + 1 == class.count() => {
+                // if self.owned.meta.r#unsized.len() < 16 {
                 stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned
                     .meta
                     .sized_to_unsized(&self.owned.slabs, class, index);
+                // } else {
+                //     self.transfer(index, Some(self.id), None);
+                //     self.heap.shared.push(self.id, &self.owned.slabs, index);
+                // }
             }
             _ => (),
         }
@@ -291,6 +301,13 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_REMOTE);
 
         let slab = &self.heap.shared.slabs[index];
+
+        // if class == size::SLAB {
+        //     let owner = slab.owner.load().id();
+        //     self.transfer(index, owner, Some(self.id));
+        //     return self.owned.meta.r#unsized.push(&self.owned.slabs, index);
+        // }
+
         let block = offset.index_block(class);
         let version = slab.meta.load().version();
 
@@ -321,9 +338,6 @@ impl<'raw> Allocator<'raw> {
             }
         }
 
-        let victim = slab.owner.load().id();
-        self.transfer(index, victim, Some(self.id));
-
         if cfg!(feature = "validate") {
             assert!(
                 self.owned
@@ -334,6 +348,19 @@ impl<'raw> Allocator<'raw> {
                 "Claim does not introduce alias",
             );
         }
+
+        let victim = slab.owner.load().id();
+
+        // if self.owned.meta.r#unsized.len() > 16 {
+        //     eprintln!("{} push global {}", self.id, index);
+        //     self.transfer(index, victim, None);
+        //     slab.owner
+        //         .store(slab::shared::Owner::new(slab.owner.load().class(), None));
+        //     self.heap.shared.push(self.id, &self.owned.slabs, index);
+        //     return;
+        // }
+
+        self.transfer(index, victim, Some(self.id));
 
         if victim.is_some() {
             stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
@@ -355,13 +382,7 @@ impl<'raw> Allocator<'raw> {
 #[cfg(feature = "extend")]
 impl<'raw> Allocator<'raw> {
     pub fn extend(&mut self) {
-        let stage = &self.heap.shared[self.id];
-        let version = stage
-            .store_versioned::<region::shared::Length>(None)
-            .version();
-
-        let epoch = self.heap.shared.epoch();
-        let _ = self.heap.shared.extend(self.id, epoch, Some(version));
+        todo!()
     }
 
     pub fn epoch(&self) -> crate::extend::Epoch {

@@ -1,5 +1,4 @@
 use core::alloc::Layout;
-use core::convert::Infallible;
 use core::ffi;
 use core::ops::Index;
 use core::ops::Range;
@@ -9,18 +8,14 @@ use std::sync::Mutex;
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
-use crate::atomic::Versioned;
 use crate::extend::Epoch;
 use crate::huge;
 use crate::raw;
 use crate::root;
 use crate::slab;
 use crate::thread;
-use crate::transfer;
-use crate::transfer::TransferExt;
 use crate::Atomic;
 use crate::Barrier;
-use crate::Transfer;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Shared<'raw> {
@@ -64,38 +59,36 @@ impl<'raw> Shared<'raw> {
         epoch: Epoch,
         version: Option<Version>,
     ) -> Result<(), Epoch> {
-        self.meta
-            .map
-            .read(
-                &self.process_count,
-                &self.meta.stages,
-                id,
-                Request::Extend(epoch),
-                version,
-            )
-            .map(drop)
+        todo!()
     }
 
-    pub(crate) fn allocate(
-        &self,
-        id: thread::Id,
-        count: u16,
-        version: Option<Version>,
-    ) -> Result<Range<slab::Index>, Epoch> {
-        self.meta
-            .bump
-            .read(
-                &(self.capacity, self.meta.map.epoch.load()),
-                &self.meta.stages,
-                id,
-                Allocate(count),
-                version,
-            )
-            .map(|length| {
-                let end = slab::Index::from_length(length);
-                let start = slab::Index::from_length(Length(length.0 - u32::from(count)));
-                start..end
-            })
+    pub(crate) fn allocate(&self, id: thread::Id, count: u16) -> Option<Range<slab::Index>> {
+        let mut bump = self.meta.bump.load();
+        let version = self.meta.stages[id].peek();
+        self.meta.stages[id].prepare(version.next());
+
+        let length = loop {
+            if let Some(other) = bump.id() {
+                self.meta.stages[other].notify(bump.version());
+            }
+
+            if bump.length().0 + count as u32 >= self.capacity {
+                return None;
+            }
+
+            match self.meta.bump.compare_exchange(
+                bump,
+                Bump::new(id, version.next(), Length(bump.length().0 + count as u32)),
+            ) {
+                Ok(_) => break bump.length(),
+                Err(next) => bump = next,
+            }
+        };
+
+        let start = slab::Index::from_length(Length(length.0));
+        let end = slab::Index::from_length(Length(length.0 + count as u32));
+        // eprintln!("{} got {}..{}", id, start, end);
+        Some(start..end)
     }
 
     pub(crate) fn allocate_log(
@@ -128,48 +121,52 @@ impl<'raw> Shared<'raw> {
         self.meta.log.size(base, pointer)
     }
 
-    #[expect(dead_code)]
     pub(crate) fn push(
         &self,
         id: thread::Id,
         slabs: &slab::Slice<slab::Owned>,
-        count: u16,
-        staged: Option<Versioned<slab::Index>>,
+        staged: slab::Index,
     ) {
-        self.meta
-            .free
-            .write(slabs, &self.meta.stages, id, slab::Push::new(count), staged);
+        self.meta.free.push(id, slabs, &self.meta.stages, staged);
+        eprintln!("{id} pushed {staged:?}");
     }
 
     pub(crate) fn pop(
         &self,
         id: thread::Id,
         slabs: &slab::Slice<slab::Owned>,
-        version: Option<Version>,
-    ) -> Result<slab::Index, slab::Empty> {
+    ) -> Option<slab::Index> {
         if self.meta.free.is_empty() {
-            return Err(slab::Empty);
+            return None;
         }
 
-        self.meta
-            .free
-            .read(slabs, &self.meta.stages, id, slab::Pop, version)
+        let out = self.meta.free.pop(id, slabs, &self.meta.stages);
+
+        eprintln!("{id} popped {out:?}");
+
+        out
     }
 }
 
 #[cfg(feature = "extend")]
 impl<'raw> Shared<'raw> {
     pub(crate) fn barrier(&self) -> &Barrier {
-        &self.meta.map.barrier
+        todo!()
     }
 
     pub(crate) fn request(&self) -> Option<Request> {
-        self.meta.map.claim.read()
+        todo!()
     }
 
     pub(crate) fn epoch(&self) -> Epoch {
-        self.meta.map.state().load()
+        todo!()
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum Request {
+    Map(u16),
+    Extend(Epoch),
 }
 
 impl Index<root::Index> for Shared<'_> {
@@ -180,7 +177,7 @@ impl Index<root::Index> for Shared<'_> {
 }
 
 impl Index<thread::Id> for Shared<'_> {
-    type Output = transfer::Stage;
+    type Output = Help;
     fn index(&self, id: thread::Id) -> &Self::Output {
         &self.meta.stages[id]
     }
@@ -190,66 +187,60 @@ impl Index<thread::Id> for Shared<'_> {
 pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
-    stages: thread::Array<transfer::Stage>,
+    stages: thread::Array<Help>,
 
-    bump: Bump,
-    map: Map,
+    bump: Atomic<Bump>,
     pub(crate) log: huge::Cxl<1024>,
 }
 
-struct Bump {
-    claim: transfer::Claim<Allocate, Infallible>,
-    length: transfer::State<Length>,
+pub(crate) struct Help(Atomic<u64>);
+
+impl Help {
+    pub fn peek(&self) -> Version {
+        Version::unpack(self.0.load())
+    }
+
+    pub fn prepare(&self, version: Version) {
+        self.0.store(version.pack());
+    }
+
+    pub fn notify(&self, version: Version) {
+        let _ = self
+            .0
+            .compare_exchange(version.pack(), version.pack() | (1 << 63));
+    }
 }
 
-impl Transfer for Bump {
-    type State = Length;
-    type Context = (u32, Epoch);
+#[derive(Copy, Clone)]
+struct Bump(u64);
 
-    type Write = Infallible;
-    type Input = Infallible;
-
-    type Read = Allocate;
-    type Output = Length;
-
-    type Abort = Epoch;
-
-    fn try_read(
-        &self,
-        (initial, epoch): &Self::Context,
-        Allocate(count): Self::Read,
-        Length(length): Self::State,
-    ) -> Result<Self::Output, Self::Abort> {
-        if length + count as u32 <= epoch.total(*initial) {
-            Ok(Length(length + count as u32))
-        } else {
-            Err(*epoch)
-        }
+impl Bump {
+    fn new(id: thread::Id, version: Version, index: Length) -> Self {
+        Self((id.pack() << 48) | (version.pack() << 32) | index.pack())
     }
 
-    fn finish_read(
-        &self,
-        _: &Self::Context,
-        Allocate(count): Self::Read,
-        length: Versioned<Self::State>,
-    ) -> Self::State {
-        Length(length.inner().0 + count as u32)
+    fn length(&self) -> Length {
+        Packed::unpack(self.0)
     }
 
-    fn interpose_write(&self, _: &Self::Context, _: Self::Write, _: Self::State, _: &Self::Input) {
-        unreachable!()
+    fn version(&self) -> Version {
+        Packed::unpack((self.0 >> 32) as u16 as u64)
     }
 
-    fn finish_write(&self, _: &Self::Context, _: Self::Write, _: Self::Input) -> Self::State {
-        unreachable!()
+    fn id(&self) -> Option<thread::Id> {
+        Packed::unpack(self.0 >> 48)
+    }
+}
+
+unsafe impl Packed for Bump {
+    const BITS: u8 = 64;
+
+    fn pack(&self) -> u64 {
+        self.0
     }
 
-    fn claim(&self) -> &transfer::Claim<Self::Read, Self::Write> {
-        &self.claim
-    }
-
-    fn state(&self) -> &transfer::State<Self::State> {
-        &self.length
+    fn unpack(value: u64) -> Self {
+        Self(value)
     }
 }
 
@@ -271,114 +262,5 @@ unsafe impl Packed for Length {
 
     fn unpack(value: u64) -> Self {
         Self(value as u32)
-    }
-}
-
-// Note: initially is zero, but we only
-// serialize and deserialize in Transfer::Output,
-// in the staging area, and there it is always nonzero.
-unsafe impl NonZero for Length {}
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct Allocate(u16);
-
-unsafe impl Packed for Allocate {
-    const BITS: u8 = 15;
-
-    fn pack(&self) -> u64 {
-        self.0 as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self((value & Self::MASK) as u16)
-    }
-}
-
-struct Map {
-    claim: transfer::Claim<Request, Infallible>,
-    epoch: transfer::State<Epoch>,
-    barrier: Barrier,
-}
-
-impl Transfer for Map {
-    type State = Epoch;
-    type Context = usize;
-
-    type Write = Infallible;
-    type Input = Infallible;
-
-    type Read = Request;
-    type Output = slab::Index;
-
-    type Abort = Epoch;
-
-    fn try_read(
-        &self,
-        _: &Self::Context,
-        request: Self::Read,
-        state: Self::State,
-    ) -> Result<Self::Output, Self::Abort> {
-        match request {
-            Request::Map(_) => todo!(),
-            Request::Extend(_) if !cfg!(feature = "extend") => panic!("Heap extension disabled"),
-            // Caller should not use this index--cannot return `None` because
-            // we need `Output: NonZero` to support `Option<Output>`.
-            Request::Extend(epoch) if epoch == state => Ok(slab::Index::dangling()),
-            Request::Extend(_) => Err(state),
-        }
-    }
-
-    fn finish_read(
-        &self,
-        process_count: &Self::Context,
-        request: Self::Read,
-        state: Versioned<Self::State>,
-    ) -> Self::State {
-        self.barrier.request(*process_count, state.version());
-
-        match request {
-            Request::Map(_) => state.inner(),
-            Request::Extend(_) => state.inner().next(),
-        }
-    }
-
-    fn interpose_write(&self, _: &Self::Context, _: Self::Write, _: Self::State, _: &Self::Input) {
-        unreachable!()
-    }
-
-    fn finish_write(&self, _: &Self::Context, _: Self::Write, _: Self::Input) -> Self::State {
-        unreachable!()
-    }
-
-    fn claim(&self) -> &transfer::Claim<Self::Read, Self::Write> {
-        &self.claim
-    }
-
-    fn state(&self) -> &transfer::State<Self::State> {
-        &self.epoch
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum Request {
-    Map(u16),
-    Extend(Epoch),
-}
-
-unsafe impl Packed for Request {
-    const BITS: u8 = 15;
-
-    fn pack(&self) -> u64 {
-        match self {
-            Request::Map(count) => *count as u64,
-            Request::Extend(epoch) => epoch.pack() | (1 << (Self::BITS - 1)),
-        }
-    }
-
-    fn unpack(value: u64) -> Self {
-        match value & (1 << (Self::BITS - 1)) > 0 {
-            false => Self::Map(value as u16),
-            true => Self::Extend(Epoch::unpack(value)),
-        }
     }
 }
