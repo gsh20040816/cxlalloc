@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use crate::huge;
 use crate::raw;
 use crate::raw::backend;
+use crate::raw::region::RESERVATION;
 use crate::raw::Backend;
 use crate::raw::Region;
 use crate::region;
@@ -103,6 +104,22 @@ impl Inner {
             data_layout.size(),
             raw::region::RESERVATION * 2,
         )?;
+
+        // Note: not calling `munmap` here and mapping
+        // with `MAP_FIXED` in the huge allocator seems to
+        // cause a SEGFAULT, even though it seems equivalent
+        // to unmapping here and mapping with `MAP_FIXED_NOREPLACE`?
+        //
+        // In particular, the no-replace mappings aren't failing...
+        unsafe {
+            libc::munmap(
+                data.base()
+                    .as_ptr()
+                    .cast::<libc::c_void>()
+                    .wrapping_byte_add(raw::region::RESERVATION),
+                RESERVATION,
+            );
+        }
 
         log::info!(
             "Constructing heap with aligned size {}",

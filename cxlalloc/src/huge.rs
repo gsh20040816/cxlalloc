@@ -1,12 +1,9 @@
-use core::cell::UnsafeCell;
 use core::cmp;
 use core::ffi;
 use core::fmt::Debug;
 use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicBool;
-use core::sync::atomic::Ordering;
 use std::sync::Mutex;
 
 use gcollections::ops::Bounded as _;
@@ -71,7 +68,7 @@ pub(crate) struct Cxl<const SIZE: usize> {
 
     local: [Atomic<Option<Lsn>>; COUNT_PROCESS],
 
-    logs: [[UnsafeCell<Entry>; SIZE]; COUNT_PROCESS],
+    logs: [[Entry; SIZE]; COUNT_PROCESS],
 }
 
 impl<const SIZE: usize> Cxl<SIZE> {
@@ -98,15 +95,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
             let offset = state.allocate(size.get());
 
-            unsafe {
-                *self.logs[process_id][index as usize].get() = Entry::Allocate {
-                    valid: AtomicBool::new(false),
-                    freed: AtomicBool::new(false),
-                    lsn: next.lsn(),
-                    offset,
-                    size,
-                };
-            }
+            self.logs[process_id][index as usize]
+                .site
+                .store(Site::new(offset, size.get()));
+            self.logs[process_id][index as usize]
+                .meta
+                .store(Meta::allocate(next.lsn(), false, false));
 
             match self.global.compare_exchange(tail, Some(next)) {
                 Ok(_) => {
@@ -145,14 +139,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
             let next = Tail::new(process_id, index, tail.lsn().next());
 
-            unsafe {
-                *self.logs[process_id][index as usize].get() = Entry::Free {
-                    valid: AtomicBool::new(false),
-                    lsn: next.lsn(),
-                    offset,
-                    size,
-                };
-            }
+            self.logs[process_id][index as usize]
+                .site
+                .store(Site::new(offset, size.get()));
+            self.logs[process_id][index as usize]
+                .meta
+                .store(Meta::free(next.lsn(), false));
 
             match self.global.compare_exchange(Some(tail), Some(next)) {
                 Ok(_) => {
@@ -184,22 +176,26 @@ impl<const SIZE: usize> Cxl<SIZE> {
             .load()
             .unwrap();
 
-        match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
-            Entry::Empty | Entry::Free { .. } => unreachable!(),
-            Entry::Allocate {
-                lsn,
-                valid,
-                freed: _,
-                offset,
-                size,
-            } => {
-                assert_eq!(*lsn, tail.lsn());
-                assert!(valid.load(Ordering::Acquire));
+        match self.logs[tail.process_id()][tail.index() as usize]
+            .meta
+            .load()
+            .get()
+        {
+            None | Some(Kind::Free { .. }) => unreachable!(),
+            Some(Kind::Allocate { lsn, valid, freed }) => {
+                assert_eq!(lsn, tail.lsn());
+                assert!(valid);
+                assert!(!freed);
+
+                let lo = self.logs[tail.process_id()][tail.index() as usize]
+                    .site
+                    .load();
+
                 assert_eq!(
-                    *offset,
+                    lo.offset(),
                     pointer.as_ptr() as usize - base.as_ptr() as usize - SIZE_PAGE,
                 );
-                (*offset, *size)
+                (lo.offset(), NonZeroUsize::new(lo.size()).unwrap())
             }
         }
     }
@@ -215,38 +211,36 @@ impl<const SIZE: usize> Cxl<SIZE> {
             .cycle()
             .skip(state.next as usize)
             .take(SIZE)
-            .find_map(|(index, entry)| match unsafe { &*entry.get() } {
-                Entry::Empty => Some(index),
-                Entry::Allocate { valid, .. } | Entry::Free { valid, .. }
-                    if !valid.load(Ordering::Acquire) =>
-                {
-                    log::info!("Reuse invalid at {entry:?}");
+            .find_map(|(index, entry)| match entry.meta.load().get() {
+                None => Some(index),
+                Some(Kind::Allocate { valid: false, .. } | Kind::Free { valid: false, .. }) => {
+                    log::info!("Reuse invalid at {index}");
                     Some(index)
                 }
-                entry @ Entry::Allocate { freed, lsn, .. }
-                    if freed.load(Ordering::Acquire)
-                        && self
-                            .local
-                            .iter()
-                            .take(process_count)
-                            .all(|tail| tail.load() >= Some(*lsn)) =>
+                Some(Kind::Allocate {
+                    lsn, freed: true, ..
+                }) if self
+                    .local
+                    .iter()
+                    .take(process_count)
+                    .all(|tail| tail.load() >= Some(lsn)) =>
                 {
-                    log::info!("Reuse allocate at {entry:?}");
+                    log::info!("Reuse allocate at {index}");
                     Some(index)
                 }
-                Entry::Allocate { .. } => None,
+                Some(Kind::Allocate { .. }) => None,
 
-                entry @ Entry::Free { lsn, .. }
+                Some(Kind::Free { lsn, .. })
                     if self
                         .local
                         .iter()
                         .take(process_count)
-                        .all(|tail| tail.load() >= Some(*lsn)) =>
+                        .all(|tail| tail.load() >= Some(lsn)) =>
                 {
-                    log::info!("Reuse free at {entry:?}");
+                    log::info!("Reuse free at {index}");
                     Some(index)
                 }
-                Entry::Free { .. } => None,
+                Some(Kind::Free { .. }) => None,
             })
             .map(|index| index as u16)
             .expect("Out of log slots");
@@ -276,16 +270,29 @@ impl<const SIZE: usize> Cxl<SIZE> {
     }
 
     fn validate(&self, tail: Tail) {
-        match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
-            Entry::Empty => unreachable!(),
+        match self.logs[tail.process_id()][tail.index() as usize]
+            .meta
+            .load()
+            .get()
+        {
+            None => unreachable!(),
 
-            Entry::Allocate { valid, lsn, .. } | Entry::Free { valid, lsn, .. }
-                if *lsn == tail.lsn() && !valid.load(Ordering::Acquire) =>
-            {
-                valid.store(true, Ordering::Release);
+            Some(Kind::Allocate { valid, lsn, freed }) if lsn == tail.lsn() && !valid => {
+                let _ = self.logs[tail.process_id()][tail.index() as usize]
+                    .meta
+                    .compare_exchange(
+                        Meta::allocate(lsn, false, freed),
+                        Meta::allocate(lsn, true, freed),
+                    );
             }
+            Some(Kind::Allocate { .. }) => (),
 
-            Entry::Allocate { .. } | Entry::Free { .. } => (),
+            Some(Kind::Free { valid, lsn }) if lsn == tail.lsn() && !valid => {
+                let _ = self.logs[tail.process_id()][tail.index() as usize]
+                    .meta
+                    .compare_exchange(Meta::free(lsn, false), Meta::free(lsn, true));
+            }
+            Some(Kind::Free { .. }) => (),
         }
     }
 
@@ -307,16 +314,14 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .enumerate()
                     .map(move |(index, entry)| (process_id, index, entry))
             })
-            .filter_map(
-                |(process_id, index, entry)| match unsafe { &*entry.get() } {
-                    Entry::Allocate { valid, lsn, .. } | Entry::Free { valid, lsn, .. }
-                        if valid.load(Ordering::Acquire) && Some(*lsn) > seen =>
-                    {
-                        Some(Tail::new(process_id, index as u16, *lsn))
-                    }
-                    _ => None,
-                },
-            )
+            .filter_map(|(process_id, index, entry)| match entry.meta.load().get() {
+                Some(Kind::Allocate { valid, lsn, .. } | Kind::Free { valid, lsn })
+                    if valid && Some(lsn) > seen =>
+                {
+                    Some(Tail::new(process_id, index as u16, lsn))
+                }
+                _ => None,
+            })
             .collect::<Vec<_>>();
 
         entries.sort_unstable();
@@ -340,34 +345,43 @@ impl<const SIZE: usize> Cxl<SIZE> {
         process_id: usize,
         entry: Tail,
     ) {
-        let lsn = match unsafe { &*self.logs[entry.process_id()][entry.index() as usize].get() } {
-            Entry::Empty => unreachable!("Applied empty at {entry:?}"),
-            Entry::Allocate { lsn, .. } if *lsn != entry.lsn() => entry.lsn(),
-            Entry::Allocate {
-                valid,
-                lsn,
-                offset,
-                size,
-                ..
-            } => unsafe {
-                assert!(valid.load(Ordering::Acquire));
+        let lsn = match self.logs[entry.process_id()][entry.index() as usize]
+            .meta
+            .load()
+            .get()
+        {
+            None => unreachable!("Applied empty at {entry:?}"),
+            Some(Kind::Allocate { lsn, freed, .. }) if lsn != entry.lsn() || freed => entry.lsn(),
+            Some(Kind::Allocate { valid, lsn, .. }) => unsafe {
+                assert!(valid);
 
-                state.mark_allocated(*offset, *size);
+                let lo = self.logs[entry.process_id()][entry.index() as usize]
+                    .site
+                    .load();
+                let offset = lo.offset();
+                let size = NonZeroUsize::new(lo.size()).unwrap();
+
+                state.mark_allocated(offset, size);
 
                 let address = base
                     .as_ptr()
                     .cast::<ffi::c_void>()
-                    .wrapping_byte_add(*offset);
+                    .wrapping_byte_add(offset);
 
                 match libc::mmap64(
                     address,
                     size.get(),
                     libc::PROT_WRITE | libc::PROT_READ,
-                    libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_FIXED,
+                    libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_FIXED_NOREPLACE,
                     -1,
                     0,
                 ) {
-                    libc::MAP_FAILED => panic!("mmap {:#x?} ({:#x?})", address, size),
+                    libc::MAP_FAILED => panic!(
+                        "mmap {:#x?}-{:#x?} ({:#x?})",
+                        address,
+                        address.wrapping_byte_add(size.get()),
+                        size
+                    ),
                     actual => {
                         assert_eq!(address, actual);
                         crate::raw::region::mbind(actual, size.get()).unwrap();
@@ -380,24 +394,24 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .unwrap()
                     .store(entry);
 
-                *lsn
+                lsn
             },
-            Entry::Free {
-                valid,
-                lsn,
-                offset,
-                size,
-                ..
-            } => {
-                assert!(valid.load(Ordering::Acquire));
-                assert_eq!(*lsn, entry.lsn());
+            Some(Kind::Free { valid, lsn }) => {
+                assert!(valid);
+                assert_eq!(lsn, entry.lsn());
 
-                state.mark_deallocated(*offset, *size);
+                let lo = self.logs[entry.process_id()][entry.index() as usize]
+                    .site
+                    .load();
+                let offset = lo.offset();
+                let size = NonZeroUsize::new(lo.size()).unwrap();
+
+                state.mark_deallocated(offset, size);
 
                 let address = base
                     .as_ptr()
                     .cast::<ffi::c_void>()
-                    .wrapping_byte_add(*offset);
+                    .wrapping_byte_add(offset);
 
                 let tail = unsafe {
                     address
@@ -410,7 +424,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
                 // Unmap for process
                 unsafe {
-                    log::info!("unmap {:#x?} ({:#x})", address, size.get());
+                    log::info!(
+                        "unmap {:#x?}-{:#x?} ({:#x})",
+                        address,
+                        address.wrapping_byte_add(size.get()),
+                        size.get()
+                    );
                     assert_eq!(libc::munmap(address, size.get()), 0);
                 }
 
@@ -424,24 +443,27 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .all(|(_, lsn)| lsn.load() >= Some(tail.lsn()))
                 {
                     // Mark for reuse
-                    match unsafe { &*self.logs[tail.process_id()][tail.index() as usize].get() } {
-                        Entry::Allocate {
-                            lsn,
-                            valid,
-                            freed,
-                            offset: offset_,
-                            size: size_,
-                        } if *lsn == tail.lsn() => {
-                            assert!(valid.load(Ordering::Acquire));
-                            assert_eq!(offset, offset_);
-                            assert_eq!(size, size_);
-                            freed.store(true, Ordering::Release);
+                    match self.logs[tail.process_id()][tail.index() as usize]
+                        .meta
+                        .load()
+                        .get()
+                    {
+                        Some(Kind::Allocate { lsn, valid, freed })
+                            if lsn == tail.lsn() && !freed =>
+                        {
+                            assert!(valid);
+                            let _ = self.logs[tail.process_id()][tail.index() as usize]
+                                .meta
+                                .compare_exchange(
+                                    Meta::allocate(lsn, true, false),
+                                    Meta::allocate(lsn, true, true),
+                                );
                         }
                         _ => (),
                     }
                 }
 
-                *lsn
+                lsn
             }
         };
 
@@ -465,10 +487,12 @@ impl Debug for Tail {
 
 impl Tail {
     fn new(process_id: usize, index: u16, lsn: Lsn) -> Self {
+        assert!(process_id < 64);
         Self(process_id as u64 | ((index as u64) << 16) | (lsn.pack() << 32))
     }
 
     fn process_id(self) -> usize {
+        assert!((self.0 as u16) < 64);
         self.0 as u16 as usize
     }
 
@@ -520,27 +544,81 @@ unsafe impl Packed for Lsn {
     }
 }
 
-#[derive(Debug)]
-enum Entry {
-    // Implicitly created through zero-initialization.
-    #[expect(unused)]
-    Empty,
-    Allocate {
-        lsn: Lsn,
+struct Entry {
+    meta: Atomic<Meta>,
+    site: Atomic<Site>,
+}
 
-        valid: AtomicBool,
-        freed: AtomicBool,
+struct Meta(u64);
 
-        // Mapping
-        offset: usize,
-        size: NonZeroUsize,
-    },
-    Free {
-        lsn: Lsn,
+impl Meta {
+    fn allocate(lsn: Lsn, valid: bool, freed: bool) -> Self {
+        Self((lsn.pack() << 32) | ((valid as u64) << 31) | ((freed as u64) << 30) | 0b011)
+    }
 
-        valid: AtomicBool,
+    fn free(lsn: Lsn, valid: bool) -> Self {
+        Self((lsn.pack() << 32) | ((valid as u64) << 31) | 0b10)
+    }
 
-        offset: usize,
-        size: NonZeroUsize,
-    },
+    fn get(&self) -> Option<Kind> {
+        if self.0 == 0 {
+            None
+        } else if self.0 & 1 > 0 {
+            Some(Kind::Allocate {
+                lsn: Lsn::unpack(self.0 >> 32),
+                valid: self.0 & (1 << 31) > 0,
+                freed: self.0 & (1 << 30) > 0,
+            })
+        } else {
+            assert_eq!(self.0 & 0b11, 0b10);
+            Some(Kind::Free {
+                lsn: Lsn::unpack(self.0 >> 32),
+                valid: self.0 & (1 << 31) > 0,
+            })
+        }
+    }
+}
+
+enum Kind {
+    Allocate { lsn: Lsn, freed: bool, valid: bool },
+    Free { lsn: Lsn, valid: bool },
+}
+
+struct Site(u64);
+
+unsafe impl Packed for Meta {
+    const BITS: u8 = 64;
+    fn pack(&self) -> u64 {
+        self.0
+    }
+    fn unpack(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+unsafe impl Packed for Site {
+    const BITS: u8 = 64;
+    fn pack(&self) -> u64 {
+        self.0
+    }
+    fn unpack(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl Site {
+    fn new(offset: usize, size: usize) -> Self {
+        Self(
+            (u32::try_from(offset / SIZE_PAGE).unwrap() as u64) << 32
+                | (u32::try_from(size / SIZE_PAGE).unwrap() as u64),
+        )
+    }
+
+    fn offset(&self) -> usize {
+        (self.0 >> 32) as usize * SIZE_PAGE
+    }
+
+    fn size(&self) -> usize {
+        (self.0 as u32) as usize * SIZE_PAGE
+    }
 }
