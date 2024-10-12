@@ -324,18 +324,31 @@ impl log::Log for Logger {
     fn flush(&self) {}
 }
 
-static GLOBAL_ID: AtomicUsize = AtomicUsize::new(0xFFFF_FFFF_FFFF_FFFF);
+static GLOBAL_LO: AtomicUsize = AtomicUsize::new(0xFFFF_FFFF_FFFF_FFFF);
+static GLOBAL_HI: AtomicUsize = AtomicUsize::new(0xFFFF_FFFF_FFFF_FFFF);
 
 fn thread_id() -> usize {
-    let mut prev = GLOBAL_ID.load(Ordering::Acquire);
-    loop {
+    let mut prev = GLOBAL_LO.load(Ordering::Acquire);
+    while prev > 0 {
         let next = prev & (prev - 1);
         let id = prev & !(prev - 1);
-        match GLOBAL_ID.compare_exchange(prev, next, Ordering::AcqRel, Ordering::Acquire) {
-            Ok(_) => break id.trailing_zeros() as usize,
+        match GLOBAL_LO.compare_exchange(prev, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return id.trailing_zeros() as usize,
             Err(current) => prev = current,
         }
     }
+
+    let mut prev = GLOBAL_HI.load(Ordering::Acquire);
+    while prev > 0 {
+        let next = prev & (prev - 1);
+        let id = prev & !(prev - 1);
+        match GLOBAL_HI.compare_exchange(prev, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return id.trailing_zeros() as usize + 64,
+            Err(current) => prev = current,
+        }
+    }
+
+    unreachable!()
 }
 
 unsafe extern "C" fn on_pthread_exit(_: *mut libc::c_void) {
@@ -345,9 +358,13 @@ unsafe extern "C" fn on_pthread_exit(_: *mut libc::c_void) {
 #[ctor::dtor]
 fn on_exit() {
     let id = THREAD_ID.get();
-    GLOBAL_ID.fetch_or(1 << id, Ordering::AcqRel);
+    if id < 64 {
+        GLOBAL_LO.fetch_or(1 << id, Ordering::AcqRel);
+    } else {
+        GLOBAL_HI.fetch_or(1 << id, Ordering::AcqRel);
+    }
     cxlalloc::stat::dump_counters(id);
     cxlalloc::stat::dump_sizes(id);
     stat::dump_counters(id);
-    ALLOCATOR.with(|allocator| unsafe { ManuallyDrop::drop(&mut *allocator.get()) });
+    let _ = ALLOCATOR.try_with(|allocator| unsafe { ManuallyDrop::drop(&mut *allocator.get()) });
 }
