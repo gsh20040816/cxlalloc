@@ -42,7 +42,7 @@ impl Index {
     }
 
     #[inline]
-    pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
+    pub(crate) unsafe fn offset_block(&self, class: size::Class, index: Bit) -> Offset {
         debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
         let base = NonZeroUsize::from(Offset::from(*self));
         let delta = class.size() * usize::from(index);
@@ -114,7 +114,7 @@ impl Offset {
 
     #[inline]
     #[track_caller]
-    pub(crate) unsafe fn index_block(&self, class: size::Small) -> Bit {
+    pub(crate) unsafe fn index_block(&self, class: size::Class) -> Bit {
         Bit::new((self.0.get() % SIZE_SLAB) / class.size())
     }
 }

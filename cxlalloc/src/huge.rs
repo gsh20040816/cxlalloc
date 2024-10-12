@@ -15,6 +15,7 @@ use interval::IntervalSet;
 
 use crate::atomic::NonZero;
 use crate::atomic::Packed;
+use crate::stat;
 use crate::Atomic;
 use crate::SIZE_PAGE;
 
@@ -83,6 +84,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
         let state = &mut *state.lock().unwrap();
         let index = self.next(state, process_count, process_id);
         let size = size.next_multiple_of(SIZE_PAGE) + SIZE_PAGE;
+        stat::record_large(size);
         let size = NonZeroUsize::new(size).unwrap();
 
         loop {

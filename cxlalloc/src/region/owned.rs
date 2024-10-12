@@ -53,7 +53,7 @@ impl Meta {
         owned: &slab::Slice<slab::Owned>,
         shared: &slab::Slice<slab::Shared>,
         id: thread::Id,
-        class: size::Small,
+        class: size::Class,
     ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
             return false;
@@ -65,10 +65,9 @@ impl Meta {
             (*slab.free.get()).fill(class.count());
         }
 
-        shared[index].owner.store(slab::shared::Owner::new(
-            size::Class::Small(class),
-            Some(id),
-        ));
+        shared[index]
+            .owner
+            .store(slab::shared::Owner::new(class, Some(id)));
 
         self.r#sized[class].push(owned, index);
         self.r#unsized.set(next);
@@ -80,7 +79,7 @@ impl Meta {
     pub(crate) fn sized_to_unsized(
         &mut self,
         slabs: &slab::Slice<slab::Owned>,
-        class: size::Small,
+        class: size::Class,
         index: slab::Index,
     ) {
         let next = slabs[index].meta.load().next();

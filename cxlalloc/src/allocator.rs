@@ -1,4 +1,3 @@
-use core::alloc::Layout;
 use core::ffi;
 use core::ptr::NonNull;
 
@@ -40,86 +39,11 @@ impl<'raw> Allocator<'raw> {
         &mut self,
         _: L,
     ) -> &'root mut T {
-        let layout = Layout::new::<T>();
-        let class = match size::Class::new(layout.pad_to_align().size()) {
-            size::Class::Small(small) => small,
-            size::Class::Large(_) => unimplemented!(),
-        };
-
-        let index = self.allocate_small(class).unwrap();
-        let slab = &self.owned.slabs[index];
-        let block = unsafe { (*slab.free.get()).peek() };
-        let offset = unsafe { index.offset_block(class, block) };
-        let mut pointer = self.heap.offset_to_pointer::<T>(offset);
-
-        unsafe {
-            pointer.write(T::default());
-        }
-
-        // match link.erase(&self.heap) {
-        //     link::Site::Root(index) => todo!(),
-        //     link::Site::Data(offset) => todo!(),
-        // }
-
-        unsafe { pointer.as_mut() }
-    }
-
-    fn allocate_large(&mut self, class: size::Large) -> slab::Index {
-        stat::inc(&stat::ALLOCATE_LARGE);
-
-        let index = 'inner: {
-            // First try from unsized
-            if class.count().get() == 1 {
-                if let Some(index) = self.owned.meta.r#unsized.peek() {
-                    self.owned.meta.r#unsized.pop(&self.owned.slabs);
-                    stat::inc(&stat::ALLOCATE_LARGE_UNSIZED);
-                    break 'inner index;
-                }
-            }
-
-            let stage = &self.heap.shared[self.id];
-            let version = stage
-                .store_versioned::<region::shared::Length>(None)
-                .version();
-
-            // Then try from global shared
-            if class.count().get() == 1 {
-                if let Ok(index) = self
-                    .heap
-                    .shared
-                    .pop(self.id, &self.owned.slabs, Some(version))
-                {
-                    stat::inc(&stat::ALLOCATE_LARGE_GLOBAL);
-                    self.transfer(index, None, Some(self.id));
-                    break 'inner index;
-                }
-            }
-
-            // Then try from bump pointer
-            stat::inc(&stat::ALLOCATE_LARGE_BUMP);
-            let index = self
-                .heap
-                .shared
-                .allocate(self.id, class.count().get(), Some(version))
-                .unwrap()
-                .start;
-
-            self.transfer_all(index, class.count().get() as usize, None, Some(self.id));
-            index
-        };
-
-        self.heap.shared.slabs[index]
-            .owner
-            .store(slab::shared::Owner::new(
-                size::Class::Large(class),
-                Some(self.id),
-            ));
-
-        index
+        todo!()
     }
 
     #[cold]
-    fn allocate_small(&mut self, class: size::Small) -> Option<slab::Index> {
+    fn allocate_small(&mut self, class: size::Class) -> Option<slab::Index> {
         stat::inc(&stat::ALLOCATE_SMALL);
 
         if class.is_zero() {
@@ -230,12 +154,21 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::ALLOCATE);
 
         let class = size::Class::new(size);
-        stat::record(class);
 
         let class = match class {
-            size::Class::Large(class) => return self.malloc_slow_large(class),
-            size::Class::Small(class) => class,
+            None => {
+                stat::inc(&stat::ALLOCATE_LARGE);
+                return self
+                    .heap
+                    .shared
+                    .allocate_log(self.heap.state, self.heap.data.huge(), size)
+                    .as_ptr()
+                    .cast();
+            }
+            Some(class) => class,
         };
+
+        stat::record_small(class);
 
         let index = match self.owned.meta.r#sized[class].peek() {
             Some(index) => {
@@ -261,12 +194,12 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    fn detach(&mut self, class: size::Small) {
+    fn detach(&mut self, class: size::Class) {
         let index = self.owned.meta.r#sized[class]
             .pop(&self.owned.slabs)
             .unwrap();
 
-        ::log::info!("Detaching {} from {}", index, class);
+        // ::log::info!("Detaching {} from {}", index, class);
 
         let shared = &self.heap.shared.slabs[index];
         if !shared.free.is_empty() {
@@ -287,22 +220,6 @@ impl<'raw> Allocator<'raw> {
         }
     }
 
-    #[cold]
-    unsafe fn malloc_slow_large(&mut self, class: size::Large) -> *mut ffi::c_void {
-        if class.size() > 32768 {
-            return self
-                .heap
-                .shared
-                .allocate_log(self.heap.state, self.heap.data.huge(), class.size())
-                .as_ptr()
-                .cast();
-        }
-
-        let index = self.allocate_large(class);
-        let offset = slab::Offset::from(index);
-        self.heap.offset_to_pointer(offset).as_ptr()
-    }
-
     #[inline]
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
@@ -317,6 +234,7 @@ impl<'raw> Allocator<'raw> {
                     .cast::<ffi::c_void>()
                     .wrapping_byte_add(1 << 40)
         {
+            stat::inc(&stat::FREE_LARGE);
             return self
                 .heap
                 .shared
@@ -328,13 +246,7 @@ impl<'raw> Allocator<'raw> {
 
         let shared = &self.heap.shared.slabs[index];
         let owner = shared.owner.load();
-
-        let class = match owner.class() {
-            size::Class::Small(small) => small,
-            size::Class::Large(large) => {
-                return self.free_large(owner.id().unwrap(), large, index);
-            }
-        };
+        let class = owner.class();
 
         if owner.id() != Some(self.id) {
             return self.free_remote(offset, index, class);
@@ -360,7 +272,7 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    fn attach(&mut self, class: size::Small, index: slab::Index) {
+    fn attach(&mut self, class: size::Class, index: slab::Index) {
         if cfg!(feature = "validate") {
             assert!(self.owned.meta.r#sized[class]
                 .trace(&self.owned.slabs)
@@ -375,31 +287,7 @@ impl<'raw> Allocator<'raw> {
     }
 
     #[cold]
-    unsafe fn free_large(&mut self, owner: thread::Id, class: size::Large, index: slab::Index) {
-        stat::inc(&stat::FREE_LARGE);
-
-        self.transfer_all(index, class.count().get() as usize, Some(owner), None);
-
-        if class.count().get() == 1 {
-            stat::inc(&stat::FREE_LARGE_UNSIZED);
-            self.transfer(index, None, Some(self.id));
-            self.owned.meta.r#unsized.push(&self.owned.slabs, index);
-            return;
-        }
-
-        let stage = &self.heap.shared[self.id];
-        let staged = stage.store_versioned(Some(index)).transpose();
-
-        // TODO: log capsule boundary
-
-        stat::inc(&stat::FREE_LARGE_GLOBAL);
-        self.heap
-            .shared
-            .push(self.id, &self.owned.slabs, class.count().get(), staged);
-    }
-
-    #[cold]
-    unsafe fn free_remote(&mut self, offset: slab::Offset, index: slab::Index, class: size::Small) {
+    unsafe fn free_remote(&mut self, offset: slab::Offset, index: slab::Index, class: size::Class) {
         stat::inc(&stat::FREE_REMOTE);
 
         let slab = &self.heap.shared.slabs[index];
@@ -450,7 +338,7 @@ impl<'raw> Allocator<'raw> {
         if victim.is_some() {
             stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
             slab.owner.store(slab::shared::Owner::new(
-                size::Class::Small(size::Small::default()),
+                size::Class::default(),
                 Some(self.id),
             ));
         }
@@ -461,24 +349,6 @@ impl<'raw> Allocator<'raw> {
     #[inline]
     fn transfer(&self, index: slab::Index, old: Option<thread::Id>, new: Option<thread::Id>) {
         slab::transfer(&self.heap.shared.slabs, &self.owned.slabs, index, old, new);
-    }
-
-    #[inline]
-    fn transfer_all(
-        &self,
-        index: slab::Index,
-        count: usize,
-        old: Option<thread::Id>,
-        new: Option<thread::Id>,
-    ) {
-        slab::transfer_all(
-            &self.heap.shared.slabs,
-            &self.owned.slabs,
-            index,
-            count,
-            old,
-            new,
-        );
     }
 }
 

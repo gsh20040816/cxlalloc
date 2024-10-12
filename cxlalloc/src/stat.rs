@@ -4,6 +4,11 @@ use std::thread::LocalKey;
 
 use crate::size;
 
+pub fn dump(id: usize) {
+    dump_counters(id);
+    dump_sizes(id);
+}
+
 macro_rules! stat {
     ($($name:ident),* $(,)?) => {
         thread_local! {
@@ -32,9 +37,6 @@ stat![
     ALLOCATE_FAST_DETACH,
     ALLOCATE_FAST_DISOWN,
     ALLOCATE_LARGE,
-    ALLOCATE_LARGE_UNSIZED,
-    ALLOCATE_LARGE_GLOBAL,
-    ALLOCATE_LARGE_BUMP,
     ALLOCATE_SMALL,
     ALLOCATE_SMALL_ZERO,
     ALLOCATE_SMALL_UNSIZED,
@@ -45,8 +47,6 @@ stat![
     FREE_FAST_ATTACH,
     FREE_FAST_UNSIZED,
     FREE_LARGE,
-    FREE_LARGE_UNSIZED,
-    FREE_LARGE_GLOBAL,
     FREE_REMOTE,
     FREE_REMOTE_GLOBAL,
     FREE_REMOTE_GLOBAL_WIN,
@@ -96,26 +96,18 @@ thread_local! {
 }
 
 #[inline]
-pub(crate) fn record(class: size::Class) {
+pub(crate) fn record_small(class: size::Class) {
     if !cfg!(feature = "stat-size") {
         return;
     }
 
-    match class {
-        size::Class::Small(small) => {
-            SMALL.with(|counters| counters[small].set(counters[small].get() + 1))
-        }
-        size::Class::Large(_large) =>
-        {
-            #[cfg(feature = "stat-size")]
-            LARGE.with(|histogram| {
-                histogram
-                    .borrow_mut()
-                    .record(_large.count().get() as u64)
-                    .unwrap()
-            })
-        }
-    }
+    SMALL.with(|counters| counters[class].set(counters[class].get() + 1))
+}
+
+#[inline]
+pub(crate) fn record_large(_large: usize) {
+    #[cfg(feature = "stat-size")]
+    LARGE.with(|histogram| histogram.borrow_mut().record(_large as u64).unwrap())
 }
 
 pub fn dump_sizes(id: usize) {
@@ -136,7 +128,7 @@ pub fn dump_sizes(id: usize) {
             write!(
                 &mut output,
                 ",{}:{}",
-                value.value_iterated_to() * crate::SIZE_SLAB as u64,
+                value.value_iterated_to(),
                 value.count_at_value()
             )
             .unwrap();

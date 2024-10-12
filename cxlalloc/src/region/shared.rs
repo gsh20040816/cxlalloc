@@ -128,6 +128,7 @@ impl<'raw> Shared<'raw> {
         self.meta.log.size(base, pointer)
     }
 
+    #[expect(dead_code)]
     pub(crate) fn push(
         &self,
         id: thread::Id,
