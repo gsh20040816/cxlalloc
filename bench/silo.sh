@@ -6,24 +6,49 @@ ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 readonly prefix="$ROOT/../extern/silo/out-perf.masstree."
 readonly time=30
 
-for allocator in cxl-shm cxlalloc mimalloc ralloc; do
+for allocator in cxlalloc cxl-shm mimalloc ralloc; do
     for scale_factor in 1 10 20 30 40; do
         CXL_NUMA_NODE=2 $prefix$allocator/benchmarks/dbtest \
             --verbose \
             --bench tpcc \
+            --pin-cpus \
             --num-threads 40 \
             --scale-factor $scale_factor \
             --runtime $time \
-            2>&1 | tee "$allocator-t40-sf$scale_factor.log"
+            2>&1 | tee "tpcc-$allocator-t40-sf$scale_factor.log"
     done
 
     for threads in 1 10 20 30 40; do
         CXL_NUMA_NODE=2 $prefix$allocator/benchmarks/dbtest \
             --verbose \
             --bench tpcc \
+            --pin-cpus \
             --num-threads $threads \
             --scale-factor 40 \
             --runtime $time \
-            2>&1 | tee "$allocator-t$threads-sf40.log"
+            2>&1 | tee "tpcc-$allocator-t$threads-sf40.log"
     done
+
+    CXL_NUMA_NODE=2 $prefix$allocator/benchmarks/dbtest \
+        --verbose \
+        --bench ycsb \
+        --pin-cpus \
+        --num-threads 40 \
+        --scale-factor 40 \
+        --runtime $time \
+        --bench-opts \
+        --workload-mix=50,50,0,0 \
+        2>&1 | tee "ycsb-a-$allocator-t40-sf$scale_factor.log"
+
+    CXL_NUMA_NODE=2 $prefix$allocator/benchmarks/dbtest \
+        --verbose \
+        --bench ycsb \
+        --pin-cpus \
+        --num-threads 40 \
+        --scale-factor 40 \
+        --runtime $time \
+        --bench-opts \
+        --workload-mix=95,5,0,0 \
+        2>&1 | tee "ycsb-b-$allocator-t40-sf$scale_factor.log"
+
 done
