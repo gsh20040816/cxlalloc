@@ -7,48 +7,49 @@ readonly prefix="$root/../extern/silo/out-perf.masstree."
 readonly time=30
 
 for allocator in cxlalloc cxl-shm mimalloc ralloc; do
-    for scale_factor in 1 10 20 30 40; do
-        $prefix$allocator/benchmarks/dbtest \
+    for node in 2 1; do
+        for scale_factor in 1 10 20 30 40; do
+            CXL_NUMA_NODE=$node $prefix$allocator/benchmarks/dbtest \
+                --verbose \
+                --bench tpcc \
+                --pin-cpus \
+                --num-threads 40 \
+                --scale-factor $scale_factor \
+                --runtime $time \
+                2>&1 | tee "tpcc-$allocator-n$node-t40-sf$scale_factor.log"
+        done
+
+        for threads in 1 10 20 30 40; do
+            CXL_NUMA_NODE=$node $prefix$allocator/benchmarks/dbtest \
+                --verbose \
+                --bench tpcc \
+                --pin-cpus \
+                --num-threads $threads \
+                --scale-factor 40 \
+                --runtime $time \
+                2>&1 | tee "tpcc-$allocator-n$node-t$threads-sf40.log"
+        done
+
+        CXL_NUMA_NODE=$node $prefix$allocator/benchmarks/dbtest \
             --verbose \
-            --bench tpcc \
+            --bench ycsb \
             --pin-cpus \
             --num-threads 40 \
-            --scale-factor $scale_factor \
-            --runtime $time \
-            2>&1 | tee "tpcc-$allocator-t40-sf$scale_factor.log"
-    done
-
-    for threads in 1 10 20 30 40; do
-        $prefix$allocator/benchmarks/dbtest \
-            --verbose \
-            --bench tpcc \
-            --pin-cpus \
-            --num-threads $threads \
             --scale-factor 40 \
             --runtime $time \
-            2>&1 | tee "tpcc-$allocator-t$threads-sf40.log"
+            --bench-opts \
+            --workload-mix=50,50,0,0 \
+            2>&1 | tee "ycsb-a-$allocator-n$node-t40-sf$scale_factor.log"
+
+        CXL_NUMA_NODE=$node $prefix$allocator/benchmarks/dbtest \
+            --verbose \
+            --bench ycsb \
+            --pin-cpus \
+            --num-threads 40 \
+            --scale-factor 40 \
+            --runtime $time \
+            --bench-opts \
+            --workload-mix=95,5,0,0 \
+            2>&1 | tee "ycsb-b-$allocator-n$node-t40-sf$scale_factor.log"
     done
-
-    $prefix$allocator/benchmarks/dbtest \
-        --verbose \
-        --bench ycsb \
-        --pin-cpus \
-        --num-threads 40 \
-        --scale-factor 40 \
-        --runtime $time \
-        --bench-opts \
-        --workload-mix=50,50,0,0 \
-        2>&1 | tee "ycsb-a-$allocator-t40-sf$scale_factor.log"
-
-    $prefix$allocator/benchmarks/dbtest \
-        --verbose \
-        --bench ycsb \
-        --pin-cpus \
-        --num-threads 40 \
-        --scale-factor 40 \
-        --runtime $time \
-        --bench-opts \
-        --workload-mix=95,5,0,0 \
-        2>&1 | tee "ycsb-b-$allocator-t40-sf$scale_factor.log"
-
 done
