@@ -30,18 +30,22 @@ def run(
 ):
     benchmark = "tpcc" if workload is None else "ycsb"
     name = "tpcc" if workload is None else f"ycsb-{workload}"
+    path = (
+        f"{ROOT}/{name}-{allocator}-n{numa_node}-t{thread_count}-sf{scale_factor}.log"
+    )
 
     print(
         f"Running {name} with {allocator}, n{numa_node}, t{thread_count}, sf{scale_factor}"
     )
 
     with open(
-        f"{ROOT}/{name}-{allocator}-n{numa_node}-t{thread_count}-sf{scale_factor}.log"
+        path,
+        "x",
     ) as log:
         subprocess.run(
-            "env",
-            f"CXL_NUMA_NODE={numa_node}",
             [
+                "env",
+                f"CXL_NUMA_NODE={numa_node}",
                 dbtest(allocator),
                 "--verbose",
                 "--pin-cpus",
@@ -57,8 +61,7 @@ def run(
             + (
                 [
                     "--bench-opts",
-                    "--workload-mix",
-                    ",".join(WORKLOADS[workload]) if workload is not None else None,
+                    f"--workload-mix={','.join(map(str, WORKLOADS[workload]))}",
                 ]
                 if workload is not None
                 else []
