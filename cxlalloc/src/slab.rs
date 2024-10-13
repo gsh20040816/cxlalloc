@@ -323,13 +323,13 @@ impl<'raw> GlobalStack<'raw> {
                 helps[prev].notify(head.version());
             }
 
-            let goal = head.index()?;
+            let index = head.index()?;
 
             match self.head.compare_exchange(
                 head,
-                Head::new(id, version.next(), slabs[goal].meta.load().next()),
+                Head::new(id, version.next(), slabs[index].meta.load().next()),
             ) {
-                Ok(_) => break Some(goal),
+                Ok(_) => break Some(index),
                 Err(next) => head = next,
             }
         }

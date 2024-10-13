@@ -68,6 +68,7 @@ impl Meta {
         shared[index]
             .owner
             .store(slab::shared::Owner::new(class, Some(id)));
+        shared[index].free.clear();
 
         self.r#sized[class].push(owned, index);
         let count = self.r#unsized.len();

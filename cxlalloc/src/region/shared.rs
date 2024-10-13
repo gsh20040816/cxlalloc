@@ -87,7 +87,6 @@ impl<'raw> Shared<'raw> {
 
         let start = slab::Index::from_length(Length(length.0));
         let end = slab::Index::from_length(Length(length.0 + count as u32));
-        // eprintln!("{} got {}..{}", id, start, end);
         Some(start..end)
     }
 
@@ -128,7 +127,6 @@ impl<'raw> Shared<'raw> {
         staged: slab::Index,
     ) {
         self.meta.free.push(id, slabs, &self.meta.stages, staged);
-        eprintln!("{id} pushed {staged:?}");
     }
 
     pub(crate) fn pop(
@@ -140,11 +138,7 @@ impl<'raw> Shared<'raw> {
             return None;
         }
 
-        let out = self.meta.free.pop(id, slabs, &self.meta.stages);
-
-        eprintln!("{id} popped {out:?}");
-
-        out
+        self.meta.free.pop(id, slabs, &self.meta.stages)
     }
 }
 

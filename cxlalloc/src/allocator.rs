@@ -369,7 +369,6 @@ impl<'raw> Allocator<'raw> {
                 Some(self.id),
             ));
         }
-        slab.free.clear();
         self.owned.meta.r#unsized.push(&self.owned.slabs, index);
     }
 
