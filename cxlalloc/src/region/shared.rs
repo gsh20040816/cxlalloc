@@ -5,7 +5,6 @@ use core::ops::Range;
 use core::ptr::NonNull;
 use std::sync::Mutex;
 
-use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::extend::Epoch;
@@ -55,9 +54,9 @@ impl<'raw> Shared<'raw> {
 
     pub(crate) fn extend(
         &self,
-        id: thread::Id,
-        epoch: Epoch,
-        version: Option<Version>,
+        _id: thread::Id,
+        _epoch: Epoch,
+        _version: Option<Version>,
     ) -> Result<(), Epoch> {
         todo!()
     }
