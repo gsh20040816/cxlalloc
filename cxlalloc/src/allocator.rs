@@ -12,6 +12,9 @@ use crate::stat;
 use crate::thread;
 use crate::Heap;
 use crate::Root;
+use crate::BATCH_BUMP_POP;
+use crate::BATCH_GLOBAL_PUSH;
+use crate::COUNT_CACHE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
@@ -61,7 +64,6 @@ impl<'raw> Allocator<'raw> {
 
         loop {
             if let Some(index) = self.heap.shared.pop(self.id, &self.owned.slabs) {
-                thread.r#unsized.push(&self.owned.slabs, index);
                 slab::transfer(
                     &self.heap.shared.slabs,
                     &self.owned.slabs,
@@ -69,22 +71,24 @@ impl<'raw> Allocator<'raw> {
                     None,
                     Some(self.id),
                 );
+                thread.r#unsized.push(&self.owned.slabs, index);
                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 break;
             }
 
-            const COUNT: u16 = 16;
-            match self.heap.shared.allocate(self.id, COUNT) {
+            match self.heap.shared.allocate(self.id, BATCH_BUMP_POP) {
                 Some(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
                     unsafe {
                         self.owned.slabs.link(range.clone(), None);
-                        thread.r#unsized.set(Some(range.start), COUNT as usize);
+                        thread
+                            .r#unsized
+                            .set(Some(range.start), BATCH_BUMP_POP as usize);
                         slab::transfer_all(
                             &self.heap.shared.slabs,
                             &self.owned.slabs,
                             range.start,
-                            COUNT as usize,
+                            BATCH_BUMP_POP as usize,
                             None,
                             Some(self.id),
                         );
@@ -172,13 +176,6 @@ impl<'raw> Allocator<'raw> {
             },
         };
 
-        // if class == size::SLAB {
-        //     return self
-        //         .heap
-        //         .offset_to_pointer::<ffi::c_void>(slab::Offset::from(index))
-        //         .as_ptr();
-        // }
-
         let free = unsafe { &mut *self.owned.slabs[index].free.get() };
         let block = free.peek();
         free.unset(block);
@@ -196,8 +193,6 @@ impl<'raw> Allocator<'raw> {
         let index = self.owned.meta.r#sized[class]
             .pop(&self.owned.slabs)
             .unwrap();
-
-        // ::log::info!("Detaching {} from {}", index, class);
 
         let shared = &self.heap.shared.slabs[index];
         if !shared.free.is_empty() {
@@ -250,13 +245,6 @@ impl<'raw> Allocator<'raw> {
             return self.free_remote(offset, index, class);
         }
 
-        // if class == size::SLAB {
-        //     return self
-        //         .owned
-        //         .meta
-        //         .sized_to_unsized(&self.owned.slabs, class, index);
-        // }
-
         stat::inc(&stat::FREE_FAST);
         let slab = &self.owned.slabs[index];
         let block = offset.index_block(class);
@@ -265,18 +253,15 @@ impl<'raw> Allocator<'raw> {
         free.set(block);
 
         match count {
-            0 => self.attach(class, index),
             count if count + 1 == class.count() => {
-                // if self.owned.meta.r#unsized.len() < 16 {
                 stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned
                     .meta
                     .sized_to_unsized(&self.owned.slabs, class, index);
-                // } else {
-                //     self.transfer(index, Some(self.id), None);
-                //     self.heap.shared.push(self.id, &self.owned.slabs, index);
-                // }
+
+                self.unsized_to_global();
             }
+            0 => self.attach(class, index),
             _ => (),
         }
     }
@@ -290,9 +275,6 @@ impl<'raw> Allocator<'raw> {
         }
 
         self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
-
-        // ::log::info!("Attaching {} to {}", index, class);
-
         stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
@@ -301,13 +283,6 @@ impl<'raw> Allocator<'raw> {
         stat::inc(&stat::FREE_REMOTE);
 
         let slab = &self.heap.shared.slabs[index];
-
-        // if class == size::SLAB {
-        //     let owner = slab.owner.load().id();
-        //     self.transfer(index, owner, Some(self.id));
-        //     return self.owned.meta.r#unsized.push(&self.owned.slabs, index);
-        // }
-
         let block = offset.index_block(class);
         let version = slab.meta.load().version();
 
@@ -338,6 +313,8 @@ impl<'raw> Allocator<'raw> {
             }
         }
 
+        slab.free.clear();
+
         if cfg!(feature = "validate") {
             assert!(
                 self.owned
@@ -351,15 +328,6 @@ impl<'raw> Allocator<'raw> {
 
         let victim = slab.owner.load().id();
 
-        // if self.owned.meta.r#unsized.len() > 16 {
-        //     eprintln!("{} push global {}", self.id, index);
-        //     self.transfer(index, victim, None);
-        //     slab.owner
-        //         .store(slab::shared::Owner::new(slab.owner.load().class(), None));
-        //     self.heap.shared.push(self.id, &self.owned.slabs, index);
-        //     return;
-        // }
-
         self.transfer(index, victim, Some(self.id));
 
         if victim.is_some() {
@@ -369,7 +337,37 @@ impl<'raw> Allocator<'raw> {
                 Some(self.id),
             ));
         }
+
         self.owned.meta.r#unsized.push(&self.owned.slabs, index);
+        self.unsized_to_global();
+    }
+
+    fn unsized_to_global(&mut self) {
+        let count = self.owned.meta.r#unsized.len();
+        if count < COUNT_CACHE_SLAB {
+            return;
+        }
+
+        let mut iter = self
+            .owned
+            .meta
+            .r#unsized
+            .trace(&self.owned.slabs)
+            .inspect(|index| self.transfer(*index, Some(self.id), None))
+            .take(BATCH_GLOBAL_PUSH);
+
+        let head = iter.next().unwrap();
+        let tail = iter.last().unwrap();
+        let next = self.owned.slabs[tail].meta.load().next();
+
+        self.owned
+            .meta
+            .r#unsized
+            .set(next, count - BATCH_GLOBAL_PUSH);
+
+        self.heap
+            .shared
+            .push(self.id, &self.owned.slabs, head, tail);
     }
 
     #[inline]

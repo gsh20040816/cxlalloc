@@ -68,7 +68,6 @@ impl Meta {
         shared[index]
             .owner
             .store(slab::shared::Owner::new(class, Some(id)));
-        shared[index].free.clear();
 
         self.r#sized[class].push(owned, index);
         let count = self.r#unsized.len();
@@ -84,6 +83,11 @@ impl Meta {
         class: size::Class,
         index: slab::Index,
     ) {
+        // Special case: not in sized list
+        if class == size::SLAB {
+            return self.r#unsized.push(slabs, index);
+        }
+
         let next = slabs[index].meta.load().next();
 
         let mut walk = self.r#sized[class].peek().unwrap();
@@ -94,7 +98,7 @@ impl Meta {
         } else {
             let prev = loop {
                 match slabs[walk].meta.load().next() {
-                    None => panic!("Removing non-existent slab"),
+                    None => panic!("removing non-existent slab {} {}", index, class),
                     Some(next) if next == index => break walk,
                     Some(next) => walk = next,
                 }

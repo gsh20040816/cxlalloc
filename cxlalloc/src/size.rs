@@ -5,7 +5,6 @@ use core::ops;
 
 use crate::atomic::Packed;
 use crate::SIZE_BIT_SET;
-use crate::SIZE_PAGE;
 use crate::SIZE_SLAB;
 
 pub(crate) const MIN: usize = 8;

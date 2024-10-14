@@ -62,7 +62,7 @@ impl<'raw> Shared<'raw> {
         todo!()
     }
 
-    pub(crate) fn allocate(&self, id: thread::Id, count: u16) -> Option<Range<slab::Index>> {
+    pub(crate) fn allocate(&self, id: thread::Id, count: u32) -> Option<Range<slab::Index>> {
         let mut bump = self.meta.bump.load();
         let version = self.meta.stages[id].peek();
         self.meta.stages[id].prepare(version.next());
@@ -72,13 +72,13 @@ impl<'raw> Shared<'raw> {
                 self.meta.stages[other].notify(bump.version());
             }
 
-            if bump.length().0 + count as u32 >= self.capacity {
+            if bump.length().0 + count >= self.capacity {
                 return None;
             }
 
             match self.meta.bump.compare_exchange(
                 bump,
-                Bump::new(id, version.next(), Length(bump.length().0 + count as u32)),
+                Bump::new(id, version.next(), Length(bump.length().0 + count)),
             ) {
                 Ok(_) => break bump.length(),
                 Err(next) => bump = next,
@@ -86,7 +86,7 @@ impl<'raw> Shared<'raw> {
         };
 
         let start = slab::Index::from_length(Length(length.0));
-        let end = slab::Index::from_length(Length(length.0 + count as u32));
+        let end = slab::Index::from_length(Length(length.0 + count));
         Some(start..end)
     }
 
@@ -124,9 +124,12 @@ impl<'raw> Shared<'raw> {
         &self,
         id: thread::Id,
         slabs: &slab::Slice<slab::Owned>,
-        staged: slab::Index,
+        head: slab::Index,
+        tail: slab::Index,
     ) {
-        self.meta.free.push(id, slabs, &self.meta.stages, staged);
+        self.meta
+            .free
+            .push(id, slabs, &self.meta.stages, head, tail);
     }
 
     pub(crate) fn pop(

@@ -37,10 +37,6 @@ impl Index {
         NonZeroU32::new(u32::from(length) + 1).map(Self).unwrap()
     }
 
-    pub(crate) const fn dangling() -> Self {
-        Self(NonZeroU32::MAX)
-    }
-
     #[inline]
     pub(crate) unsafe fn offset_block(&self, class: size::Class, index: Bit) -> Offset {
         debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
@@ -222,6 +218,14 @@ impl Slice<'_, Owned> {
             self[i].meta.store(owned::Meta::new(j));
         }
     }
+
+    pub(crate) fn trace(&self, mut head: Option<Index>) -> impl Iterator<Item = Index> + '_ {
+        iter::from_fn(move || {
+            let next = head?;
+            head = self[next].meta.load().next();
+            Some(next)
+        })
+    }
 }
 
 impl<'raw, S> core::ops::Index<Index> for Slice<'raw, S> {
@@ -265,12 +269,7 @@ impl LocalStack {
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slice<Owned>) -> impl Iterator<Item = Index> + 'a {
-        let mut head = self.head;
-        iter::from_fn(move || {
-            let next = head?;
-            head = slabs[next].meta.load().next();
-            Some(next)
-        })
+        slabs.trace(self.head)
     }
 }
 
@@ -286,24 +285,25 @@ impl<'raw> GlobalStack<'raw> {
         id: thread::Id,
         slabs: &Slice<Owned>,
         helps: &thread::Array<Help>,
-        index: Index,
+        head: Index,
+        tail: Index,
     ) {
-        let mut head = self.head.load();
-        let version = helps[id].peek();
-        helps[id].prepare(version.next());
+        let mut old = self.head.load();
+        let version = helps[id].peek().next();
+        helps[id].prepare(version);
 
         loop {
-            if let Some(prev) = head.id() {
-                helps[prev].notify(head.version());
+            if let Some(id) = old.id() {
+                helps[id].notify(old.version());
             }
 
-            slabs[index].meta.store(owned::Meta::new(head.index()));
+            slabs[tail].meta.store(owned::Meta::new(old.index()));
             match self
                 .head
-                .compare_exchange(head, Head::new(id, version.next(), Some(index)))
+                .compare_exchange(old, Head::new(id, version, Some(head)))
             {
                 Ok(_) => break,
-                Err(next) => head = next,
+                Err(next) => old = next,
             }
         }
     }
@@ -314,23 +314,21 @@ impl<'raw> GlobalStack<'raw> {
         slabs: &Slice<Owned>,
         helps: &thread::Array<Help>,
     ) -> Option<Index> {
-        let mut head = self.head.load();
-        let version = helps[id].peek();
-        helps[id].prepare(version.next());
+        let mut old = self.head.load();
+        let version = helps[id].peek().next();
+        helps[id].prepare(version);
 
         loop {
-            if let Some(prev) = head.id() {
-                helps[prev].notify(head.version());
+            if let Some(id) = old.id() {
+                helps[id].notify(old.version());
             }
 
-            let index = head.index()?;
+            let index = old.index()?;
+            let new = Head::new(id, version, slabs[index].meta.load().next());
 
-            match self.head.compare_exchange(
-                head,
-                Head::new(id, version.next(), slabs[index].meta.load().next()),
-            ) {
+            match self.head.compare_exchange(old, new) {
                 Ok(_) => break Some(index),
-                Err(next) => head = next,
+                Err(next) => old = next,
             }
         }
     }
@@ -342,6 +340,7 @@ impl<'raw> GlobalStack<'raw> {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
 struct Head(u64);
 
 impl Head {
@@ -350,7 +349,7 @@ impl Head {
     }
 
     fn index(&self) -> Option<Index> {
-        Packed::unpack(self.0)
+        Packed::unpack(self.0 as u32 as u64)
     }
 
     fn version(&self) -> Version {
@@ -359,6 +358,16 @@ impl Head {
 
     fn id(&self) -> Option<thread::Id> {
         Packed::unpack(self.0 >> 48)
+    }
+}
+
+impl Debug for Head {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("")
+            .field("id", &self.id())
+            .field("version", &self.version())
+            .field("index", &self.index())
+            .finish()
     }
 }
 
