@@ -16,6 +16,9 @@ enum Cli {
         #[arg(long, default_value = "extern/mimalloc-bench")]
         root: PathBuf,
 
+        #[arg(short, long)]
+        threads: Option<usize>,
+
         /// Allocator name
         #[arg(short, long)]
         allocator: Allocator,
@@ -33,6 +36,9 @@ enum Cli {
         /// Root of mimalloc-bench directory
         #[arg(long, default_value = "extern/mimalloc-bench")]
         root: PathBuf,
+
+        #[arg(short, long)]
+        threads: Option<usize>,
 
         #[arg(short, long, value_delimiter = ',')]
         allocators: Vec<Allocator>,
@@ -60,6 +66,7 @@ fn main() -> anyhow::Result<()> {
     match Cli::parse() {
         Cli::Bench {
             root,
+            threads,
             allocators,
             benchmarks,
             warmup,
@@ -98,7 +105,7 @@ fn main() -> anyhow::Result<()> {
                 for benchmark in &benchmarks {
                     command.arg(format!(
                         "env LD_PRELOAD={{allocator}} {}",
-                        benchmark.command(),
+                        benchmark.command(threads),
                     ));
                 }
 
@@ -110,6 +117,7 @@ fn main() -> anyhow::Result<()> {
         }
         Cli::Run {
             root,
+            threads,
             allocator,
             benchmark,
             wrapper,
@@ -146,7 +154,7 @@ fn main() -> anyhow::Result<()> {
             }
             .before_spawn(move |command| {
                 command.arg(root.join(benchmark.path()));
-                command.args(benchmark.args());
+                command.args(benchmark.args(threads));
                 Ok(())
             })
             .run()

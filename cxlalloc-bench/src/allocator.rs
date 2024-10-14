@@ -9,6 +9,7 @@ pub enum Allocator {
     Je,
     Cxl,
     CxlDebug,
+    CxlMi2,
     CxlShm,
     R,
 }
@@ -19,6 +20,7 @@ impl Allocator {
             Allocator::Mi2 => "mi2/out/release/libmimalloc",
             Allocator::Je => "je/lib/libjemalloc",
             Allocator::Cxl => "cxlalloc/target/release/libcxlalloc_dynamic",
+            Allocator::CxlMi2 => "cxl-mi2/build/libcxl_mimalloc_dynamic",
             Allocator::CxlDebug => "cxlalloc/target/debug/libcxlalloc_dynamic",
             Allocator::CxlShm => "cxl-shm/build/libcxlmalloc_dynamic",
             Allocator::R => "r/build/libralloc_dynamic",

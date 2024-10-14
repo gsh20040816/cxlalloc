@@ -70,8 +70,9 @@ impl Benchmark {
         Path::new(path)
     }
 
-    pub fn args(&self) -> Vec<String> {
-        let threads = std::thread::available_parallelism().unwrap().get();
+    pub fn args(&self, threads: Option<usize>) -> Vec<String> {
+        let threads =
+            threads.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get());
 
         macro_rules! args {
             ($($args:expr),* $(,)?) => {
@@ -108,9 +109,9 @@ impl Benchmark {
         }
     }
 
-    pub fn command(&self) -> String {
+    pub fn command(&self, threads: Option<usize>) -> String {
         let mut command = self.path().display().to_string();
-        for arg in self.args() {
+        for arg in self.args(threads) {
             command.push(' ');
             command.push_str(&arg);
         }
