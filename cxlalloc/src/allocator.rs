@@ -65,6 +65,7 @@ impl<'raw> Allocator<'raw> {
 
         loop {
             if let Some(index) = self.heap.shared.pop(self.id, thread, &self.owned.slabs) {
+                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 slab::transfer(
                     &self.heap.shared.slabs,
                     &self.owned.slabs,
@@ -74,38 +75,26 @@ impl<'raw> Allocator<'raw> {
                 );
 
                 thread.r#unsized.push(&self.owned.slabs, index);
-                crate::fence();
-
-                thread.state.store(None);
-                crate::flush(&thread.state, false);
-                crate::fence();
-
-                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 break;
             }
 
             match self.heap.shared.bump(self.id, thread) {
                 Some(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
+                    slab::transfer_all(
+                        &self.heap.shared.slabs,
+                        &self.owned.slabs,
+                        range.start,
+                        BATCH_BUMP_POP as usize,
+                        None,
+                        Some(self.id),
+                    );
+
                     unsafe {
                         self.owned.slabs.link(range.clone(), None);
                         thread
                             .r#unsized
                             .set(Some(range.start), BATCH_BUMP_POP as usize);
-
-                        crate::fence();
-                        thread.state.store(None);
-                        crate::flush(&thread.state, false);
-                        crate::fence();
-
-                        slab::transfer_all(
-                            &self.heap.shared.slabs,
-                            &self.owned.slabs,
-                            range.start,
-                            BATCH_BUMP_POP as usize,
-                            None,
-                            Some(self.id),
-                        );
                     }
                     break;
                 }
@@ -115,7 +104,7 @@ impl<'raw> Allocator<'raw> {
             }
         }
 
-        // FIXME: optimize cold paths to move to sized instead of unsized
+        crate::fence();
         thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class);
         thread.r#sized[class].peek()
     }
