@@ -1,9 +1,12 @@
 use core::alloc::Layout;
 
+use crate::atomic::NonZero;
+use crate::atomic::Packed;
 use crate::raw;
 use crate::size;
 use crate::slab;
 use crate::thread;
+use crate::Atomic;
 use crate::SIZE_PAGE;
 
 pub(crate) struct Owned<'raw> {
@@ -42,7 +45,7 @@ impl<'raw> Owned<'raw> {
 
 #[repr(C, align(64))]
 pub(crate) struct Meta {
-    pub(crate) state: Option<()>,
+    pub(crate) state: Atomic<Option<State>>,
     pub(crate) r#unsized: slab::LocalStack,
     pub(crate) r#sized: size::Array<slab::LocalStack>,
 }
@@ -59,20 +62,32 @@ impl Meta {
             return false;
         };
 
+        self.state
+            .store(Some(State::UnsizedToSized { index, class }));
+        crate::flush(&self.state, false);
+        crate::fence();
+
         let slab = &owned[index];
         let next = slab.meta.load().next();
+
+        let count = self.r#unsized.len();
+        self.r#unsized.set(next, count - 1);
+        crate::flush(&self.r#unsized, false);
+        crate::fence();
+
+        self.r#sized[class].push(owned, index);
         unsafe {
             (*slab.free.get()).fill(class.count());
         }
+        crate::flush(slab, false);
 
         shared[index]
             .owner
             .store(slab::shared::Owner::new(class, Some(id)));
+        crate::flush(&shared[index].owner, false);
+        crate::fence();
 
-        self.r#sized[class].push(owned, index);
-        let count = self.r#unsized.len();
-        self.r#unsized.set(next, count - 1);
-
+        self.state.store(None);
         true
     }
 
@@ -108,5 +123,41 @@ impl Meta {
         };
 
         self.r#unsized.push(slabs, index);
+    }
+}
+
+const B: u8 = 4;
+const M: u64 = (1 << B) - 1;
+pub(crate) enum State {
+    UnsizedToSized {
+        index: slab::Index,
+        class: size::Class,
+    },
+}
+
+unsafe impl Packed for Option<State> {
+    const BITS: u8 = 64;
+
+    fn pack(&self) -> u64 {
+        let Some(state) = self else { return 0 };
+        match state {
+            State::UnsizedToSized { index, class } => {
+                (index.pack() << (size::Class::BITS + B)) | (class.pack() << B) | 1
+            }
+        }
+    }
+
+    fn unpack(value: u64) -> Self {
+        if value == 0 {
+            return None;
+        }
+
+        Some(match value & M {
+            1 => State::UnsizedToSized {
+                index: Packed::unpack(value >> (size::Class::BITS + B)),
+                class: Packed::unpack(value >> B),
+            },
+            _ => unreachable!(),
+        })
     }
 }

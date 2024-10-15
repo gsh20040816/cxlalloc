@@ -42,29 +42,45 @@ pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
 pub(crate) const BATCH_BUMP_POP: u32 = 16;
 
 #[inline]
-pub(crate) fn flush(address: *const u8, invalidate: bool) {
+pub(crate) fn flush<T>(address: &T, invalidate: bool) {
     if cfg!(feature = "arch-gpf") {
         return;
     }
 
-    unsafe {
-        match invalidate {
-            false if cfg!(feature = "arch-clwb") => core::arch::asm! {
-                "clwb {address}",
-                address = in(reg) address,
-            },
-            _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
-                "clflushopt {address}",
-                address = in(reg) address,
-            },
-            _ => core::arch::x86_64::_mm_clflush(address),
+    fn inner(address: *const u8, invalidate: bool) {
+        unsafe {
+            match invalidate {
+                false if cfg!(feature = "arch-clwb") => core::arch::asm! {
+                    "clwb {address}",
+                    address = in(reg) address,
+                },
+                _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
+                    "clflushopt {address}",
+                    address = in(reg) address,
+                },
+                _ => core::arch::x86_64::_mm_clflush(address),
+            }
         }
+    }
+
+    for line in 0..size_of::<T>() / SIZE_CACHE_LINE {
+        inner(
+            (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
+            invalidate,
+        );
     }
 }
 
 #[inline]
 pub(crate) fn fence() {
-    unsafe {
-        core::arch::x86_64::_mm_sfence();
+    // CLFLUSH is serializing, so we don't need a fence.
+    if cfg!(not(any(
+        feature = "arch-gpf",
+        feature = "arch-clwb",
+        feature = "arch-clflushopt"
+    ))) {
+        unsafe {
+            core::arch::x86_64::_mm_sfence();
+        }
     }
 }
