@@ -105,11 +105,6 @@ impl Meta {
         class: size::Class,
         index: slab::Index,
     ) {
-        // Special case: not in sized list
-        if class == size::SLAB {
-            return self.r#unsized.push(slabs, index);
-        }
-
         let next = slabs[index].meta.load().next();
 
         let mut walk = self.r#sized[class].peek().unwrap();
