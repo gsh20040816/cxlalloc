@@ -23,4 +23,5 @@ libc.workspace = true
 log.workspace = true
 
 [dev-dependencies]
+crash = { path = "../crash" }
 env_logger.workspace = true

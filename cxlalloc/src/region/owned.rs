@@ -1,7 +1,7 @@
 use core::alloc::Layout;
 
-use crate::atomic::NonZero;
 use crate::atomic::Packed;
+use crate::crash;
 use crate::raw;
 use crate::size;
 use crate::slab;
@@ -61,6 +61,8 @@ impl Meta {
         let Some(index) = self.r#unsized.peek() else {
             return false;
         };
+
+        crash::define!(unsized_to_sized_pre_log);
 
         self.state
             .store(Some(State::UnsizedToSized { index, class }));

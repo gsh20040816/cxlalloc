@@ -15,6 +15,18 @@ mod slab;
 pub mod stat;
 pub mod thread;
 
+#[cfg(test)]
+mod crash;
+
+#[cfg(not(test))]
+mod crash {
+    macro_rules! define {
+        ($_:ident) => {};
+    }
+
+    pub(crate) use define;
+}
+
 pub use allocator::Allocator;
 pub use atomic::Atomic;
 pub(crate) use barrier::Barrier;

@@ -1,0 +1,8 @@
+[package]
+name = "crash"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+backtrace.workspace = true
+linkme.workspace = true
