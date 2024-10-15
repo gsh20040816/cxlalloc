@@ -117,6 +117,7 @@ impl Meta {
         if walk == index {
             let count = self.r#sized[class].len();
             self.r#sized[class].set(next, count - 1);
+            crate::flush(&self.r#sized[class], false);
         } else {
             let prev = loop {
                 match slabs[walk].meta.load().next() {
@@ -127,6 +128,7 @@ impl Meta {
             };
 
             slabs[prev].meta.store(slab::owned::Meta::new(next));
+            crate::flush(&slabs[prev], false);
         };
 
         self.r#unsized.push(slabs, index);
@@ -156,6 +158,10 @@ pub(crate) enum State {
         index: slab::Index,
         block: Bit,
     },
+    ApplicationToSized {
+        index: slab::Index,
+        block: Bit,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -176,9 +182,13 @@ unsafe impl Packed for Option<State> {
             State::LocalToGlobal { index, version } => {
                 4 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
             }
-            State::SizedToApplication { index, block: bit } => {
-                debug_assert!(usize::from(*bit) < u16::MAX as usize);
-                5 | ((usize::from(*bit) as u64) << B) | (index.pack() << (16 + B))
+            State::SizedToApplication { index, block } => {
+                debug_assert!(usize::from(*block) < u16::MAX as usize);
+                5 | ((usize::from(*block) as u64) << B) | (index.pack() << (16 + B))
+            }
+            State::ApplicationToSized { index, block } => {
+                debug_assert!(usize::from(*block) < u16::MAX as usize);
+                6 | ((usize::from(*block) as u64) << B) | (index.pack() << (16 + B))
             }
         }
     }
@@ -206,6 +216,10 @@ unsafe impl Packed for Option<State> {
                 index: Packed::unpack(value >> (Version::BITS + B)),
             },
             5 => State::SizedToApplication {
+                block: Bit::new((value >> B) as u16 as usize),
+                index: Packed::unpack(value >> (16 + B)),
+            },
+            6 => State::ApplicationToSized {
                 block: Bit::new((value >> B) as u16 as usize),
                 index: Packed::unpack(value >> (16 + B)),
             },

@@ -66,6 +66,8 @@ stat![
     GLOBAL_POP_CONTEND,
     GLOBAL_POP_CONTEND_INTERLEAVE,
     GLOBAL_POP_CONTEND_HELP,
+    FLUSH,
+    FENCE,
 ];
 
 #[inline]

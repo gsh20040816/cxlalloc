@@ -201,7 +201,6 @@ impl<'raw> Allocator<'raw> {
         crate::fence();
 
         free.unset(block);
-
         crate::flush(free, false);
 
         if free.is_empty() {
@@ -210,9 +209,6 @@ impl<'raw> Allocator<'raw> {
 
         crate::fence();
         self.owned.meta.state.store(None);
-        crate::flush(&self.owned.meta.state, false);
-        crate::fence();
-
         let offset = unsafe { index.offset_block(class, block) };
         self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
     }
@@ -279,8 +275,18 @@ impl<'raw> Allocator<'raw> {
         let slab = &self.owned.slabs[index];
         let block = offset.index_block(class);
         let free = &mut *slab.free.get();
+
+        self.owned
+            .meta
+            .state
+            .store(Some(State::ApplicationToSized { index, block }));
+
+        crate::flush(&self.owned.meta, false);
+        crate::fence();
+
         let count = free.len();
         free.set(block);
+        crate::flush(&free, false);
 
         match count {
             count if count + 1 == class.count() => {
@@ -288,6 +294,9 @@ impl<'raw> Allocator<'raw> {
                 self.owned
                     .meta
                     .sized_to_unsized(&self.owned.slabs, class, index);
+
+                crate::fence();
+                self.owned.meta.state.store(None);
 
                 self.unsized_to_global();
             }

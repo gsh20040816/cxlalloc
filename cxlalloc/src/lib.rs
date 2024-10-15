@@ -64,11 +64,11 @@ pub(crate) fn flush<T>(address: &T, invalidate: bool) {
         unsafe {
             match invalidate {
                 false if cfg!(feature = "arch-clwb") => core::arch::asm! {
-                    "clwb {address}",
+                    "clwb [{address}]",
                     address = in(reg) address,
                 },
                 _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
-                    "clflushopt {address}",
+                    "clflushopt [{address}]",
                     address = in(reg) address,
                 },
                 _ => core::arch::x86_64::_mm_clflush(address),
@@ -77,6 +77,7 @@ pub(crate) fn flush<T>(address: &T, invalidate: bool) {
     }
 
     for line in 0..size_of::<T>() / SIZE_CACHE_LINE {
+        stat::inc(&stat::FLUSH);
         inner(
             (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
             invalidate,
@@ -93,6 +94,7 @@ pub(crate) fn fence() {
         feature = "arch-clflushopt"
     ))) {
         unsafe {
+            stat::inc(&stat::FENCE);
             core::arch::x86_64::_mm_sfence();
         }
     }
