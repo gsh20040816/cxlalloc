@@ -162,6 +162,9 @@ pub(crate) enum State {
         index: slab::Index,
         block: Bit,
     },
+    LocalToGlobalSave {
+        index: slab::Index,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -190,6 +193,7 @@ unsafe impl Packed for Option<State> {
                 debug_assert!(usize::from(*block) < u16::MAX as usize);
                 6 | ((usize::from(*block) as u64) << B) | (index.pack() << (16 + B))
             }
+            State::LocalToGlobalSave { index } => 7 | (index.pack() << B),
         }
     }
 
@@ -222,6 +226,9 @@ unsafe impl Packed for Option<State> {
             6 => State::ApplicationToSized {
                 block: Bit::new((value >> B) as u16 as usize),
                 index: Packed::unpack(value >> (16 + B)),
+            },
+            7 => State::LocalToGlobalSave {
+                index: Packed::unpack(value >> B),
             },
             _ => unreachable!(),
         })

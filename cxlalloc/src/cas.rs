@@ -53,17 +53,19 @@ unsafe impl<T: Packed + Copy> Packed for State<T> {
 impl<T: Packed + Copy> Detectable<T> {
     pub(crate) fn load(&self, help: &thread::Array<Help>) -> T {
         let old = self.0.load();
+        self.notify(help, old);
+        old.inner()
+    }
 
-        if let Some(id) = old.id() {
-            let version = old.version();
+    fn notify(&self, help: &thread::Array<Help>, state: State<T>) {
+        if let Some(id) = state.id() {
+            let version = state.version();
             if help[id].must_notify(version) {
                 crate::flush(&self.0, false);
                 crate::fence();
                 help[id].notify(version);
             }
         }
-
-        old.inner()
     }
 
     pub(crate) fn update<F>(
@@ -84,14 +86,7 @@ impl<T: Packed + Copy> Detectable<T> {
         crate::fence();
 
         loop {
-            if let Some(old_id) = old.id() {
-                let help = &help[old_id];
-                let old_version = old.version();
-                if help.must_notify(old_version) {
-                    crate::flush(&self.0, false);
-                    help.notify(old_version);
-                }
-            }
+            self.notify(help, old);
 
             let (new, log) = next(old.inner(), version)?;
             meta.state.store(Some(log));

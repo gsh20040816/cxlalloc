@@ -401,12 +401,24 @@ impl<'raw> Allocator<'raw> {
 
         self.owned
             .meta
+            .state
+            .store(Some(State::LocalToGlobalSave { index: head }));
+        crate::flush(&self.owned.meta.state, false);
+        crate::fence();
+
+        self.owned
+            .meta
             .r#unsized
             .set(next, count - BATCH_GLOBAL_PUSH);
+
+        crate::flush(&self.owned.meta.r#unsized, false);
 
         self.heap
             .shared
             .push(self.id, self.owned.meta, &self.owned.slabs, head, tail);
+
+        crate::fence();
+        self.owned.meta.state.store(None);
     }
 
     #[inline]
