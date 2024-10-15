@@ -165,6 +165,11 @@ pub(crate) enum State {
     LocalToGlobalSave {
         index: slab::Index,
     },
+    Remote {
+        index: slab::Index,
+        block: Bit,
+        version: Version,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -194,6 +199,16 @@ unsafe impl Packed for Option<State> {
                 6 | ((usize::from(*block) as u64) << B) | (index.pack() << (16 + B))
             }
             State::LocalToGlobalSave { index } => 7 | (index.pack() << B),
+            State::Remote {
+                index,
+                block,
+                version,
+            } => {
+                debug_assert!(usize::from(*block) < (1 << 12) as usize);
+                8 | (version.pack() << B)
+                    | ((usize::from(*block) as u64) << (Version::BITS + B))
+                    | (index.pack() << (12 + Version::BITS + B))
+            }
         }
     }
 
@@ -229,6 +244,11 @@ unsafe impl Packed for Option<State> {
             },
             7 => State::LocalToGlobalSave {
                 index: Packed::unpack(value >> B),
+            },
+            8 => State::Remote {
+                index: Packed::unpack(value >> (12 + Version::BITS + B)),
+                block: Bit::new(((value >> (Version::BITS + B)) & ((1 << 12) - 1)) as usize),
+                version: Packed::unpack(value >> B),
             },
             _ => unreachable!(),
         })

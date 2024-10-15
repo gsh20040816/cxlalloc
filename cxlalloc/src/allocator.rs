@@ -328,7 +328,16 @@ impl<'raw> Allocator<'raw> {
         let block = offset.index_block(class);
         let version = slab.meta.load().version();
 
+        self.owned.meta.state.store(Some(State::Remote {
+            index,
+            block,
+            version,
+        }));
+        crate::flush(&self.owned.meta.state, false);
+        crate::fence();
+
         slab.free.set(block);
+        crate::flush(&slab.free, false);
 
         if slab.free.is_full(class.count()) {
             self.claim(index, version);
@@ -348,14 +357,19 @@ impl<'raw> Allocator<'raw> {
         let new = slab::shared::Meta::new(version.next(), Some(self.id));
 
         match slab.meta.compare_exchange(old, new) {
-            Ok(_) => stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN),
+            Ok(_) => {
+                crate::flush(&slab.meta, false);
+                stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN);
+            }
             Err(_) => {
+                crate::flush(&slab.meta, true);
                 stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
                 return;
             }
         }
 
         slab.free.clear();
+        crate::flush(&slab.free, false);
 
         if cfg!(feature = "validate") {
             assert!(
@@ -378,9 +392,14 @@ impl<'raw> Allocator<'raw> {
                 size::Class::default(),
                 Some(self.id),
             ));
+            crate::flush(&slab.owner, false);
         }
 
         self.owned.meta.r#unsized.push(&self.owned.slabs, index);
+
+        crate::fence();
+        self.owned.meta.state.store(None);
+
         self.unsized_to_global();
     }
 
