@@ -20,14 +20,13 @@ use crate::atomic::NonZero;
 use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::bitset::Bit;
+use crate::cas;
 use crate::raw;
 use crate::region;
 use crate::region::owned::State;
-use crate::region::shared::Help;
 use crate::region::shared::Length;
 use crate::size;
 use crate::thread;
-use crate::Atomic;
 use crate::SIZE_SLAB;
 
 #[repr(C)]
@@ -284,7 +283,7 @@ impl LocalStack {
 
 #[repr(C)]
 pub(crate) struct GlobalStack<'raw> {
-    head: Atomic<Head>,
+    head: cas::Detectable<Option<Index>>,
     _raw: PhantomData<&'raw raw::Heap>,
 }
 
@@ -292,29 +291,23 @@ impl<'raw> GlobalStack<'raw> {
     pub(crate) fn push(
         &self,
         id: thread::Id,
+        meta: &mut region::owned::Meta,
         slabs: &Slice<Owned>,
-        helps: &thread::Array<Help>,
+        help: &thread::Array<cas::Help>,
         head: Index,
         tail: Index,
     ) {
-        let mut old = self.head.load();
-        let version = helps[id].peek().next();
-        helps[id].prepare(version);
-
-        loop {
-            if let Some(id) = old.id() {
-                helps[id].notify(old.version());
-            }
-
-            slabs[tail].meta.store(owned::Meta::new(old.index()));
-            match self
-                .head
-                .compare_exchange(old, Head::new(id, version, Some(head)))
-            {
-                Ok(_) => break,
-                Err(next) => old = next,
-            }
-        }
+        self.head.update(help, id, meta, |old, version| {
+            slabs[tail].meta.store(crate::slab::owned::Meta::new(old));
+            crate::flush(&slabs[tail].meta, false);
+            Some((
+                Some(head),
+                State::LocalToGlobal {
+                    index: head,
+                    version,
+                },
+            ))
+        });
     }
 
     pub(crate) fn pop(
@@ -322,42 +315,28 @@ impl<'raw> GlobalStack<'raw> {
         id: thread::Id,
         meta: &mut region::owned::Meta,
         slabs: &Slice<Owned>,
-        helps: &thread::Array<Help>,
+        help: &thread::Array<cas::Help>,
     ) -> Option<Index> {
-        let mut old = self.head.load();
-        let version = helps[id].peek().next();
-        helps[id].prepare(version);
+        self.head
+            .update(help, id, meta, |old, version| {
+                let old = old?;
+                let new = slabs[old].meta.load().next();
 
-        loop {
-            if let Some(old_id) = old.id() {
-                let help = &helps[old_id];
-                let old_version = old.version();
-                if help.must_notify(old_version) {
-                    crate::flush(&self.head, false);
-                    crate::fence();
-                    help.notify(old_version);
-                }
-            }
-
-            let index = old.index()?;
-            let new = Head::new(id, version, slabs[index].meta.load().next());
-
-            meta.state
-                .store(Some(State::GlobalToLocal { index, version }));
-            crate::flush(&meta.state, false);
-            crate::fence();
-
-            match self.head.compare_exchange(old, new) {
-                Ok(_) => break Some(index),
-                Err(next) => old = next,
-            }
-        }
+                Some((
+                    new,
+                    State::GlobalToLocal {
+                        index: old,
+                        version,
+                    },
+                ))
+            })
+            .flatten()
     }
 }
 
 impl<'raw> GlobalStack<'raw> {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.head.load().index().is_none()
+    pub(crate) fn is_empty(&self, help: &thread::Array<cas::Help>) -> bool {
+        self.head.load(help).is_none()
     }
 }
 

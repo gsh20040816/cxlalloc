@@ -3,6 +3,7 @@ pub mod atomic;
 mod barrier;
 mod bitset;
 mod r#box;
+mod cas;
 mod extend;
 mod heap;
 mod huge;

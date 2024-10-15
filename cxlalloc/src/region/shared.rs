@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use crate::atomic::Packed;
 use crate::atomic::Version;
+use crate::cas;
 use crate::extend::Epoch;
 use crate::huge;
 use crate::raw;
@@ -70,42 +71,22 @@ impl<'raw> Shared<'raw> {
         id: thread::Id,
         meta: &mut region::owned::Meta,
     ) -> Option<Range<slab::Index>> {
-        let mut old = self.meta.bump.load();
-        let helps = &self.meta.stages;
-        let version = helps[id].peek().next();
-        helps[id].prepare(version);
-        crate::flush(&helps[id], false);
-        crate::fence();
-
-        let length = loop {
-            if let Some(old_id) = old.id() {
-                let help = &helps[old_id];
-                let old_version = old.version();
-                if help.must_notify(old_version) {
-                    crate::flush(&self.meta.bump, false);
-                    crate::fence();
-                    help.notify(old_version);
+        let length = self
+            .meta
+            .bump
+            .update(&self.meta.help, id, meta, |old, version| {
+                if old.0 + BATCH_BUMP_POP >= self.capacity {
+                    None
+                } else {
+                    Some((
+                        old,
+                        State::BumpToLocal {
+                            length: old,
+                            version,
+                        },
+                    ))
                 }
-            }
-
-            let length = old.length().0;
-            if length + BATCH_BUMP_POP >= self.capacity {
-                return None;
-            }
-
-            let new = Bump::new(id, version.next(), Length(length + BATCH_BUMP_POP));
-            meta.state.store(Some(State::BumpToLocal {
-                length: Length(length),
-                version,
-            }));
-            crate::flush(&meta.state, false);
-            crate::fence();
-
-            match self.meta.bump.compare_exchange(old, new) {
-                Ok(_) => break old.length(),
-                Err(next) => old = next,
-            }
-        };
+            })?;
 
         let start = slab::Index::from_length(Length(length.0));
         let end = slab::Index::from_length(Length(length.0 + BATCH_BUMP_POP));
@@ -145,13 +126,14 @@ impl<'raw> Shared<'raw> {
     pub(crate) fn push(
         &self,
         id: thread::Id,
+        meta: &mut region::owned::Meta,
         slabs: &slab::Slice<slab::Owned>,
         head: slab::Index,
         tail: slab::Index,
     ) {
         self.meta
             .free
-            .push(id, slabs, &self.meta.stages, head, tail);
+            .push(id, meta, slabs, &self.meta.help, head, tail);
     }
 
     pub(crate) fn pop(
@@ -160,11 +142,11 @@ impl<'raw> Shared<'raw> {
         meta: &mut region::owned::Meta,
         slabs: &slab::Slice<slab::Owned>,
     ) -> Option<slab::Index> {
-        if self.meta.free.is_empty() {
+        if self.meta.free.is_empty(&self.meta.help) {
             return None;
         }
 
-        self.meta.free.pop(id, meta, slabs, &self.meta.stages)
+        self.meta.free.pop(id, meta, slabs, &self.meta.help)
     }
 }
 
@@ -197,9 +179,9 @@ impl Index<root::Index> for Shared<'_> {
 }
 
 impl Index<thread::Id> for Shared<'_> {
-    type Output = Help;
+    type Output = cas::Help;
     fn index(&self, id: thread::Id) -> &Self::Output {
-        &self.meta.stages[id]
+        &self.meta.help[id]
     }
 }
 
@@ -207,76 +189,9 @@ impl Index<thread::Id> for Shared<'_> {
 pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
-    stages: thread::Array<Help>,
-
-    bump: Atomic<Bump>,
+    help: thread::Array<cas::Help>,
+    bump: cas::Detectable<Length>,
     pub(crate) log: huge::Cxl<1024>,
-}
-
-pub(crate) struct Help(Atomic<u64>);
-
-impl Help {
-    const FLAG: u64 = 1 << 63;
-
-    pub(crate) fn peek(&self) -> Version {
-        Version::unpack(self.0.load())
-    }
-
-    pub(crate) fn detect(&self) -> (Version, bool) {
-        let value = self.0.load();
-        (Version::unpack(value), value & Self::FLAG > 0)
-    }
-
-    pub(crate) fn prepare(&self, version: Version) {
-        self.0.store(version.pack());
-    }
-
-    pub(crate) fn must_notify(&self, version: Version) -> bool {
-        let (current, notified) = self.detect();
-        current == version && !notified
-    }
-
-    pub(crate) fn notify(&self, version: Version) {
-        let _ = self
-            .0
-            .compare_exchange(version.pack(), version.pack() | Self::FLAG);
-
-        crate::flush(self, true);
-        crate::fence();
-    }
-}
-
-#[derive(Copy, Clone)]
-struct Bump(u64);
-
-impl Bump {
-    fn new(id: thread::Id, version: Version, index: Length) -> Self {
-        Self((id.pack() << 48) | (version.pack() << 32) | index.pack())
-    }
-
-    fn length(&self) -> Length {
-        Packed::unpack(self.0)
-    }
-
-    fn version(&self) -> Version {
-        Packed::unpack((self.0 >> 32) as u16 as u64)
-    }
-
-    fn id(&self) -> Option<thread::Id> {
-        Packed::unpack(self.0 >> 48)
-    }
-}
-
-unsafe impl Packed for Bump {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        self.0
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
 }
 
 #[derive(Copy, Clone, Debug)]

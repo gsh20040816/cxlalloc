@@ -93,7 +93,6 @@ impl<'raw> Allocator<'raw> {
                             .set(Some(range.start), BATCH_BUMP_POP as usize);
 
                         crate::fence();
-
                         thread.state.store(None);
                         crate::flush(&thread.state, false);
                         crate::fence();
@@ -381,7 +380,7 @@ impl<'raw> Allocator<'raw> {
 
         self.heap
             .shared
-            .push(self.id, &self.owned.slabs, head, tail);
+            .push(self.id, self.owned.meta, &self.owned.slabs, head, tail);
     }
 
     #[inline]

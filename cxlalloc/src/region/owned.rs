@@ -147,6 +147,10 @@ pub(crate) enum State {
         length: Length,
         version: Version,
     },
+    LocalToGlobal {
+        index: slab::Index,
+        version: Version,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -162,7 +166,10 @@ unsafe impl Packed for Option<State> {
                 2 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
             }
             State::BumpToLocal { length, version } => {
-                2 | (version.pack() << B) | (length.pack() << (Version::BITS + B))
+                3 | (version.pack() << B) | (length.pack() << (Version::BITS + B))
+            }
+            State::LocalToGlobal { index, version } => {
+                4 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
             }
         }
     }
@@ -184,6 +191,10 @@ unsafe impl Packed for Option<State> {
             3 => State::BumpToLocal {
                 version: Packed::unpack(value >> B),
                 length: Packed::unpack(value >> (Version::BITS + B)),
+            },
+            4 => State::LocalToGlobal {
+                version: Packed::unpack(value >> B),
+                index: Packed::unpack(value >> (Version::BITS + B)),
             },
             _ => unreachable!(),
         })
