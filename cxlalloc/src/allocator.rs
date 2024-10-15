@@ -298,11 +298,14 @@ impl<'raw> Allocator<'raw> {
                 crate::fence();
                 self.owned.meta.state.store(None);
 
-                self.unsized_to_global();
+                return self.unsized_to_global();
             }
             0 => self.attach(class, index),
             _ => (),
         }
+
+        crate::fence();
+        self.owned.meta.state.store(None);
     }
 
     #[cold]
