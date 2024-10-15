@@ -63,7 +63,7 @@ impl<'raw> Allocator<'raw> {
         }
 
         loop {
-            if let Some(index) = self.heap.shared.pop(self.id, &self.owned.slabs) {
+            if let Some(index) = self.heap.shared.pop(self.id, thread, &self.owned.slabs) {
                 slab::transfer(
                     &self.heap.shared.slabs,
                     &self.owned.slabs,
@@ -71,7 +71,14 @@ impl<'raw> Allocator<'raw> {
                     None,
                     Some(self.id),
                 );
+
                 thread.r#unsized.push(&self.owned.slabs, index);
+                crate::fence();
+
+                thread.state.store(None);
+                crate::flush(&thread.state, false);
+                crate::fence();
+
                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 break;
             }

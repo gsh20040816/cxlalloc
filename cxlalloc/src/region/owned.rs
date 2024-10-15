@@ -1,6 +1,7 @@
 use core::alloc::Layout;
 
 use crate::atomic::Packed;
+use crate::atomic::Version;
 use crate::crash;
 use crate::raw;
 use crate::size;
@@ -90,6 +91,8 @@ impl Meta {
         crate::fence();
 
         self.state.store(None);
+        crate::flush(&self.state, false);
+        crate::fence();
         true
     }
 
@@ -135,6 +138,10 @@ pub(crate) enum State {
         index: slab::Index,
         class: size::Class,
     },
+    GlobalToLocal {
+        index: slab::Index,
+        version: Version,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -144,7 +151,10 @@ unsafe impl Packed for Option<State> {
         let Some(state) = self else { return 0 };
         match state {
             State::UnsizedToSized { index, class } => {
-                (index.pack() << (size::Class::BITS + B)) | (class.pack() << B) | 1
+                1 | (class.pack() << B) | (index.pack() << (size::Class::BITS + B))
+            }
+            State::GlobalToLocal { index, version } => {
+                2 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
             }
         }
     }
@@ -156,8 +166,12 @@ unsafe impl Packed for Option<State> {
 
         Some(match value & M {
             1 => State::UnsizedToSized {
-                index: Packed::unpack(value >> (size::Class::BITS + B)),
                 class: Packed::unpack(value >> B),
+                index: Packed::unpack(value >> (size::Class::BITS + B)),
+            },
+            2 => State::GlobalToLocal {
+                version: Packed::unpack(value >> B),
+                index: Packed::unpack(value >> (Version::BITS + B)),
             },
             _ => unreachable!(),
         })

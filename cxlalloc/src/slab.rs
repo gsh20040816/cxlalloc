@@ -21,6 +21,8 @@ use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::raw;
+use crate::region;
+use crate::region::owned::State;
 use crate::region::shared::Help;
 use crate::region::shared::Length;
 use crate::size;
@@ -263,9 +265,13 @@ impl LocalStack {
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
-        slabs[index].meta.store(owned::Meta::new(self.head));
+        let slab = &slabs[index];
+        slab.meta.store(owned::Meta::new(self.head));
+        crate::flush(&slab.meta, false);
+
         self.count += 1;
         self.head = Some(index);
+        crate::flush(&self.head, false);
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slice<Owned>) -> impl Iterator<Item = Index> + 'a {
@@ -311,6 +317,7 @@ impl<'raw> GlobalStack<'raw> {
     pub(crate) fn pop(
         &self,
         id: thread::Id,
+        meta: &mut region::owned::Meta,
         slabs: &Slice<Owned>,
         helps: &thread::Array<Help>,
     ) -> Option<Index> {
@@ -319,12 +326,22 @@ impl<'raw> GlobalStack<'raw> {
         helps[id].prepare(version);
 
         loop {
-            if let Some(id) = old.id() {
-                helps[id].notify(old.version());
+            if let Some(old_id) = old.id() {
+                let old_version = old.version();
+                if helps[old_id].must_notify(old_version) {
+                    crate::flush(&self.head, false);
+                    crate::fence();
+                    helps[id].notify(old_version);
+                }
             }
 
             let index = old.index()?;
             let new = Head::new(id, version, slabs[index].meta.load().next());
+
+            meta.state
+                .store(Some(State::GlobalToLocal { index, version }));
+            crate::flush(&meta.state, false);
+            crate::fence();
 
             match self.head.compare_exchange(old, new) {
                 Ok(_) => break Some(index),

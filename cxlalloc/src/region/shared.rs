@@ -10,6 +10,7 @@ use crate::atomic::Version;
 use crate::extend::Epoch;
 use crate::huge;
 use crate::raw;
+use crate::region;
 use crate::root;
 use crate::slab;
 use crate::thread;
@@ -134,13 +135,14 @@ impl<'raw> Shared<'raw> {
     pub(crate) fn pop(
         &self,
         id: thread::Id,
+        meta: &mut region::owned::Meta,
         slabs: &slab::Slice<slab::Owned>,
     ) -> Option<slab::Index> {
         if self.meta.free.is_empty() {
             return None;
         }
 
-        self.meta.free.pop(id, slabs, &self.meta.stages)
+        self.meta.free.pop(id, meta, slabs, &self.meta.stages)
     }
 }
 
@@ -192,18 +194,33 @@ pub(crate) struct Meta<'raw> {
 pub(crate) struct Help(Atomic<u64>);
 
 impl Help {
-    pub fn peek(&self) -> Version {
+    const FLAG: u64 = 1 << 63;
+
+    pub(crate) fn peek(&self) -> Version {
         Version::unpack(self.0.load())
     }
 
-    pub fn prepare(&self, version: Version) {
+    pub(crate) fn detect(&self) -> (Version, bool) {
+        let value = self.0.load();
+        (Version::unpack(value), value & Self::FLAG > 0)
+    }
+
+    pub(crate) fn prepare(&self, version: Version) {
         self.0.store(version.pack());
     }
 
-    pub fn notify(&self, version: Version) {
+    pub(crate) fn must_notify(&self, version: Version) -> bool {
+        let (current, notified) = self.detect();
+        current == version && !notified
+    }
+
+    pub(crate) fn notify(&self, version: Version) {
         let _ = self
             .0
-            .compare_exchange(version.pack(), version.pack() | (1 << 63));
+            .compare_exchange(version.pack(), version.pack() | Self::FLAG);
+
+        crate::flush(self, true);
+        crate::fence();
     }
 }
 
