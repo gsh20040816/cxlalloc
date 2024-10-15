@@ -4,6 +4,7 @@ use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::crash;
 use crate::raw;
+use crate::region::shared::Length;
 use crate::size;
 use crate::slab;
 use crate::thread;
@@ -142,6 +143,10 @@ pub(crate) enum State {
         index: slab::Index,
         version: Version,
     },
+    BumpToLocal {
+        length: Length,
+        version: Version,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -155,6 +160,9 @@ unsafe impl Packed for Option<State> {
             }
             State::GlobalToLocal { index, version } => {
                 2 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
+            }
+            State::BumpToLocal { length, version } => {
+                2 | (version.pack() << B) | (length.pack() << (Version::BITS + B))
             }
         }
     }
@@ -172,6 +180,10 @@ unsafe impl Packed for Option<State> {
             2 => State::GlobalToLocal {
                 version: Packed::unpack(value >> B),
                 index: Packed::unpack(value >> (Version::BITS + B)),
+            },
+            3 => State::BumpToLocal {
+                version: Packed::unpack(value >> B),
+                length: Packed::unpack(value >> (Version::BITS + B)),
             },
             _ => unreachable!(),
         })

@@ -16,7 +16,10 @@ use crate::slab;
 use crate::thread;
 use crate::Atomic;
 use crate::Barrier;
+use crate::BATCH_BUMP_POP;
 use crate::SIZE_PAGE;
+
+use super::owned::State;
 
 pub(crate) struct Shared<'raw> {
     capacity: u32,
@@ -62,31 +65,50 @@ impl<'raw> Shared<'raw> {
         todo!()
     }
 
-    pub(crate) fn allocate(&self, id: thread::Id, count: u32) -> Option<Range<slab::Index>> {
-        let mut bump = self.meta.bump.load();
-        let version = self.meta.stages[id].peek();
-        self.meta.stages[id].prepare(version.next());
+    pub(crate) fn bump(
+        &self,
+        id: thread::Id,
+        meta: &mut region::owned::Meta,
+    ) -> Option<Range<slab::Index>> {
+        let mut old = self.meta.bump.load();
+        let helps = &self.meta.stages;
+        let version = helps[id].peek().next();
+        helps[id].prepare(version);
+        crate::flush(&helps[id], false);
+        crate::fence();
 
         let length = loop {
-            if let Some(other) = bump.id() {
-                self.meta.stages[other].notify(bump.version());
+            if let Some(old_id) = old.id() {
+                let help = &helps[old_id];
+                let old_version = old.version();
+                if help.must_notify(old_version) {
+                    crate::flush(&self.meta.bump, false);
+                    crate::fence();
+                    help.notify(old_version);
+                }
             }
 
-            if bump.length().0 + count >= self.capacity {
+            let length = old.length().0;
+            if length + BATCH_BUMP_POP >= self.capacity {
                 return None;
             }
 
-            match self.meta.bump.compare_exchange(
-                bump,
-                Bump::new(id, version.next(), Length(bump.length().0 + count)),
-            ) {
-                Ok(_) => break bump.length(),
-                Err(next) => bump = next,
+            let new = Bump::new(id, version.next(), Length(length + BATCH_BUMP_POP));
+            meta.state.store(Some(State::BumpToLocal {
+                length: Length(length),
+                version,
+            }));
+            crate::flush(&meta.state, false);
+            crate::fence();
+
+            match self.meta.bump.compare_exchange(old, new) {
+                Ok(_) => break old.length(),
+                Err(next) => old = next,
             }
         };
 
         let start = slab::Index::from_length(Length(length.0));
-        let end = slab::Index::from_length(Length(length.0 + count));
+        let end = slab::Index::from_length(Length(length.0 + BATCH_BUMP_POP));
         Some(start..end)
     }
 

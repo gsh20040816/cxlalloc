@@ -83,7 +83,7 @@ impl<'raw> Allocator<'raw> {
                 break;
             }
 
-            match self.heap.shared.allocate(self.id, BATCH_BUMP_POP) {
+            match self.heap.shared.bump(self.id, thread) {
                 Some(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
                     unsafe {
@@ -91,6 +91,13 @@ impl<'raw> Allocator<'raw> {
                         thread
                             .r#unsized
                             .set(Some(range.start), BATCH_BUMP_POP as usize);
+
+                        crate::fence();
+
+                        thread.state.store(None);
+                        crate::flush(&thread.state, false);
+                        crate::fence();
+
                         slab::transfer_all(
                             &self.heap.shared.slabs,
                             &self.owned.slabs,

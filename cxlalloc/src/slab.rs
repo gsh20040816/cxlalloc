@@ -217,7 +217,9 @@ impl Slice<'_, Owned> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            self[i].meta.store(owned::Meta::new(j));
+            let meta = &self[i].meta;
+            meta.store(owned::Meta::new(j));
+            crate::flush(meta, false);
         }
     }
 
@@ -255,6 +257,7 @@ impl LocalStack {
     pub(crate) fn set(&mut self, head: Option<Index>, count: usize) {
         self.count = count;
         self.head = head;
+        crate::flush(&self, false);
     }
 
     pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) -> Option<Index> {
@@ -327,11 +330,12 @@ impl<'raw> GlobalStack<'raw> {
 
         loop {
             if let Some(old_id) = old.id() {
+                let help = &helps[old_id];
                 let old_version = old.version();
-                if helps[old_id].must_notify(old_version) {
+                if help.must_notify(old_version) {
                     crate::flush(&self.head, false);
                     crate::fence();
-                    helps[id].notify(old_version);
+                    help.notify(old_version);
                 }
             }
 
