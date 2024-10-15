@@ -79,7 +79,7 @@ impl<'raw> Shared<'raw> {
                     None
                 } else {
                     Some((
-                        old,
+                        Length(old.0 + BATCH_BUMP_POP),
                         State::BumpToLocal {
                             length: old,
                             version,

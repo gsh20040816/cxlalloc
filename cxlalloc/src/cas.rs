@@ -93,7 +93,7 @@ impl<T: Packed + Copy> Detectable<T> {
                 }
             }
 
-            let (new, log) = next(old.inner(), old.version())?;
+            let (new, log) = next(old.inner(), version)?;
             meta.state.store(Some(log));
             crate::flush(&meta.state, false);
 
