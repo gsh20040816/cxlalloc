@@ -43,7 +43,7 @@ impl Index {
         debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
         let base = NonZeroUsize::from(Offset::from(*self));
         let delta = class.size() * usize::from(index);
-        base.checked_add(delta).map(Offset).unwrap()
+        base.checked_add(delta).map(Offset).unwrap_unchecked()
     }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {

@@ -67,34 +67,27 @@ impl Meta {
 
         crash::define!(unsized_to_sized_pre_log);
 
-        self.state
-            .store(Some(State::UnsizedToSized { index, class }));
-        crate::flush(&self.state, false);
-        crate::fence();
-
         let slab = &owned[index];
         let next = slab.meta.load().next();
 
-        let count = self.r#unsized.len();
-        self.r#unsized.set(next, count - 1);
-        crate::flush(&self.r#unsized, false);
+        crate::fence();
+        self.state
+            .store(Some(State::UnsizedToSized { index: next, class }));
+        crate::flush(&self.state, false);
         crate::fence();
 
         self.r#sized[class].push(owned, index);
         unsafe {
             (*slab.free.get()).fill(class.count());
         }
-        crate::flush(slab, false);
 
         shared[index]
             .owner
             .store(slab::shared::Owner::new(class, Some(id)));
         crate::flush(&shared[index].owner, false);
-        crate::fence();
 
-        self.state.store(None);
-        crate::flush(&self.state, false);
-        crate::fence();
+        let count = self.r#unsized.len();
+        self.r#unsized.set(next, count - 1);
         true
     }
 
@@ -112,7 +105,6 @@ impl Meta {
         if walk == index {
             let count = self.r#sized[class].len();
             self.r#sized[class].set(next, count - 1);
-            crate::flush(&self.r#sized[class], false);
         } else {
             let prev = loop {
                 match slabs[walk].meta.load().next() {
@@ -134,7 +126,7 @@ const B: u8 = 4;
 const M: u64 = (1 << B) - 1;
 pub(crate) enum State {
     UnsizedToSized {
-        index: slab::Index,
+        index: Option<slab::Index>,
         class: size::Class,
     },
     GlobalToLocal {

@@ -104,7 +104,6 @@ impl<'raw> Allocator<'raw> {
             }
         }
 
-        crate::fence();
         thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class);
         thread.r#sized[class].peek()
     }
@@ -182,6 +181,7 @@ impl<'raw> Allocator<'raw> {
         let free = unsafe { &mut *self.owned.slabs[index].free.get() };
         let block = free.peek();
 
+        crate::fence();
         self.owned
             .meta
             .state
@@ -190,14 +190,11 @@ impl<'raw> Allocator<'raw> {
         crate::fence();
 
         free.unset(block);
-        crate::flush(free, false);
 
         if free.is_empty() {
             self.detach(class);
         }
 
-        crate::fence();
-        self.owned.meta.state.store(None);
         let offset = unsafe { index.offset_block(class, block) };
         self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
     }
@@ -265,17 +262,16 @@ impl<'raw> Allocator<'raw> {
         let block = offset.index_block(class);
         let free = &mut *slab.free.get();
 
+        crate::fence();
         self.owned
             .meta
             .state
             .store(Some(State::ApplicationToSized { index, block }));
-
         crate::flush(&self.owned.meta, false);
         crate::fence();
 
         let count = free.len();
         free.set(block);
-        crate::flush(&free, false);
 
         match count {
             count if count + 1 == class.count() => {
@@ -284,17 +280,11 @@ impl<'raw> Allocator<'raw> {
                     .meta
                     .sized_to_unsized(&self.owned.slabs, class, index);
 
-                crate::fence();
-                self.owned.meta.state.store(None);
-
-                return self.unsized_to_global();
+                self.unsized_to_global();
             }
             0 => self.attach(class, index),
             _ => (),
         }
-
-        crate::fence();
-        self.owned.meta.state.store(None);
     }
 
     #[cold]
@@ -317,6 +307,7 @@ impl<'raw> Allocator<'raw> {
         let block = offset.index_block(class);
         let version = slab.meta.load().version();
 
+        crate::fence();
         self.owned.meta.state.store(Some(State::Remote {
             index,
             block,
@@ -326,7 +317,6 @@ impl<'raw> Allocator<'raw> {
         crate::fence();
 
         slab.free.set(block);
-        crate::flush(&slab.free, false);
 
         if slab.free.is_full(class.count()) {
             self.claim(index, version);
@@ -348,6 +338,7 @@ impl<'raw> Allocator<'raw> {
         match slab.meta.compare_exchange(old, new) {
             Ok(_) => {
                 crate::flush(&slab.meta, false);
+                crate::fence();
                 stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN);
             }
             Err(_) => {
@@ -385,10 +376,6 @@ impl<'raw> Allocator<'raw> {
         }
 
         self.owned.meta.r#unsized.push(&self.owned.slabs, index);
-
-        crate::fence();
-        self.owned.meta.state.store(None);
-
         self.unsized_to_global();
     }
 
@@ -410,6 +397,7 @@ impl<'raw> Allocator<'raw> {
         let tail = iter.last().unwrap();
         let next = self.owned.slabs[tail].meta.load().next();
 
+        crate::fence();
         self.owned
             .meta
             .state
@@ -422,14 +410,9 @@ impl<'raw> Allocator<'raw> {
             .r#unsized
             .set(next, count - BATCH_GLOBAL_PUSH);
 
-        crate::flush(&self.owned.meta.r#unsized, false);
-
         self.heap
             .shared
             .push(self.id, self.owned.meta, &self.owned.slabs, head, tail);
-
-        crate::fence();
-        self.owned.meta.state.store(None);
     }
 
     #[inline]

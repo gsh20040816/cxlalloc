@@ -28,6 +28,7 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
         let row = bit.row();
         let col = bit.col();
         self.0[row].fetch_or(1 << col, Ordering::SeqCst);
+        crate::flush(&self.0[row], false);
     }
 
     pub(crate) fn is_empty(&self) -> bool {

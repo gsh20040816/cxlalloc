@@ -41,6 +41,7 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
             .for_each(|row| *row = 0);
 
         self.count = count as u64;
+        crate::flush(self, false);
         self.validate();
     }
 
@@ -60,8 +61,10 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         }
 
         *cols |= 1 << col;
-        self.sparse |= 1 << row;
+        crate::flush(cols, false);
         self.count += 1;
+        self.sparse |= 1 << row;
+        crate::flush(&self.count, false);
         self.validate();
     }
 
@@ -75,8 +78,10 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         }
 
         *cols &= !(1 << col);
-        self.sparse &= !((*cols == 0) as u64) << row;
+        crate::flush(cols, false);
         self.count -= 1;
+        self.sparse &= !((*cols == 0) as u64) << row;
+        crate::flush(&self.count, false);
         self.validate();
     }
 

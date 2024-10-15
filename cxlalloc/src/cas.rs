@@ -62,7 +62,7 @@ impl<T: Packed + Copy> Detectable<T> {
             let version = state.version();
             if help[id].must_notify(version) {
                 crate::flush(&self.0, false);
-                crate::fence();
+                // Notify is a CAS, which will serialize the flush
                 help[id].notify(version);
             }
         }
@@ -82,6 +82,7 @@ impl<T: Packed + Copy> Detectable<T> {
         let version = help[id].peek().next();
         help[id].prepare(version);
 
+        // Must wait for persistence
         crate::flush(&help[id], false);
         crate::fence();
 
@@ -128,6 +129,6 @@ impl Help {
             .0
             .compare_exchange(version.pack(), version.pack() | Self::FLAG);
 
-        crate::flush(self, true);
+        crate::flush(self, false);
     }
 }
