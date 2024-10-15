@@ -2,6 +2,7 @@ use core::alloc::Layout;
 
 use crate::atomic::Packed;
 use crate::atomic::Version;
+use crate::bitset::Bit;
 use crate::crash;
 use crate::raw;
 use crate::region::shared::Length;
@@ -151,6 +152,10 @@ pub(crate) enum State {
         index: slab::Index,
         version: Version,
     },
+    SizedToApplication {
+        index: slab::Index,
+        block: Bit,
+    },
 }
 
 unsafe impl Packed for Option<State> {
@@ -170,6 +175,10 @@ unsafe impl Packed for Option<State> {
             }
             State::LocalToGlobal { index, version } => {
                 4 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
+            }
+            State::SizedToApplication { index, block: bit } => {
+                debug_assert!(usize::from(*bit) < u16::MAX as usize);
+                5 | ((usize::from(*bit) as u64) << B) | (index.pack() << (16 + B))
             }
         }
     }
@@ -195,6 +204,10 @@ unsafe impl Packed for Option<State> {
             4 => State::LocalToGlobal {
                 version: Packed::unpack(value >> B),
                 index: Packed::unpack(value >> (Version::BITS + B)),
+            },
+            5 => State::SizedToApplication {
+                block: Bit::new((value >> B) as u16 as usize),
+                index: Packed::unpack(value >> (16 + B)),
             },
             _ => unreachable!(),
         })

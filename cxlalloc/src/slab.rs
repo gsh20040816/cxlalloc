@@ -263,6 +263,7 @@ impl LocalStack {
         let index = self.head?;
         self.count -= 1;
         self.head = slabs[index].meta.load().next();
+        crate::flush(self, false);
         Some(index)
     }
 

@@ -5,6 +5,7 @@ use crate::atomic::Version;
 use crate::link;
 use crate::raw;
 use crate::region;
+use crate::region::owned::State;
 use crate::root;
 use crate::size;
 use crate::slab;
@@ -191,11 +192,26 @@ impl<'raw> Allocator<'raw> {
 
         let free = unsafe { &mut *self.owned.slabs[index].free.get() };
         let block = free.peek();
+
+        self.owned
+            .meta
+            .state
+            .store(Some(State::SizedToApplication { index, block }));
+        crate::flush(&self.owned.meta.state, false);
+        crate::fence();
+
         free.unset(block);
+
+        crate::flush(free, false);
 
         if free.is_empty() {
             self.detach(class);
         }
+
+        crate::fence();
+        self.owned.meta.state.store(None);
+        crate::flush(&self.owned.meta.state, false);
+        crate::fence();
 
         let offset = unsafe { index.offset_block(class, block) };
         self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
@@ -214,6 +230,7 @@ impl<'raw> Allocator<'raw> {
             shared
                 .owner
                 .store(slab::shared::Owner::new(owner.class(), None));
+            crate::flush(&shared.owner, false);
             self.transfer(index, Some(self.id), None);
         } else {
             stat::inc(&stat::ALLOCATE_FAST_DETACH);
