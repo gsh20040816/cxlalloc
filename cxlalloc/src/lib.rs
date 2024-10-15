@@ -40,3 +40,31 @@ pub(crate) const COUNT_ROOT: usize = COUNT_THREAD + 1;
 pub(crate) const COUNT_CACHE_SLAB: usize = 32;
 pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
 pub(crate) const BATCH_BUMP_POP: u32 = 16;
+
+#[inline]
+pub(crate) fn flush(address: *const u8, invalidate: bool) {
+    if cfg!(feature = "arch-gpf") {
+        return;
+    }
+
+    unsafe {
+        match invalidate {
+            false if cfg!(feature = "arch-clwb") => core::arch::asm! {
+                "clwb {address}",
+                address = in(reg) address,
+            },
+            _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
+                "clflushopt {address}",
+                address = in(reg) address,
+            },
+            _ => core::arch::x86_64::_mm_clflush(address),
+        }
+    }
+}
+
+#[inline]
+pub(crate) fn fence() {
+    unsafe {
+        core::arch::x86_64::_mm_sfence();
+    }
+}
