@@ -173,13 +173,19 @@ pub unsafe extern "C" fn cxlalloc_init(
             })
             .try_init();
 
+        // Hack for memento + ralloc compatibility
+        let name = CStr::from_ptr(name)
+            .to_str()
+            .unwrap()
+            .trim_start_matches("/dev/shm/");
+
         raw::Builder::default()
             .backend(backend)
             .size(size)
             .thread_count(thread_count as usize)
             .process_id(process_id as usize)
             .process_count(process_count as usize)
-            .build(CStr::from_ptr(name).to_str().unwrap())
+            .build(name)
             .unwrap()
     });
 
