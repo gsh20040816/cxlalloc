@@ -10,3 +10,6 @@
 [submodule "extern/silo"]
 	path = extern/silo
 	url = git@github.com:nwtnni/silo.git
+[submodule "extern/memento"]
+	path = extern/memento
+	url = git@github.com:nwtnni/memento.git
