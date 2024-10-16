@@ -1,12 +1,6 @@
 [submodule "mimalloc-bench"]
 	path = extern/mimalloc-bench
 	url = git@github.com:nwtnni/mimalloc-bench.git
-[submodule "extern/masstree-beta"]
-	path = extern/masstree-beta
-	url = git@github.com:nwtnni/masstree-beta.git
-[submodule "extern/tpcc-runner"]
-	path = extern/tpcc-runner
-	url = git@github.com:nwtnni/tpcc-runner.git
 [submodule "extern/silo"]
 	path = extern/silo
 	url = git@github.com:nwtnni/silo.git
