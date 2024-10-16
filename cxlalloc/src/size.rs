@@ -55,15 +55,20 @@ impl Display for Class {
     }
 }
 
-// 8..1024 4k..16k
-const CLASS_COUNT: usize = 128 + 4;
+// 8..1024 4k..32k
+const CLASS_COUNT: usize = 128 + 5;
+
+pub(crate) const SLAB: Class = match Class::new(SIZE_SLAB) {
+    None => unreachable!(),
+    Some(class) => class,
+};
 
 impl Class {
     #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size {
             0..1024 => Some(Class(((size + 7) / 8) as u8)),
-            1024..=16384 => Some(Class(
+            1024..=32768 => Some(Class(
                 128 + size.next_power_of_two().trailing_zeros() as u8 - 10,
             )),
             _ => None,
