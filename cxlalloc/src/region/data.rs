@@ -42,6 +42,7 @@ impl<'raw> Data<'raw> {
     }
 
     pub(crate) fn checked_offset_to_offset(&self, offset: usize) -> Option<slab::Offset> {
+        let offset = offset + SIZE_SLAB;
         // FIXME: check epoch
         if offset > crate::raw::region::RESERVATION * 2 {
             None
