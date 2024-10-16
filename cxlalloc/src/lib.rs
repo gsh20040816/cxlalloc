@@ -76,7 +76,7 @@ pub(crate) fn flush<T>(address: &T, invalidate: bool) {
         }
     }
 
-    for line in 0..size_of::<T>() / SIZE_CACHE_LINE {
+    for line in 0..size_of::<T>().next_multiple_of(SIZE_CACHE_LINE) / SIZE_CACHE_LINE {
         stat::inc(&stat::FLUSH);
         inner(
             (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
@@ -88,11 +88,11 @@ pub(crate) fn flush<T>(address: &T, invalidate: bool) {
 #[inline]
 pub(crate) fn fence() {
     // CLFLUSH is serializing, so we don't need a fence.
-    if cfg!(not(any(
+    if cfg!(any(
         feature = "arch-gpf",
         feature = "arch-clwb",
         feature = "arch-clflushopt"
-    ))) {
+    )) {
         unsafe {
             stat::inc(&stat::FENCE);
             core::arch::x86_64::_mm_sfence();
