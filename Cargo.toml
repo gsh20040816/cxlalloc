@@ -5,6 +5,7 @@ members = [
     "cxlalloc-bench",
     "cxlalloc-dynamic",
     "cxlalloc-extend",
+    "cxlalloc-recover",
     "cxlalloc-static",
 ]
 exclude = ["extern"]

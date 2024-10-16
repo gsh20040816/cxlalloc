@@ -1,0 +1,10 @@
+[package]
+name = "cxlalloc-recover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memento = { path = "../extern/memento" }
+crossbeam-channel = { path = "../extern/memento/crossbeam-persistency/crossbeam-channel" }
+crossbeam-epoch = { path = "../extern/memento/crossbeam-persistency/crossbeam-epoch" }
+crossbeam-utils = { path = "../extern/memento/crossbeam-persistency/crossbeam-utils" }
