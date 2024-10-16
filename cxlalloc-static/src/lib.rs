@@ -183,6 +183,13 @@ pub unsafe extern "C" fn cxlalloc_init(
             .unwrap()
     });
 
+    cxlalloc_init_thread(thread_id as usize);
+
+    // Eagerly initialize thread-local state to fail fast on buggy recovery.
+    ALLOCATOR.with(|_| ());
+}
+
+pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: usize) {
     THREAD_ID.set(Some(unsafe {
         if thread_id == 0xFF {
             let mut pool = POOL.load(Ordering::Acquire);
@@ -208,9 +215,6 @@ pub unsafe extern "C" fn cxlalloc_init(
             }
         }
     }));
-
-    // Eagerly initialize thread-local state to fail fast on buggy recovery.
-    ALLOCATOR.with(|_| ());
 }
 
 thread_local! {
