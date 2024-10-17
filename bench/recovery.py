@@ -4,7 +4,7 @@ import subprocess as sp
 
 # https://stackoverflow.com/questions/5137497/find-the-current-directory-and-files-directory
 ROOT = os.path.dirname(os.path.realpath(__file__))
-OBJECTS = 100000
+OBJECTS = 1000000
 ITERATIONS = 1
 
 
@@ -12,23 +12,17 @@ def main():
     compile("ralloc")
 
     for block in [True, False]:
-        # Vary size at 1 crash
-        for size in [30, 31, 32, 33, 34]:
-            crash("ralloc", block, 1, size)
-
-        # Vary crash count at 1GiB size
-        for count in [1, 2, 4, 8, 16]:
-            crash("ralloc", block, count, 30)
+        # Vary crash count at 16GiB size
+        # Note: sometimes ralloc runs out of memory
+        # for 4 crashes, 16GiB heap, non-blocking
+        for count in [0, 1, 2, 4, 8]:
+            crash("ralloc", block, count, 34)
 
     compile("cxlalloc")
 
-    # Vary size at 1 crash
-    for size in [30, 31, 32, 33, 34]:
-        crash("cxlalloc", False, 1, size)
-
-    # Vary crash count at 1GiB size
-    for count in [1, 2, 4, 8, 16]:
-        crash("cxlalloc", False, count, 30)
+    # Vary crash count at 16GiB size
+    for count in [0, 1, 2, 4, 8]:
+        crash("cxlalloc", False, count, 34)
 
 
 def crash(allocator: str, block: bool, count: int, size: int):
@@ -43,24 +37,31 @@ def crash(allocator: str, block: bool, count: int, size: int):
         crashes = [interval * i for i in range(1, count + 1)]
         output = sp.run(
             [
+                "env",
+                "CXL_NUMA_NODE=2",
+                "numactl",
+                "--cpunodebind=1",
+                "--membind=1",
                 "/usr/bin/time",
                 "-f",
                 "%E %M %U %S %F %R",
                 f"{ROOT}/../target/release/cxlalloc-recover",
                 "--thread",
-                "41",
-                "--crash",
-                ",".join(crashes),
+                "40",
+                *(["--crash", ",".join(map(str, crashes))] if len(crashes) > 0 else []),
                 "--objects",
-                OBJECTS,
+                str(OBJECTS),
                 "--path",
                 "/dev/shm/pool",
                 "--threads",
                 "40",
+                *(["--block"] if block else []),
                 "--size",
                 str(2**size),
             ],
-            capture_output=True,
+            stdout=sp.PIPE,
+            stderr=sp.STDOUT,
+            text=True,
         )
 
         with open(
@@ -80,7 +81,7 @@ def compile(allocator: str):
     ]
 
     if allocator == "cxlalloc":
-        args.append("--feature")
+        args.append("--features")
         args.append("cxlalloc-recover/cxlalloc")
 
     sp.run(args)
