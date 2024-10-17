@@ -262,7 +262,7 @@ impl Id {
         );
 
         let mut new = self.0;
-        debug_assert_eq!(new.pop(), Some('\0'));
+        assert_eq!(new.pop(), Some('\0'));
         new.push('-');
         new.push_str(suffix);
         new.push('\0');
@@ -286,7 +286,7 @@ impl Id {
         );
 
         let mut new = self.0;
-        debug_assert_eq!(new.pop(), Some('\0'));
+        assert_eq!(new.pop(), Some('\0'));
         write!(&mut new, "-{}\0", epoch).unwrap();
         Id(new)
     }
