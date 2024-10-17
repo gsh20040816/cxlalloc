@@ -117,6 +117,10 @@ const fn sum(i: u64) -> u64 {
 
 impl RootObj<Mmt> for Queue<u64> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
+        core_affinity::set_for_current(core_affinity::CoreId {
+            id: handle.tid + 39,
+        });
+
         let block = BLOCK.load(Ordering::Relaxed);
         let crash_thread = CRASH_THREAD.load(Ordering::Relaxed);
         let (recover, crash) = if handle.tid == crash_thread {
