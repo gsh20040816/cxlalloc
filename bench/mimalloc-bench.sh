@@ -7,6 +7,8 @@ readonly mimalloc_bench="$root/../extern/mimalloc-bench"
 
 cd $mimalloc_bench/out/bench
 
-../../bench.sh --external=cxlalloc.txt mi2 je cxl-shm r allt
+CXL_NUMA_NODE=1 ../../bench.sh --external=cxlalloc.txt mi2 je cxl-shm r -n=10 allt
+# Some problems with $PATH for these benchmarks:
+# CXL_NUMA_NODE=1 ../../bench.sh --external=cxlalloc.txt mi2 je cxl-shm r -n=10 gs lua z3 rbstress
 
-cp benchres.csv $root/
+cp benchres.csv $root

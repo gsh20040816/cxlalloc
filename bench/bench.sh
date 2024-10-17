@@ -4,4 +4,4 @@
 readonly root=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 $root/mimalloc-bench.sh
-$root/silo.sh
+python3 $root/silo.py

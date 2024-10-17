@@ -6,16 +6,16 @@ ROOT = os.path.dirname(os.path.realpath(__file__))
 TIME = 30
 
 ALLOCATORS = ["cxlalloc", "cxl-shm", "ralloc", "mimalloc"]
-THREADS = [1, 10, 20, 30, 40]
+THREADS = [1, 8, 16, 24, 32, 40]
 WORKLOADS = {
-    "a": [50, 50, 0, 0],
-    "b": [95, 5, 0, 0],
+    # "a": [50, 50, 0, 0],
+    # "b": [95, 5, 0, 0],
 }
 
 
 def main():
     for allocator in ALLOCATORS:
-        for node in [1, 2]:
+        for node in [2]:
             for workload in list(WORKLOADS.keys()) + [None]:
                 for thread_count in THREADS:
                     run(allocator, node, thread_count, 40, workload)
@@ -40,7 +40,7 @@ def run(
 
     with open(
         path,
-        "x",
+        "w",
     ) as log:
         subprocess.run(
             [
