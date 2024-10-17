@@ -1,19 +1,60 @@
 use core::cell::Cell;
 use core::sync::atomic::AtomicU64;
-use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::Barrier;
+use std::sync::OnceLock;
 
+use clap::Parser;
 use memento::ds::queue::Dequeue;
 use memento::ds::queue::Enqueue;
 use memento::ds::queue::Queue;
 
 use memento::ploc::Checkpoint;
 use memento::ploc::Handle;
-use memento::pmem::PAllocator;
-use memento::pmem::PMEMAllocator;
 use memento::pmem::{Collectable, GarbageCollection, Pool, PoolHandle, RootObj};
 use memento::{Collectable, Memento};
+
+#[derive(Parser)]
+struct Cli {
+    /// Crash the process at this iteration
+    #[arg(long)]
+    process: Option<u64>,
+
+    /// Crash a single thread at these iterations
+    #[arg(long, use_value_delimiter = true, value_delimiter = ',')]
+    thread: Vec<u64>,
+
+    /// File name
+    #[arg(long, default_value = "/dev/shm/pool")]
+    path: String,
+
+    /// Create or reopen
+    #[arg(long)]
+    create: bool,
+
+    /// Heap size
+    #[arg(long, default_value_t = 1 << 32)]
+    size: usize,
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    if let Some(process) = cli.process {
+        CRASH_PROCESS.store(process, Ordering::Relaxed);
+    } else if !cli.thread.is_empty() {
+        CRASH_THREAD.get_or_init(|| cli.thread.clone());
+    }
+
+    let pool = if cli.create {
+        Pool::create::<Queue<u64>, Mmt>(&cli.path, cli.size, THREADS as usize).unwrap()
+    } else {
+        unsafe { Pool::open::<Queue<u64>, Mmt>(&cli.path, cli.size).unwrap() }
+    };
+
+    pool.execute::<Queue<u64>, Mmt>();
+    assert_eq!(GLOBAL.load(Ordering::Relaxed), sum(OBJECTS) * THREADS);
+}
 
 #[derive(Memento, Default, Collectable)]
 struct Mmt {
@@ -22,7 +63,9 @@ struct Mmt {
     deq: Dequeue<u64>,
 }
 
-static RECOVER: AtomicUsize = AtomicUsize::new(0);
+static CRASH_PROCESS: AtomicU64 = AtomicU64::new(0);
+static CRASH_THREAD: OnceLock<Vec<u64>> = OnceLock::new();
+
 thread_local! {
     static LOCAL: Cell<u64> = const { Cell::new(0) };
 }
@@ -46,15 +89,20 @@ const fn sum(i: u64) -> u64 {
 impl RootObj<Mmt> for Queue<u64> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
         let mut i = 0;
+
+        let crash_process = CRASH_PROCESS.load(Ordering::Relaxed);
+        let crash_thread = CRASH_THREAD.get_or_init(Vec::new);
+
         while i < OBJECTS {
             self.enqueue(i, &mut mmt.enq, handle);
             i = mmt.i.checkpoint(|| i + 1, handle);
-        }
 
-        if RECOVER.load(Ordering::Relaxed) == 0 {
-            println!("{}:{}", handle.tid, unsafe { PMEMAllocator::measure() });
-            BARRIER.wait();
-            std::process::abort();
+            if i == crash_process {
+                BARRIER.wait();
+                std::process::abort();
+            } else if crash_thread.contains(&i) {
+                panic!()
+            }
         }
 
         loop {
@@ -70,19 +118,4 @@ impl RootObj<Mmt> for Queue<u64> {
             }
         }
     }
-}
-
-fn main() {
-    let pool = if std::env::args().count() > 1 {
-        RECOVER.store(
-            std::env::args().nth(1).unwrap().parse::<usize>().unwrap(),
-            Ordering::Relaxed,
-        );
-        unsafe { Pool::open::<Queue<u64>, Mmt>("/dev/shm/pool", 1 << 32).unwrap() }
-    } else {
-        Pool::create::<Queue<u64>, Mmt>("/dev/shm/pool", 1 << 32, THREADS as usize).unwrap()
-    };
-
-    pool.execute::<Queue<u64>, Mmt>();
-    assert_eq!(GLOBAL.load(Ordering::Relaxed), sum(OBJECTS) * THREADS);
 }
