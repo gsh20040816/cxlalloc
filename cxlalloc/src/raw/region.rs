@@ -30,6 +30,9 @@ pub(crate) struct Region {
 
     /// Starting address of mapped region
     base: NonNull<u64>,
+
+    /// Whether this is a new region
+    clean: bool,
 }
 
 impl Region {
@@ -37,7 +40,7 @@ impl Region {
         id: Id,
         size: usize,
         reserved: usize,
-        file: Option<(RawFd, i64)>,
+        file: Option<(RawFd, i64, bool)>,
     ) -> io::Result<Self> {
         // In order to keep heap regions contiguous when extending, we need
         // to reserve an unbacked region of virtual address space via `mmap` with
@@ -56,9 +59,9 @@ impl Region {
             address => address,
         };
 
-        let (fd, offset, flags) = match file {
-            Some((fd, offset)) => (fd, offset, libc::MAP_SHARED_VALIDATE),
-            None => (-1, 0, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS),
+        let (fd, offset, flags, clean) = match file {
+            Some((fd, offset, clean)) => (fd, offset, libc::MAP_SHARED_VALIDATE, clean),
+            None => (-1, 0, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, true),
         };
 
         let base = match unsafe {
@@ -92,6 +95,7 @@ impl Region {
             reserved,
             epoch: Atomic::new(Epoch::default()),
             base: base.cast(),
+            clean,
         })
     }
 
@@ -101,6 +105,10 @@ impl Region {
 
     pub(crate) fn size(&self) -> usize {
         self.size
+    }
+
+    pub(crate) fn is_clean(&self) -> bool {
+        self.clean
     }
 
     #[cfg_attr(not(feature = "backend-shm"), allow(unused))]

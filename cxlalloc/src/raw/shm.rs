@@ -27,7 +27,7 @@ impl Backend for Shm {
 
         unsafe {
             let path = id.with_epoch(Epoch::default());
-            let fd = match libc::shm_open(
+            let (fd, clean) = match libc::shm_open(
                 path.as_c_str().as_ptr(),
                 libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
                 libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
@@ -47,17 +47,17 @@ impl Backend for Shm {
                         libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
                     ) {
                         -1 => return Err(std::io::Error::last_os_error()),
-                        fd => OwnedFd::from_raw_fd(fd),
+                        fd => (OwnedFd::from_raw_fd(fd), false),
                     }
                 }
-                fd => OwnedFd::from_raw_fd(fd),
+                fd => (OwnedFd::from_raw_fd(fd), true),
             };
 
             if libc::ftruncate64(fd.as_raw_fd(), size.try_into().unwrap()) == -1 {
                 return Err(io::Error::last_os_error());
             }
 
-            let region = Region::new(id, size, reserved, Some((fd.as_raw_fd(), 0)))?;
+            let region = Region::new(id, size, reserved, Some((fd.as_raw_fd(), 0, clean)))?;
             Ok(region)
         }
     }

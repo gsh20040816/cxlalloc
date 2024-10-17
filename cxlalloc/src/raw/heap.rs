@@ -160,6 +160,11 @@ impl Inner {
         unsafe { crate::Heap::from_raw(self) }
     }
 
+    pub fn is_clean(&self) -> bool {
+        // Can only be dirty if all regions were created successfully before
+        self.owned.is_clean() || self.shared.is_clean() || self.data.is_clean()
+    }
+
     #[cfg(feature = "extend")]
     pub(crate) fn extend(&self) -> io::Result<()> {
         self.backend.extend(&self.owned)?;
