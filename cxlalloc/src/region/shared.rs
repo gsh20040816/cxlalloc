@@ -198,7 +198,7 @@ pub(crate) struct Meta<'raw> {
     free: slab::GlobalStack<'raw>,
     help: thread::Array<cas::Help>,
     bump: cas::Detectable<Length>,
-    pub(crate) log: huge::Cxl<1024>,
+    pub(crate) log: huge::Cxl<2048>,
 }
 
 #[derive(Copy, Clone, Debug)]
