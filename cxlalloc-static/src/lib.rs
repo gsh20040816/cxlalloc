@@ -121,6 +121,8 @@ pub unsafe extern "C" fn cxlalloc_init(
     process_id: u8,
     process_count: u8,
 ) {
+    cxlalloc_init_thread(thread_id as usize);
+
     #[allow(unreachable_code)]
     let backend = BACKEND
         .get_or_init(|| raw::Backend::Mmap(backend::Mmap))
@@ -189,12 +191,16 @@ pub unsafe extern "C" fn cxlalloc_init(
             .unwrap()
     });
 
-    cxlalloc_init_thread(thread_id as usize);
-
     // Eagerly initialize thread-local state to fail fast on buggy recovery.
     ALLOCATOR.with(|_| ());
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_is_clean() -> bool {
+    raw().is_clean()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: usize) {
     THREAD_ID.set(Some(unsafe {
         if thread_id == 0xFF {
