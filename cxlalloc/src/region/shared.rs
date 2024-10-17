@@ -115,6 +115,13 @@ impl<'raw> Shared<'raw> {
             .free(state, self.process_count, self.process_id, base, pointer)
     }
 
+    pub(crate) unsafe fn replay_log(&self, state: &Mutex<huge::Dram>, base: NonNull<u64>) {
+        let state = &mut *state.lock().unwrap();
+        self.meta
+            .log
+            .replay(state, base, self.process_count, self.process_id, None);
+    }
+
     pub(crate) unsafe fn size_log(
         &self,
         base: NonNull<u64>,

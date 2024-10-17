@@ -74,4 +74,10 @@ impl<'raw> Heap<'raw> {
         let offset = self.shared[index].load()?;
         Some(self.offset_to_pointer(offset).as_mut())
     }
+
+    pub(crate) fn replay_log(&self) {
+        unsafe {
+            self.shared.replay_log(self.state, self.data.huge());
+        }
+    }
 }

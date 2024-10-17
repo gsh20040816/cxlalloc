@@ -267,7 +267,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             cmp::Ordering::Greater => self.validate(tail),
         }
 
-        self.replay(state, base, process_count, process_id);
+        self.replay(state, base, process_count, process_id, seen);
         Some(tail)
     }
 
@@ -298,14 +298,14 @@ impl<const SIZE: usize> Cxl<SIZE> {
         }
     }
 
-    fn replay(
+    pub(crate) fn replay(
         &self,
         state: &mut Dram,
         base: NonNull<u64>,
         process_count: usize,
         process_id: usize,
+        seen: Option<Lsn>,
     ) {
-        let seen = self.local[process_id].load();
         let mut entries = self
             .logs
             .iter()
@@ -522,7 +522,7 @@ unsafe impl Packed for Tail {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct Lsn(NonZeroU32);
+pub(crate) struct Lsn(NonZeroU32);
 
 impl Lsn {
     const MIN: Self = Self(NonZeroU32::MIN);

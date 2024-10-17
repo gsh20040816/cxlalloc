@@ -137,6 +137,10 @@ impl Inner {
             process_count,
         };
 
+        if !raw.is_clean() {
+            raw.heap().replay_log();
+        }
+
         #[cfg(feature = "extend")]
         {
             let raw = std::sync::Arc::new(raw);
