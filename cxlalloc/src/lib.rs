@@ -66,10 +66,12 @@ pub(crate) fn flush<T>(address: &T, invalidate: bool) {
                 false if cfg!(feature = "arch-clwb") => core::arch::asm! {
                     "clwb [{address}]",
                     address = in(reg) address,
+                    options(nomem, preserves_flags, nostack),
                 },
                 _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
                     "clflushopt [{address}]",
                     address = in(reg) address,
+                    options(nomem, preserves_flags, nostack),
                 },
                 _ => core::arch::x86_64::_mm_clflush(address),
             }
