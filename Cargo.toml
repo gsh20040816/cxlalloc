@@ -23,6 +23,7 @@ env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
     "humantime",
 ] }
+fastrand = "2.1"
 gcollections = "1.5"
 hdrhistogram = "7.5"
 homedir = "0.3"

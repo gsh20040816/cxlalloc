@@ -1,3 +1,4 @@
+use core::alloc::Layout;
 use core::cell::Cell;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicU64;
@@ -16,6 +17,7 @@ use memento::ploc::Checkpoint;
 use memento::ploc::Handle;
 use memento::pmem::PAllocator as _;
 use memento::pmem::PMEMAllocator;
+use memento::pmem::PPtr;
 use memento::pmem::{Collectable, GarbageCollection, Pool, PoolHandle, RootObj};
 use memento::{Collectable, Memento};
 
@@ -72,9 +74,10 @@ fn main() {
     FINAL.store(sum(cli.objects) * threads, Ordering::Relaxed);
     BARRIER.get_or_init(|| Barrier::new(threads as usize));
 
-    let pool = Pool::create::<Queue<u64>, Mmt>(&cli.path, cli.size, threads as usize).unwrap();
+    let pool =
+        Pool::create::<Queue<PPtr<u64>>, Mmt>(&cli.path, cli.size, threads as usize).unwrap();
 
-    pool.execute::<Queue<u64>, Mmt>();
+    pool.execute::<Queue<PPtr<u64>>, Mmt>();
     assert_eq!(
         GLOBAL.load(Ordering::Relaxed),
         FINAL.load(Ordering::Relaxed),
@@ -84,10 +87,11 @@ fn main() {
 #[derive(Memento, Default, Collectable)]
 struct Mmt {
     i: Checkpoint<u64>,
-    enq: Enqueue<u64>,
-    deq: Dequeue<u64>,
+    enq: Enqueue<PPtr<u64>>,
+    deq: Dequeue<PPtr<u64>>,
 }
 
+const SEED: u64 = 0xdeadbeef;
 static CRASH_THREAD: AtomicUsize = AtomicUsize::new(0);
 static CRASH: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 
@@ -115,12 +119,13 @@ const fn sum(i: u64) -> u64 {
     sum
 }
 
-impl RootObj<Mmt> for Queue<u64> {
+impl RootObj<Mmt> for Queue<PPtr<u64>> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
         core_affinity::set_for_current(core_affinity::CoreId {
             id: handle.tid + 39,
         });
 
+        let mut rng = fastrand::Rng::with_seed(SEED.wrapping_mul(handle.tid as u64));
         let block = BLOCK.load(Ordering::Relaxed);
         let crash_thread = CRASH_THREAD.load(Ordering::Relaxed);
         let (recover, crash) = if handle.tid == crash_thread {
@@ -139,15 +144,21 @@ impl RootObj<Mmt> for Queue<u64> {
             BARRIER.get().unwrap().wait();
             unsafe {
                 PMEMAllocator::gc();
-                PMEMAllocator::invalidate();
             }
             STOP.store(false, Ordering::Release);
             BARRIER.get().unwrap().wait();
         }
 
         while i < objects {
-            self.enqueue(i, &mut mmt.enq, handle);
-            i = mmt.i.checkpoint(|| i + 1, handle);
+            unsafe {
+                let pointer = handle.pool.alloc_layout::<u64>(
+                    Layout::from_size_align(rng.u16(8..1024) as usize, 8).unwrap(),
+                );
+
+                *pointer.deref_mut(handle.pool) = i;
+                self.enqueue(pointer, &mut mmt.enq, handle);
+                i = mmt.i.checkpoint(|| i + 1, handle);
+            };
 
             // Check for GC request
             if handle.tid != crash_thread {
@@ -165,7 +176,7 @@ impl RootObj<Mmt> for Queue<u64> {
                 crash.pop();
                 match BLOCK.load(Ordering::Relaxed) {
                     false => {
-                        println!("{}", unsafe { PMEMAllocator::measure() });
+                        println!("LEAK:{}", unsafe { PMEMAllocator::measure() });
                         panic!();
                     }
                     true => {
@@ -192,7 +203,11 @@ impl RootObj<Mmt> for Queue<u64> {
                     LOCAL.set(0);
                     std::hint::spin_loop();
                 }
-                Some(i) => LOCAL.set(LOCAL.get() + i),
+                Some(pointer) => {
+                    let i = unsafe { *pointer.deref(handle.pool) };
+                    LOCAL.set(LOCAL.get() + i);
+                    handle.pool.free(pointer);
+                }
             }
 
             if handle.tid != crash_thread {
