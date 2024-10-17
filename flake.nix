@@ -23,6 +23,7 @@
       with pkgs; {
         devShells.default = mkShell {
           nativeBuildInputs = [
+            numactl
             pkg-config
             rust-cbindgen
             rustToolchain
