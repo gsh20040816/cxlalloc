@@ -54,6 +54,19 @@ pub(crate) struct Meta {
 }
 
 impl Meta {
+    #[inline]
+    pub(crate) fn log_sync(&mut self, state: State) {
+        crate::fence();
+        self.log_unsync(state);
+        crate::fence();
+    }
+
+    #[inline]
+    pub(crate) fn log_unsync(&mut self, state: State) {
+        self.state.store(Some(state));
+        crate::flush(&self.state, false);
+    }
+
     pub(crate) fn unsized_to_sized(
         &mut self,
         owned: &slab::Slice<slab::Owned>,
@@ -70,11 +83,7 @@ impl Meta {
         let slab = &owned[index];
         let next = slab.meta.load().next();
 
-        crate::fence();
-        self.state
-            .store(Some(State::UnsizedToSized { index: next, class }));
-        crate::flush(&self.state, false);
-        crate::fence();
+        self.log_sync(State::UnsizedToSized { index: next, class });
 
         self.r#sized[class].push(owned, index);
         unsafe {

@@ -181,14 +181,9 @@ impl<'raw> Allocator<'raw> {
         let free = unsafe { &mut *self.owned.slabs[index].free.get() };
         let block = free.peek();
 
-        crate::fence();
         self.owned
             .meta
-            .state
-            .store(Some(State::SizedToApplication { index, block }));
-        crate::flush(&self.owned.meta.state, false);
-        crate::fence();
-
+            .log_sync(State::SizedToApplication { index, block });
         free.unset(block);
 
         if free.is_empty() {
@@ -262,13 +257,9 @@ impl<'raw> Allocator<'raw> {
         let block = offset.index_block(class);
         let free = &mut *slab.free.get();
 
-        crate::fence();
         self.owned
             .meta
-            .state
-            .store(Some(State::ApplicationToSized { index, block }));
-        crate::flush(&self.owned.meta, false);
-        crate::fence();
+            .log_sync(State::ApplicationToSized { index, block });
 
         let count = free.len();
         free.set(block);
@@ -307,14 +298,11 @@ impl<'raw> Allocator<'raw> {
         let block = offset.index_block(class);
         let version = slab.meta.load().version();
 
-        crate::fence();
-        self.owned.meta.state.store(Some(State::Remote {
+        self.owned.meta.log_sync(State::Remote {
             index,
             block,
             version,
-        }));
-        crate::flush(&self.owned.meta.state, false);
-        crate::fence();
+        });
 
         slab.free.set(block);
 
@@ -397,13 +385,9 @@ impl<'raw> Allocator<'raw> {
         let tail = iter.last().unwrap();
         let next = self.owned.slabs[tail].meta.load().next();
 
-        crate::fence();
         self.owned
             .meta
-            .state
-            .store(Some(State::LocalToGlobalSave { index: head }));
-        crate::flush(&self.owned.meta.state, false);
-        crate::fence();
+            .log_sync(State::LocalToGlobalSave { index: head });
 
         self.owned
             .meta

@@ -90,8 +90,7 @@ impl<T: Packed + Copy> Detectable<T> {
             self.notify(help, old);
 
             let (new, log) = next(old.inner(), version)?;
-            meta.state.store(Some(log));
-            crate::flush(&meta.state, false);
+            meta.log_unsync(log);
 
             match self.0.compare_exchange(old, State::new(id, version, new)) {
                 Ok(_) => break Some(old.inner()),
