@@ -43,7 +43,7 @@ impl Index {
     }
 
     pub const fn checked_new(index: usize) -> Option<Self> {
-        if index < COUNT_THREAD {
+        if index < COUNT_ROOT {
             Some(Index(index))
         } else {
             None

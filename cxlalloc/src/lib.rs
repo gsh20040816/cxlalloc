@@ -48,7 +48,7 @@ pub(crate) const SIZE_BIT_SET: usize = (SIZE_CACHE_LINE * 8) / 8 - SIZE_METADATA
 pub(crate) const SIZE_SLAB: usize = (SIZE_BIT_SET + SIZE_METADATA) * 64 * size::MIN;
 
 pub(crate) const COUNT_THREAD: usize = 96;
-pub(crate) const COUNT_ROOT: usize = COUNT_THREAD + 1;
+pub(crate) const COUNT_ROOT: usize = 1024;
 
 pub(crate) const COUNT_CACHE_SLAB: usize = 32;
 pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
