@@ -4,25 +4,21 @@ import subprocess as sp
 
 # https://stackoverflow.com/questions/5137497/find-the-current-directory-and-files-directory
 ROOT = os.path.dirname(os.path.realpath(__file__))
-OBJECTS = 1000000
-ITERATIONS = 1
+OBJECTS = 100000
+ITERATIONS = 10
 
 
 def main():
     compile("ralloc")
 
     for block in [True, False]:
-        # Vary crash count at 16GiB size
-        # Note: sometimes ralloc runs out of memory
-        # for 4 crashes, 16GiB heap, non-blocking
         for count in [0, 1, 2, 4, 8]:
-            crash("ralloc", block, count, 34)
+            crash("ralloc", block, count, 36)
 
     compile("cxlalloc")
 
-    # Vary crash count at 16GiB size
     for count in [0, 1, 2, 4, 8]:
-        crash("cxlalloc", False, count, 34)
+        crash("cxlalloc", False, count, 36)
 
 
 def crash(allocator: str, block: bool, count: int, size: int):
