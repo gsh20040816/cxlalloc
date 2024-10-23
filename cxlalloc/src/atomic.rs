@@ -2,6 +2,8 @@ use core::convert::Infallible;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::num::Wrapping;
+use core::ops::Deref;
+use core::ops::DerefMut;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
@@ -200,5 +202,21 @@ unsafe impl Packed for Version {
 
     fn unpack(value: u64) -> Self {
         Self(Wrapping(value as u16))
+    }
+}
+
+#[repr(align(64))]
+pub struct Pad<T>(T);
+
+impl<T> Deref for Pad<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Pad<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
