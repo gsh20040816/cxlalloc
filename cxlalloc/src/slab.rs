@@ -216,8 +216,8 @@ impl Slice<'_, Owned> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            let meta = &self[i].meta;
-            meta.store(owned::Meta::new(j));
+            let meta = &self[i].next;
+            meta.store(j);
             crate::flush(meta, false);
         }
     }
@@ -225,7 +225,7 @@ impl Slice<'_, Owned> {
     pub(crate) fn trace(&self, mut head: Option<Index>) -> impl Iterator<Item = Index> + '_ {
         iter::from_fn(move || {
             let next = head?;
-            head = self[next].meta.load().next();
+            head = self[next].next.load();
             Some(next)
         })
     }
@@ -262,15 +262,15 @@ impl LocalStack {
     pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) -> Option<Index> {
         let index = self.head?;
         self.count -= 1;
-        self.head = slabs[index].meta.load().next();
+        self.head = slabs[index].next.load();
         crate::flush(self, false);
         Some(index)
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
         let slab = &slabs[index];
-        slab.meta.store(owned::Meta::new(self.head));
-        crate::flush(&slab.meta, false);
+        slab.next.store(self.head);
+        crate::flush(&slab.next, false);
 
         self.count += 1;
         self.head = Some(index);
@@ -299,8 +299,8 @@ impl<'raw> GlobalStack<'raw> {
         tail: Index,
     ) {
         self.head.update(help, id, meta, |old, version| {
-            slabs[tail].meta.store(crate::slab::owned::Meta::new(old));
-            crate::flush(&slabs[tail].meta, false);
+            slabs[tail].next.store(old);
+            crate::flush(&slabs[tail].next, false);
             Some((
                 Some(head),
                 State::LocalToGlobal {
@@ -321,7 +321,7 @@ impl<'raw> GlobalStack<'raw> {
         self.head
             .update(help, id, meta, |old, version| {
                 let old = old?;
-                let new = slabs[old].meta.load().next();
+                let new = slabs[old].next.load();
 
                 Some((
                     new,

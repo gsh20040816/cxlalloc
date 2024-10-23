@@ -81,7 +81,7 @@ impl Meta {
         crash::define!(unsized_to_sized_pre_log);
 
         let slab = &owned[index];
-        let next = slab.meta.load().next();
+        let next = slab.next.load();
 
         self.log_sync(State::UnsizedToSized { index: next, class });
 
@@ -112,7 +112,7 @@ impl Meta {
             return self.r#unsized.push(slabs, index);
         }
 
-        let next = slabs[index].meta.load().next();
+        let next = slabs[index].next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
 
@@ -121,14 +121,14 @@ impl Meta {
             self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
-                match slabs[walk].meta.load().next() {
+                match slabs[walk].next.load() {
                     None => panic!("removing non-existent slab {} {}", index, class),
                     Some(next) if next == index => break walk,
                     Some(next) => walk = next,
                 }
             };
 
-            slabs[prev].meta.store(slab::owned::Meta::new(next));
+            slabs[prev].next.store(next);
             crate::flush(&slabs[prev], false);
         };
 

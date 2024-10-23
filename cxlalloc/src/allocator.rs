@@ -383,7 +383,7 @@ impl<'raw> Allocator<'raw> {
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap();
-        let next = self.owned.slabs[tail].meta.load().next();
+        let next = self.owned.slabs[tail].next.load();
 
         self.owned
             .meta
