@@ -1,6 +1,5 @@
 use core::alloc::Layout;
 
-use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::crash;
@@ -55,9 +54,9 @@ pub(crate) struct Meta {
 
 impl Meta {
     #[inline]
-    pub(crate) fn log_sync(&mut self, state: State) {
+    pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
         crate::fence();
-        self.log_unsync(state);
+        self.log_unsync(State::new(state));
         crate::fence();
     }
 
@@ -83,7 +82,9 @@ impl Meta {
         let slab = &owned[index];
         let next = slab.next.load();
 
-        self.log_sync(State::UnsizedToSized { index: next, class });
+        self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
+            next, class,
+        )));
 
         self.r#sized[class].push(owned, index);
         unsafe {
@@ -136,122 +137,86 @@ impl Meta {
     }
 }
 
-const B: u8 = 4;
-const M: u64 = (1 << B) - 1;
+#[ribbit::pack(size = 64, nonzero)]
+#[derive(Copy, Clone)]
 pub(crate) enum State {
+    #[ribbit(size = 40)]
+    #[derive(Copy, Clone)]
     UnsizedToSized {
+        #[ribbit(size = 32)]
         index: Option<slab::Index>,
+
+        #[ribbit(size = 8)]
         class: size::Class,
     },
+
+    #[ribbit(size = 48)]
+    #[derive(Copy, Clone)]
     GlobalToLocal {
+        #[ribbit(size = 32)]
         index: slab::Index,
+
+        #[ribbit(size = 16)]
         version: Version,
     },
+
+    #[ribbit(size = 48)]
+    #[derive(Copy, Clone)]
     BumpToLocal {
+        #[ribbit(size = 32)]
         length: Length,
+
+        #[ribbit(size = 16)]
         version: Version,
     },
+
+    #[ribbit(size = 48)]
+    #[derive(Copy, Clone)]
     LocalToGlobal {
+        #[ribbit(size = 32)]
         index: slab::Index,
+
+        #[ribbit(size = 16)]
         version: Version,
     },
+
+    #[ribbit(size = 44)]
+    #[derive(Copy, Clone)]
     SizedToApplication {
+        #[ribbit(size = 32)]
         index: slab::Index,
+
+        #[ribbit(size = 12)]
         block: Bit,
     },
+
+    #[ribbit(size = 44)]
+    #[derive(Copy, Clone)]
     ApplicationToSized {
+        #[ribbit(size = 32)]
         index: slab::Index,
+
+        #[ribbit(size = 12)]
         block: Bit,
     },
+
+    #[ribbit(size = 32)]
+    #[derive(Copy, Clone)]
     LocalToGlobalSave {
+        #[ribbit(size = 32)]
         index: slab::Index,
     },
+
+    #[ribbit(size = 60)]
+    #[derive(Copy, Clone)]
     Remote {
+        #[ribbit(size = 32)]
         index: slab::Index,
+
+        #[ribbit(size = 12)]
         block: Bit,
+
+        #[ribbit(size = 16)]
         version: Version,
     },
-}
-
-unsafe impl Packed for Option<State> {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        let Some(state) = self else { return 0 };
-        match state {
-            State::UnsizedToSized { index, class } => {
-                1 | (class.pack() << B) | (index.pack() << (size::Class::BITS + B))
-            }
-            State::GlobalToLocal { index, version } => {
-                2 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
-            }
-            State::BumpToLocal { length, version } => {
-                3 | (version.pack() << B) | (length.pack() << (Version::BITS + B))
-            }
-            State::LocalToGlobal { index, version } => {
-                4 | (version.pack() << B) | (index.pack() << (Version::BITS + B))
-            }
-            State::SizedToApplication { index, block } => {
-                debug_assert!(usize::from(*block) < u16::MAX as usize);
-                5 | ((usize::from(*block) as u64) << B) | (index.pack() << (16 + B))
-            }
-            State::ApplicationToSized { index, block } => {
-                debug_assert!(usize::from(*block) < u16::MAX as usize);
-                6 | ((usize::from(*block) as u64) << B) | (index.pack() << (16 + B))
-            }
-            State::LocalToGlobalSave { index } => 7 | (index.pack() << B),
-            State::Remote {
-                index,
-                block,
-                version,
-            } => {
-                debug_assert!(usize::from(*block) < (1 << 12) as usize);
-                8 | (version.pack() << B)
-                    | ((usize::from(*block) as u64) << (Version::BITS + B))
-                    | (index.pack() << (12 + Version::BITS + B))
-            }
-        }
-    }
-
-    fn unpack(value: u64) -> Self {
-        if value == 0 {
-            return None;
-        }
-
-        Some(match value & M {
-            1 => State::UnsizedToSized {
-                class: Packed::unpack(value >> B),
-                index: Packed::unpack(value >> (size::Class::BITS + B)),
-            },
-            2 => State::GlobalToLocal {
-                version: Packed::unpack(value >> B),
-                index: Packed::unpack(value >> (Version::BITS + B)),
-            },
-            3 => State::BumpToLocal {
-                version: Packed::unpack(value >> B),
-                length: Packed::unpack(value >> (Version::BITS + B)),
-            },
-            4 => State::LocalToGlobal {
-                version: Packed::unpack(value >> B),
-                index: Packed::unpack(value >> (Version::BITS + B)),
-            },
-            5 => State::SizedToApplication {
-                block: Bit::new((value >> B) as u16 as usize),
-                index: Packed::unpack(value >> (16 + B)),
-            },
-            6 => State::ApplicationToSized {
-                block: Bit::new((value >> B) as u16 as usize),
-                index: Packed::unpack(value >> (16 + B)),
-            },
-            7 => State::LocalToGlobalSave {
-                index: Packed::unpack(value >> B),
-            },
-            8 => State::Remote {
-                index: Packed::unpack(value >> (12 + Version::BITS + B)),
-                block: Bit::new(((value >> (Version::BITS + B)) & ((1 << 12) - 1)) as usize),
-                version: Packed::unpack(value >> B),
-            },
-            _ => unreachable!(),
-        })
-    }
 }

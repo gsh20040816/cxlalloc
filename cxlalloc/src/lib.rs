@@ -1,6 +1,5 @@
 mod allocator;
 pub mod atomic;
-mod barrier;
 mod bitset;
 mod r#box;
 mod cas;
@@ -30,7 +29,6 @@ mod crash {
 
 pub use allocator::Allocator;
 pub use atomic::Atomic;
-pub(crate) use barrier::Barrier;
 pub use extend::Epoch;
 pub use heap::Heap;
 pub use r#box::Box;

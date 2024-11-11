@@ -12,30 +12,36 @@ use core::fmt::Display;
 use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
+use core::num::NonZeroU64;
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use core::ptr::NonNull;
 
-use crate::atomic::NonZero;
-use crate::atomic::Packed;
+use ribbit::private::u12;
+
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::cas;
 use crate::raw;
 use crate::region;
-use crate::region::owned::State;
+use crate::region::owned::GlobalToLocal;
+use crate::region::owned::LocalToGlobal;
+use crate::region::owned::StateUnpacked;
 use crate::region::shared::Length;
 use crate::size;
 use crate::thread;
 use crate::SIZE_SLAB;
 
-#[repr(C)]
+#[ribbit::pack(size = 32, nonzero, new(vis = ""))]
+#[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub(crate) struct Index(NonZeroU32);
 
 impl Index {
     pub(crate) fn from_length(length: Length) -> Self {
-        NonZeroU32::new(u32::from(length) + 1).map(Self).unwrap()
+        NonZeroU32::new(u32::from(length) + 1)
+            .map(Self::new)
+            .unwrap()
     }
 
     #[inline]
@@ -43,23 +49,25 @@ impl Index {
         debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
         let base = NonZeroUsize::from(Offset::from(*self));
         let delta = class.size() * usize::from(index);
-        base.checked_add(delta).map(Offset).unwrap_unchecked()
+        NonZeroU64::try_from(base.checked_add(delta).unwrap())
+            .map(Offset::new_internal)
+            .unwrap()
     }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
-        self.0.checked_add(count).map(Self).unwrap()
+        self._0().checked_add(count).map(Self::new).unwrap()
     }
 }
 
 impl Debug for Index {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        Debug::fmt(&(self.0.get() - 1), f)
+        Debug::fmt(&(self._0().get() - 1), f)
     }
 }
 
 impl Display for Index {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&(self.0.get() - 1), f)
+        Display::fmt(&(self._0().get() - 1), f)
     }
 }
 
@@ -67,8 +75,8 @@ impl From<Offset> for Index {
     #[inline]
     fn from(offset: Offset) -> Self {
         unsafe {
-            Self(NonZeroU32::new_unchecked(
-                (offset.0.get() / SIZE_SLAB) as u32,
+            Self::new(NonZeroU32::new_unchecked(
+                (offset._0().get() as usize / SIZE_SLAB) as u32,
             ))
         }
     }
@@ -76,58 +84,51 @@ impl From<Offset> for Index {
 
 impl From<Index> for NonZeroU32 {
     fn from(index: Index) -> Self {
-        index.0
+        index._0()
     }
 }
 
 impl From<Index> for u32 {
     fn from(index: Index) -> Self {
-        index.0.get() - 1
+        index._0().get() - 1
     }
 }
 
-unsafe impl Packed for Index {
-    const BITS: u8 = 32;
-
-    fn pack(&self) -> u64 {
-        self.0.get() as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(unsafe { NonZeroU32::new_unchecked(value as u32) })
-    }
-}
-
-unsafe impl NonZero for Index {}
-
-#[repr(C)]
+#[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""))]
+#[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub struct Offset(NonZeroUsize);
+pub struct Offset(NonZeroU64);
 
 impl Offset {
-    pub(crate) unsafe fn new(delta: NonZeroUsize) -> Self {
-        Self(delta)
+    pub(crate) unsafe fn new(offset: NonZeroUsize) -> Self {
+        Self::new_internal(offset.try_into().unwrap())
+    }
+
+    pub(crate) fn get(&self) -> NonZeroUsize {
+        self._0().try_into().unwrap()
     }
 
     #[inline]
     #[track_caller]
     pub(crate) unsafe fn index_block(&self, class: size::Class) -> Bit {
-        Bit::new((self.0.get() % SIZE_SLAB) / class.size())
+        Bit::new(u12::new(
+            ((self.get().get() % SIZE_SLAB) / class.size()) as u16,
+        ))
     }
 }
 
 impl From<Index> for Offset {
     #[inline]
     fn from(index: Index) -> Self {
-        NonZeroUsize::new(index.0.get() as usize * SIZE_SLAB)
-            .map(Self)
+        NonZeroUsize::new(index._0().get() as usize * SIZE_SLAB)
+            .map(|offset| unsafe { Self::new(offset) })
             .unwrap()
     }
 }
 
 impl From<Offset> for NonZeroUsize {
     fn from(value: Offset) -> Self {
-        value.0
+        value.get()
     }
 }
 
@@ -145,23 +146,9 @@ impl Display for Offset {
 
 impl From<Offset> for usize {
     fn from(value: Offset) -> Self {
-        value.0.get() - SIZE_SLAB
+        value.get().get() - SIZE_SLAB
     }
 }
-
-unsafe impl Packed for Offset {
-    const BITS: u8 = 48;
-
-    fn pack(&self) -> u64 {
-        self.0.get() as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        unsafe { Self(NonZeroUsize::new_unchecked((value & Self::MASK) as usize)) }
-    }
-}
-
-unsafe impl NonZero for Offset {}
 
 pub(crate) struct Slice<'raw, S> {
     base: NonNull<S>,
@@ -203,10 +190,10 @@ mod private {
 
 impl Slice<'_, Owned> {
     pub(crate) unsafe fn link(&self, range: Range<Index>, head: Option<Index>) {
-        let range = (range.start.0.get()..range.end.0.get())
+        let range = (range.start._0().get()..range.end._0().get())
             .map(NonZeroU32::new)
             .map(Option::unwrap)
-            .map(Index);
+            .map(Index::new);
 
         for (i, j) in iter::zip(
             range.clone(),
@@ -234,7 +221,7 @@ impl Slice<'_, Owned> {
 impl<'raw, S> core::ops::Index<Index> for Slice<'raw, S> {
     type Output = S;
     fn index(&self, index: Index) -> &Self::Output {
-        unsafe { self.base.add(index.0.get() as usize).as_ref() }
+        unsafe { self.base.add(index._0().get() as usize).as_ref() }
     }
 }
 
@@ -303,10 +290,7 @@ impl<'raw> GlobalStack<'raw> {
             crate::flush(&slabs[tail].next, false);
             Some((
                 Some(head),
-                State::LocalToGlobal {
-                    index: head,
-                    version,
-                },
+                StateUnpacked::LocalToGlobal(LocalToGlobal::new(head, version)),
             ))
         });
     }
@@ -325,10 +309,7 @@ impl<'raw> GlobalStack<'raw> {
 
                 Some((
                     new,
-                    State::GlobalToLocal {
-                        index: old,
-                        version,
-                    },
+                    StateUnpacked::GlobalToLocal(GlobalToLocal::new(old, version)),
                 ))
             })
             .flatten()
@@ -341,47 +322,17 @@ impl<'raw> GlobalStack<'raw> {
     }
 }
 
+#[ribbit::pack(size = 64, debug)]
 #[derive(Copy, Clone, PartialEq, Eq)]
-struct Head(u64);
+struct Head {
+    #[ribbit(size = 16, nonzero)]
+    id: thread::Id,
 
-impl Head {
-    fn new(id: thread::Id, version: Version, index: Option<Index>) -> Self {
-        Self((id.pack() << 48) | (version.pack() << 32) | index.pack())
-    }
+    #[ribbit(size = 16)]
+    version: Version,
 
-    fn index(&self) -> Option<Index> {
-        Packed::unpack(self.0 as u32 as u64)
-    }
-
-    fn version(&self) -> Version {
-        Packed::unpack((self.0 >> 32) as u16 as u64)
-    }
-
-    fn id(&self) -> Option<thread::Id> {
-        Packed::unpack(self.0 >> 48)
-    }
-}
-
-impl Debug for Head {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("")
-            .field("id", &self.id())
-            .field("version", &self.version())
-            .field("index", &self.index())
-            .finish()
-    }
-}
-
-unsafe impl Packed for Head {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        self.0
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
+    #[ribbit(size = 32)]
+    index: Option<Index>,
 }
 
 #[inline]

@@ -25,7 +25,7 @@ impl Backend {
     pub(crate) fn allocate(&self, id: Id, size: usize, reserved: usize) -> io::Result<Region> {
         self.as_backend()
             .allocate(id, size, reserved)
-            .map(|region| {
+            .inspect(|region| {
                 log::info!(
                     "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
                     region.size(),
@@ -33,8 +33,6 @@ impl Backend {
                     unsafe { region.base().as_ptr().byte_add(region.size()) },
                     any::type_name::<Self>(),
                 );
-
-                region
             })
     }
 

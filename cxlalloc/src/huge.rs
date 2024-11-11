@@ -1,6 +1,5 @@
 use core::cmp;
 use core::ffi;
-use core::fmt::Debug;
 use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
@@ -13,8 +12,6 @@ use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
-use crate::atomic::NonZero;
-use crate::atomic::Packed;
 use crate::stat;
 use crate::Atomic;
 use crate::SIZE_PAGE;
@@ -90,19 +87,26 @@ impl<const SIZE: usize> Cxl<SIZE> {
         loop {
             let tail = self.tail(state, base, process_count, process_id);
             let next = Tail::new(
-                process_id,
+                process_id as u16,
                 index,
-                tail.map(Tail::lsn).map(Lsn::next).unwrap_or(Lsn::MIN),
+                tail.map(|tail| tail.lsn())
+                    .map(Lsn::next)
+                    .unwrap_or(Lsn::MIN),
             );
 
             let offset = state.allocate(size.get());
 
-            self.logs[process_id][index as usize]
-                .site
-                .store(Site::new(offset, size.get()));
+            self.logs[process_id][index as usize].site.store(Site::new(
+                offset.try_into().unwrap(),
+                size.get().try_into().unwrap(),
+            ));
             self.logs[process_id][index as usize]
                 .meta
-                .store(Meta::allocate(next.lsn(), false, false));
+                .store(Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
+                    next.lsn(),
+                    false,
+                    false,
+                )))));
 
             match self.global.compare_exchange(tail, Some(next)) {
                 Ok(_) => {
@@ -139,14 +143,18 @@ impl<const SIZE: usize> Cxl<SIZE> {
                 .tail(state, base, process_count, process_id)
                 .expect("Called free with no allocation log entry");
 
-            let next = Tail::new(process_id, index, tail.lsn().next());
+            let next = Tail::new(process_id as u16, index, tail.lsn().next());
 
-            self.logs[process_id][index as usize]
-                .site
-                .store(Site::new(offset, size.get()));
+            self.logs[process_id][index as usize].site.store(Site::new(
+                offset.try_into().unwrap(),
+                size.get().try_into().unwrap(),
+            ));
             self.logs[process_id][index as usize]
                 .meta
-                .store(Meta::free(next.lsn(), false));
+                .store(Some(Meta::new(MetaUnpacked::Free(Free::new(
+                    next.lsn(),
+                    false,
+                )))));
 
             match self.global.compare_exchange(Some(tail), Some(next)) {
                 Ok(_) => {
@@ -178,26 +186,33 @@ impl<const SIZE: usize> Cxl<SIZE> {
             .load()
             .unwrap();
 
-        match self.logs[tail.process_id()][tail.index() as usize]
+        match self.logs[tail.process_id() as usize][tail.index() as usize]
             .meta
             .load()
-            .get()
+            .map(|meta| meta.unpack())
         {
-            None | Some(Kind::Free { .. }) => unreachable!(),
-            Some(Kind::Allocate { lsn, valid, freed }) => {
+            None | Some(MetaUnpacked::Free { .. }) => unreachable!(),
+            Some(MetaUnpacked::Allocate(allocate)) => {
+                let lsn = allocate.lsn();
+                let valid = allocate.valid();
+                let freed = allocate.freed();
+
                 assert_eq!(lsn, tail.lsn());
                 assert!(valid);
                 assert!(!freed);
 
-                let lo = self.logs[tail.process_id()][tail.index() as usize]
+                let lo = self.logs[tail.process_id() as usize][tail.index() as usize]
                     .site
                     .load();
 
                 assert_eq!(
-                    lo.offset(),
+                    lo.offset() as usize,
                     pointer.as_ptr() as usize - base.as_ptr() as usize - SIZE_PAGE,
                 );
-                (lo.offset(), NonZeroUsize::new(lo.size()).unwrap())
+                (
+                    lo.offset() as usize,
+                    NonZeroU32::new(lo.size()).unwrap().try_into().unwrap(),
+                )
             }
         }
     }
@@ -213,37 +228,43 @@ impl<const SIZE: usize> Cxl<SIZE> {
             .cycle()
             .skip(state.next as usize)
             .take(SIZE)
-            .find_map(|(index, entry)| match entry.meta.load().get() {
-                None => Some(index),
-                Some(Kind::Allocate { valid: false, .. } | Kind::Free { valid: false, .. }) => {
-                    log::info!("Reuse invalid at {index}");
-                    Some(index)
-                }
-                Some(Kind::Allocate {
-                    lsn, freed: true, ..
-                }) if self
-                    .local
-                    .iter()
-                    .take(process_count)
-                    .all(|tail| tail.load() >= Some(lsn)) =>
-                {
-                    log::info!("Reuse allocate at {index}");
-                    Some(index)
-                }
-                Some(Kind::Allocate { .. }) => None,
+            .find_map(
+                |(index, entry)| match entry.meta.load().map(|meta| meta.unpack()) {
+                    None => Some(index),
+                    Some(MetaUnpacked::Allocate(allocate)) if !allocate.valid() => {
+                        log::info!("Reuse invalid at {index}");
+                        Some(index)
+                    }
+                    Some(MetaUnpacked::Free(free)) if !free.valid() => {
+                        log::info!("Reuse invalid at {index}");
+                        Some(index)
+                    }
+                    Some(MetaUnpacked::Allocate(allocate))
+                        if allocate.freed()
+                            && self
+                                .local
+                                .iter()
+                                .take(process_count)
+                                .all(|tail| tail.load() >= Some(allocate.lsn())) =>
+                    {
+                        log::info!("Reuse allocate at {index}");
+                        Some(index)
+                    }
+                    Some(MetaUnpacked::Allocate { .. }) => None,
 
-                Some(Kind::Free { lsn, .. })
-                    if self
-                        .local
-                        .iter()
-                        .take(process_count)
-                        .all(|tail| tail.load() >= Some(lsn)) =>
-                {
-                    log::info!("Reuse free at {index}");
-                    Some(index)
-                }
-                Some(Kind::Free { .. }) => None,
-            })
+                    Some(MetaUnpacked::Free(free))
+                        if self
+                            .local
+                            .iter()
+                            .take(process_count)
+                            .all(|tail| tail.load() >= Some(free.lsn())) =>
+                    {
+                        log::info!("Reuse free at {index}");
+                        Some(index)
+                    }
+                    Some(MetaUnpacked::Free { .. }) => None,
+                },
+            )
             .map(|index| index as u16)
             .expect("Out of log slots");
 
@@ -272,29 +293,42 @@ impl<const SIZE: usize> Cxl<SIZE> {
     }
 
     fn validate(&self, tail: Tail) {
-        match self.logs[tail.process_id()][tail.index() as usize]
+        match self.logs[tail.process_id() as usize][tail.index() as usize]
             .meta
             .load()
-            .get()
+            .map(|meta| meta.unpack())
         {
             None => unreachable!(),
 
-            Some(Kind::Allocate { valid, lsn, freed }) if lsn == tail.lsn() && !valid => {
-                let _ = self.logs[tail.process_id()][tail.index() as usize]
+            Some(MetaUnpacked::Allocate(allocate))
+                if allocate.lsn() == tail.lsn() && !allocate.valid() =>
+            {
+                let _ = self.logs[tail.process_id() as usize][tail.index() as usize]
                     .meta
                     .compare_exchange(
-                        Meta::allocate(lsn, false, freed),
-                        Meta::allocate(lsn, true, freed),
+                        Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
+                            allocate.lsn(),
+                            false,
+                            allocate.freed(),
+                        )))),
+                        Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
+                            allocate.lsn(),
+                            true,
+                            allocate.freed(),
+                        )))),
                     );
             }
-            Some(Kind::Allocate { .. }) => (),
+            Some(MetaUnpacked::Allocate { .. }) => (),
 
-            Some(Kind::Free { valid, lsn }) if lsn == tail.lsn() && !valid => {
-                let _ = self.logs[tail.process_id()][tail.index() as usize]
+            Some(MetaUnpacked::Free(free)) if free.lsn() == tail.lsn() && !free.valid() => {
+                let _ = self.logs[tail.process_id() as usize][tail.index() as usize]
                     .meta
-                    .compare_exchange(Meta::free(lsn, false), Meta::free(lsn, true));
+                    .compare_exchange(
+                        Some(Meta::new(MetaUnpacked::Free(Free::new(free.lsn(), false)))),
+                        Some(Meta::new(MetaUnpacked::Free(Free::new(free.lsn(), true)))),
+                    );
             }
-            Some(Kind::Free { .. }) => (),
+            Some(MetaUnpacked::Free { .. }) => (),
         }
     }
 
@@ -316,13 +350,19 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .enumerate()
                     .map(move |(index, entry)| (process_id, index, entry))
             })
-            .filter_map(|(process_id, index, entry)| match entry.meta.load().get() {
-                Some(Kind::Allocate { valid, lsn, .. } | Kind::Free { valid, lsn })
-                    if valid && Some(lsn) > seen =>
-                {
-                    Some(Tail::new(process_id, index as u16, lsn))
+            .filter_map(|(process_id, index, entry)| {
+                match entry.meta.load().map(|meta| meta.unpack()) {
+                    Some(MetaUnpacked::Allocate(allocate))
+                        if allocate.valid() && Some(allocate.lsn()) > seen =>
+                    {
+                        Some(Tail::new(process_id as u16, index as u16, allocate.lsn()))
+                    }
+
+                    Some(MetaUnpacked::Free(free)) if free.valid() && Some(free.lsn()) > seen => {
+                        Some(Tail::new(process_id as u16, index as u16, free.lsn()))
+                    }
+                    _ => None,
                 }
-                _ => None,
             })
             .collect::<Vec<_>>();
 
@@ -347,21 +387,25 @@ impl<const SIZE: usize> Cxl<SIZE> {
         process_id: usize,
         entry: Tail,
     ) {
-        let lsn = match self.logs[entry.process_id()][entry.index() as usize]
+        let lsn = match self.logs[entry.process_id() as usize][entry.index() as usize]
             .meta
             .load()
-            .get()
+            .map(|meta| meta.unpack())
         {
             None => unreachable!("Applied empty at {entry:?}"),
-            Some(Kind::Allocate { lsn, freed, .. }) if lsn != entry.lsn() || freed => entry.lsn(),
-            Some(Kind::Allocate { valid, lsn, .. }) => unsafe {
-                assert!(valid);
+            Some(MetaUnpacked::Allocate(allocate))
+                if allocate.lsn() != entry.lsn() || allocate.freed() =>
+            {
+                entry.lsn()
+            }
+            Some(MetaUnpacked::Allocate(allocate)) => unsafe {
+                assert!(allocate.valid());
 
-                let lo = self.logs[entry.process_id()][entry.index() as usize]
+                let lo = self.logs[entry.process_id() as usize][entry.index() as usize]
                     .site
                     .load();
-                let offset = lo.offset();
-                let size = NonZeroUsize::new(lo.size()).unwrap();
+                let offset = lo.offset() as usize;
+                let size = NonZeroU32::new(lo.size()).unwrap().try_into().unwrap();
 
                 state.mark_allocated(offset, size);
 
@@ -386,6 +430,12 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     ),
                     actual => {
                         assert_eq!(address, actual);
+                        log::info!(
+                            "mmap {:#x?}-{:#x?} ({:#x?})",
+                            address,
+                            address.wrapping_byte_add(size.get()),
+                            size
+                        );
                         crate::raw::region::mbind(actual, size.get()).unwrap();
                     }
                 }
@@ -396,17 +446,17 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .unwrap()
                     .store(entry);
 
-                lsn
+                allocate.lsn()
             },
-            Some(Kind::Free { valid, lsn }) => {
-                assert!(valid);
-                assert_eq!(lsn, entry.lsn());
+            Some(MetaUnpacked::Free(free)) => {
+                assert!(free.valid());
+                assert_eq!(free.lsn(), entry.lsn());
 
-                let lo = self.logs[entry.process_id()][entry.index() as usize]
+                let lo = self.logs[entry.process_id() as usize][entry.index() as usize]
                     .site
                     .load();
-                let offset = lo.offset();
-                let size = NonZeroUsize::new(lo.size()).unwrap();
+                let offset = lo.offset() as usize;
+                let size = NonZeroUsize::new(lo.size() as usize).unwrap();
 
                 state.mark_deallocated(offset, size);
 
@@ -445,27 +495,35 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .all(|(_, lsn)| lsn.load() >= Some(tail.lsn()))
                 {
                     // Mark for reuse
-                    match self.logs[tail.process_id()][tail.index() as usize]
+                    match self.logs[tail.process_id() as usize][tail.index() as usize]
                         .meta
                         .load()
-                        .get()
+                        .map(|meta| meta.unpack())
                     {
-                        Some(Kind::Allocate { lsn, valid, freed })
-                            if lsn == tail.lsn() && !freed =>
+                        Some(MetaUnpacked::Allocate(allocate))
+                            if allocate.lsn() == tail.lsn() && !allocate.freed() =>
                         {
-                            assert!(valid);
-                            let _ = self.logs[tail.process_id()][tail.index() as usize]
+                            assert!(allocate.valid());
+                            let _ = self.logs[tail.process_id() as usize][tail.index() as usize]
                                 .meta
                                 .compare_exchange(
-                                    Meta::allocate(lsn, true, false),
-                                    Meta::allocate(lsn, true, true),
+                                    Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
+                                        allocate.lsn(),
+                                        true,
+                                        false,
+                                    )))),
+                                    Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
+                                        allocate.lsn(),
+                                        true,
+                                        true,
+                                    )))),
                                 );
                         }
                         _ => (),
                     }
                 }
 
-                lsn
+                free.lsn()
             }
         };
 
@@ -473,154 +531,56 @@ impl<const SIZE: usize> Cxl<SIZE> {
     }
 }
 
+#[ribbit::pack(size = 64, nonzero, debug)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-struct Tail(u64);
-
-impl Debug for Tail {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Tail")
-            .field("process_id", &self.process_id())
-            .field("index", &self.index())
-            .field("lsn", &self.lsn())
-            .finish()
-    }
+struct Tail {
+    process_id: u16,
+    index: u16,
+    #[ribbit(size = 32, nonzero)]
+    lsn: Lsn,
 }
 
-impl Tail {
-    fn new(process_id: usize, index: u16, lsn: Lsn) -> Self {
-        assert!(process_id < 64);
-        Self(process_id as u64 | ((index as u64) << 16) | (lsn.pack() << 32))
-    }
-
-    fn process_id(self) -> usize {
-        assert!((self.0 as u16) < 64);
-        self.0 as u16 as usize
-    }
-
-    fn index(self) -> u16 {
-        (self.0 >> 16) as u16
-    }
-
-    fn lsn(self) -> Lsn {
-        Lsn::unpack(self.0 >> 32)
-    }
-}
-
-unsafe impl NonZero for Tail {}
-
-unsafe impl Packed for Tail {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        self.0
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[ribbit::pack(size = 32, nonzero, debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Lsn(NonZeroU32);
 
 impl Lsn {
-    const MIN: Self = Self(NonZeroU32::MIN);
+    const MIN: Self = Self::new(NonZeroU32::MIN);
 
     fn next(self) -> Self {
-        self.0.checked_add(1).map(Self).unwrap()
-    }
-}
-
-unsafe impl NonZero for Lsn {}
-
-unsafe impl Packed for Lsn {
-    const BITS: u8 = 32;
-
-    fn pack(&self) -> u64 {
-        self.0.get() as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(NonZeroU32::new(value as u32).unwrap())
+        self._0().checked_add(1).map(Self::new).unwrap()
     }
 }
 
 struct Entry {
-    meta: Atomic<Meta>,
+    meta: Atomic<Option<Meta>>,
     site: Atomic<Site>,
 }
 
-struct Meta(u64);
-
-impl Meta {
-    fn allocate(lsn: Lsn, valid: bool, freed: bool) -> Self {
-        Self((lsn.pack() << 32) | ((valid as u64) << 31) | ((freed as u64) << 30) | 0b011)
-    }
-
-    fn free(lsn: Lsn, valid: bool) -> Self {
-        Self((lsn.pack() << 32) | ((valid as u64) << 31) | 0b10)
-    }
-
-    fn get(&self) -> Option<Kind> {
-        if self.0 == 0 {
-            None
-        } else if self.0 & 1 > 0 {
-            Some(Kind::Allocate {
-                lsn: Lsn::unpack(self.0 >> 32),
-                valid: self.0 & (1 << 31) > 0,
-                freed: self.0 & (1 << 30) > 0,
-            })
-        } else {
-            assert_eq!(self.0 & 0b11, 0b10);
-            Some(Kind::Free {
-                lsn: Lsn::unpack(self.0 >> 32),
-                valid: self.0 & (1 << 31) > 0,
-            })
-        }
-    }
+#[ribbit::pack(size = 64, nonzero)]
+#[derive(Copy, Clone)]
+enum Meta {
+    #[ribbit(size = 34)]
+    #[derive(Copy, Clone)]
+    Allocate {
+        #[ribbit(size = 32)]
+        lsn: Lsn,
+        valid: bool,
+        freed: bool,
+    },
+    #[ribbit(size = 33)]
+    #[derive(Copy, Clone)]
+    Free {
+        #[ribbit(size = 32)]
+        lsn: Lsn,
+        valid: bool,
+    },
 }
 
-enum Kind {
-    Allocate { lsn: Lsn, freed: bool, valid: bool },
-    Free { lsn: Lsn, valid: bool },
-}
-
-struct Site(u64);
-
-unsafe impl Packed for Meta {
-    const BITS: u8 = 64;
-    fn pack(&self) -> u64 {
-        self.0
-    }
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-unsafe impl Packed for Site {
-    const BITS: u8 = 64;
-    fn pack(&self) -> u64 {
-        self.0
-    }
-    fn unpack(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl Site {
-    fn new(offset: usize, size: usize) -> Self {
-        Self(
-            (u32::try_from(offset / SIZE_PAGE).unwrap() as u64) << 32
-                | (u32::try_from(size / SIZE_PAGE).unwrap() as u64),
-        )
-    }
-
-    fn offset(&self) -> usize {
-        (self.0 >> 32) as usize * SIZE_PAGE
-    }
-
-    fn size(&self) -> usize {
-        (self.0 as u32) as usize * SIZE_PAGE
-    }
+#[ribbit::pack(size = 64)]
+#[derive(Copy, Clone)]
+struct Site {
+    offset: u32,
+    size: u32,
 }

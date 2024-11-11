@@ -1,6 +1,3 @@
-use core::marker::PhantomData;
-
-use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::region;
 use crate::thread;
@@ -8,49 +5,20 @@ use crate::Atomic;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);
 
+#[ribbit::pack(size = 64)]
 #[derive(Copy, Clone)]
 pub(crate) struct State<T> {
-    value: u64,
-    _type: PhantomData<T>,
+    #[ribbit(size = 16)]
+    id: Option<thread::Id>,
+
+    #[ribbit(size = 16)]
+    version: Version,
+
+    #[ribbit(size = 32)]
+    inner: T,
 }
 
-impl<T: Packed + Copy> State<T> {
-    fn new(id: thread::Id, version: Version, inner: T) -> Self {
-        Self {
-            value: (id.pack() << 48) | (version.pack() << 32) | inner.pack(),
-            _type: PhantomData,
-        }
-    }
-
-    fn inner(&self) -> T {
-        Packed::unpack(self.value as u32 as u64)
-    }
-
-    fn version(&self) -> Version {
-        Packed::unpack(self.value >> 32)
-    }
-
-    fn id(&self) -> Option<thread::Id> {
-        Packed::unpack(self.value >> 48)
-    }
-}
-
-unsafe impl<T: Packed + Copy> Packed for State<T> {
-    const BITS: u8 = 64;
-
-    fn pack(&self) -> u64 {
-        self.value
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self {
-            value,
-            _type: PhantomData,
-        }
-    }
-}
-
-impl<T: Packed + Copy> Detectable<T> {
+impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
     pub(crate) fn load(&self, help: &thread::Array<Help>) -> T {
         let old = self.0.load();
         self.notify(help, old);
@@ -76,7 +44,7 @@ impl<T: Packed + Copy> Detectable<T> {
         mut next: F,
     ) -> Option<T>
     where
-        F: FnMut(T, Version) -> Option<(T, region::owned::State)>,
+        F: FnMut(T, Version) -> Option<(T, region::owned::StateUnpacked)>,
     {
         let mut old = self.0.load();
         let version = help[id].peek().next();
@@ -90,9 +58,12 @@ impl<T: Packed + Copy> Detectable<T> {
             self.notify(help, old);
 
             let (new, log) = next(old.inner(), version)?;
-            meta.log_unsync(log);
+            meta.log_unsync(region::owned::State::new(log));
 
-            match self.0.compare_exchange(old, State::new(id, version, new)) {
+            match self
+                .0
+                .compare_exchange(old, State::new(Some(id), version, new))
+            {
                 Ok(_) => break Some(old.inner()),
                 Err(next) => old = next,
             }
@@ -100,22 +71,28 @@ impl<T: Packed + Copy> Detectable<T> {
     }
 }
 
-pub(crate) struct Help(Atomic<u64>);
+pub(crate) struct Help(Atomic<Inner>);
+
+#[ribbit::pack(size = 17)]
+#[derive(Copy, Clone)]
+pub(crate) struct Inner {
+    #[ribbit(size = 16)]
+    version: Version,
+    helped: bool,
+}
 
 impl Help {
-    const FLAG: u64 = 1 << 63;
-
     pub(crate) fn peek(&self) -> Version {
-        Version::unpack(self.0.load())
+        self.0.load().version()
     }
 
     pub(crate) fn detect(&self) -> (Version, bool) {
-        let value = self.0.load();
-        (Version::unpack(value), value & Self::FLAG > 0)
+        let inner = self.0.load();
+        (inner.version(), inner.helped())
     }
 
     pub(crate) fn prepare(&self, version: Version) {
-        self.0.store(version.pack());
+        self.0.store(Inner::new(version, false))
     }
 
     pub(crate) fn must_notify(&self, version: Version) -> bool {
@@ -126,7 +103,7 @@ impl Help {
     pub(crate) fn notify(&self, version: Version) {
         let _ = self
             .0
-            .compare_exchange(version.pack(), version.pack() | Self::FLAG);
+            .compare_exchange(Inner::new(version, false), Inner::new(version, true));
 
         crate::flush(self, false);
     }

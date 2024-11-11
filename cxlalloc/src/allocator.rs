@@ -5,7 +5,11 @@ use crate::atomic::Version;
 use crate::link;
 use crate::raw;
 use crate::region;
-use crate::region::owned::State;
+use crate::region::owned::ApplicationToSized;
+use crate::region::owned::LocalToGlobalSave;
+use crate::region::owned::Remote;
+use crate::region::owned::SizedToApplication;
+use crate::region::owned::StateUnpacked;
 use crate::root;
 use crate::size;
 use crate::slab;
@@ -183,7 +187,9 @@ impl<'raw> Allocator<'raw> {
 
         self.owned
             .meta
-            .log_sync(State::SizedToApplication { index, block });
+            .log_sync(StateUnpacked::SizedToApplication(SizedToApplication::new(
+                index, block,
+            )));
         free.unset(block);
 
         if free.is_empty() {
@@ -259,7 +265,9 @@ impl<'raw> Allocator<'raw> {
 
         self.owned
             .meta
-            .log_sync(State::ApplicationToSized { index, block });
+            .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
+                index, block,
+            )));
 
         let count = free.len();
         free.set(block);
@@ -298,11 +306,9 @@ impl<'raw> Allocator<'raw> {
         let block = offset.index_block(class);
         let version = slab.meta.load().version();
 
-        self.owned.meta.log_sync(State::Remote {
-            index,
-            block,
-            version,
-        });
+        self.owned
+            .meta
+            .log_sync(StateUnpacked::Remote(Remote::new(index, block, version)));
 
         slab.free.set(block);
 
@@ -387,7 +393,9 @@ impl<'raw> Allocator<'raw> {
 
         self.owned
             .meta
-            .log_sync(State::LocalToGlobalSave { index: head });
+            .log_sync(StateUnpacked::LocalToGlobalSave(LocalToGlobalSave::new(
+                head,
+            )));
 
         self.owned
             .meta

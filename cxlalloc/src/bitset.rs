@@ -4,37 +4,29 @@ mod hi;
 pub(crate) use atomic::AtomicBitSet;
 pub(crate) use hi::HiBitSet;
 
+#[ribbit::pack(size = 12)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Bit {
-    row: usize,
-    col: usize,
-}
+pub(crate) struct Bit(u12);
 
 impl Bit {
-    // TODO: only used for ownership bitmap, maybe decouple?
-    pub(crate) fn new(bit: usize) -> Self {
-        Self {
-            row: bit >> 6,
-            col: bit & ((1 << 6) - 1),
-        }
-    }
-
-    fn from_row_col(row: usize, col: usize) -> Self {
-        Self { row, col }
+    fn from_row_col(row: u8, col: u8) -> Self {
+        Self::new(::ribbit::private::u12::new(
+            ((row as u16) << 6) | (col as u16),
+        ))
     }
 
     fn row(self) -> usize {
-        self.row
+        (self._0().value() >> 6) as usize
     }
 
     fn col(self) -> usize {
-        self.col
+        (self._0().value() & ((1 << 6) - 1)) as usize
     }
 }
 
 impl From<Bit> for usize {
     fn from(bit: Bit) -> Self {
-        (bit.row << 6) | bit.col
+        bit._0().value() as usize
     }
 }
 

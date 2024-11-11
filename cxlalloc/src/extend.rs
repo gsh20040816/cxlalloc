@@ -1,5 +1,3 @@
-use crate::atomic::Packed;
-
 /// This thread is responsible for heap extension.
 ///
 /// We use a dedicated thread per process to simplify when
@@ -40,11 +38,11 @@ pub(crate) fn spawn(raw: &crate::raw::Heap) -> std::thread::JoinHandle<()> {
             };
 
             let heap = raw.heap();
-            let barrier = heap.shared.barrier();
+            todo!();
 
-            if !barrier.has_request(process_id) {
-                continue;
-            }
+            // if !barrier.has_request(process_id) {
+            //     continue;
+            // }
 
             use crate::region::shared::Request;
             let epoch = match heap.shared.request() {
@@ -86,60 +84,49 @@ pub(crate) fn spawn(raw: &crate::raw::Heap) -> std::thread::JoinHandle<()> {
                 raw.extend().unwrap();
             }
 
-            barrier.acknowledge(process_id);
+            // barrier.acknowledge(process_id);
         }
     })
 }
 
+#[ribbit::pack(size = 8, new(vis = ""))]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Epoch(u8);
 
 impl Epoch {
     /// The total size of all epochs up to and including this one in bytes.
     pub fn total_byte(&self, initial: usize) -> usize {
-        2usize.pow(self.0 as u32) * initial
+        2usize.pow(self._0() as u32) * initial
     }
 
     /// The total size of all epochs up to and including this one in slabs.
     pub(crate) fn total(&self, initial: u32) -> u32 {
-        2u32.pow(self.0 as u32) * initial
+        2u32.pow(self._0() as u32) * initial
     }
 
     /// The offset of this last epoch.
     pub(crate) fn offset(&self, initial: u32) -> u32 {
-        match self.0 {
+        match self._0() {
             0 => 0,
-            _ => Epoch(self.0 - 1).total(initial),
+            _ => Epoch::new(self._0() - 1).total(initial),
         }
     }
 
     /// The size of this last epoch.
     pub(crate) fn partial(&self, initial: u32) -> u32 {
-        match self.0 {
+        match self._0() {
             0 => initial,
-            _ => Epoch(self.0 - 1).total(initial),
+            _ => Epoch::new(self._0() - 1).total(initial),
         }
     }
 
     pub(crate) fn next(&self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-unsafe impl Packed for Epoch {
-    const BITS: u8 = 8;
-
-    fn pack(&self) -> u64 {
-        self.0 as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value as u8)
+        Self::new(self._0() + 1)
     }
 }
 
 impl From<Epoch> for u8 {
-    fn from(Epoch(epoch): Epoch) -> Self {
-        epoch
+    fn from(epoch: Epoch) -> Self {
+        epoch._0()
     }
 }

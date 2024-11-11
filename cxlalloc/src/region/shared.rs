@@ -5,7 +5,6 @@ use core::ops::Range;
 use core::ptr::NonNull;
 use std::sync::Mutex;
 
-use crate::atomic::Packed;
 use crate::atomic::Version;
 use crate::cas;
 use crate::extend::Epoch;
@@ -16,11 +15,11 @@ use crate::root;
 use crate::slab;
 use crate::thread;
 use crate::Atomic;
-use crate::Barrier;
 use crate::BATCH_BUMP_POP;
 use crate::SIZE_PAGE;
 
-use super::owned::State;
+use super::owned::BumpToLocal;
+use super::owned::StateUnpacked;
 
 pub(crate) struct Shared<'raw> {
     capacity: u32,
@@ -75,21 +74,18 @@ impl<'raw> Shared<'raw> {
             .meta
             .bump
             .update(&self.meta.help, id, meta, |old, version| {
-                if old.0 + BATCH_BUMP_POP >= self.capacity {
+                if old._0() + BATCH_BUMP_POP >= self.capacity {
                     None
                 } else {
                     Some((
-                        Length(old.0 + BATCH_BUMP_POP),
-                        State::BumpToLocal {
-                            length: old,
-                            version,
-                        },
+                        Length::new(old._0() + BATCH_BUMP_POP),
+                        StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
                     ))
                 }
             })?;
 
-        let start = slab::Index::from_length(Length(length.0));
-        let end = slab::Index::from_length(Length(length.0 + BATCH_BUMP_POP));
+        let start = slab::Index::from_length(Length::new(length._0()));
+        let end = slab::Index::from_length(Length::new(length._0() + BATCH_BUMP_POP));
         Some(start..end)
     }
 
@@ -159,10 +155,6 @@ impl<'raw> Shared<'raw> {
 
 #[cfg(feature = "extend")]
 impl<'raw> Shared<'raw> {
-    pub(crate) fn barrier(&self) -> &Barrier {
-        todo!()
-    }
-
     pub(crate) fn request(&self) -> Option<Request> {
         todo!()
     }
@@ -201,23 +193,12 @@ pub(crate) struct Meta<'raw> {
     pub(crate) log: huge::Cxl<2048>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[ribbit::pack(size = 32, debug, new(vis = ""))]
+#[derive(Copy, Clone)]
 pub(crate) struct Length(u32);
 
 impl From<Length> for u32 {
-    fn from(Length(length): Length) -> Self {
-        length
-    }
-}
-
-unsafe impl Packed for Length {
-    const BITS: u8 = 32;
-
-    fn pack(&self) -> u64 {
-        self.0 as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value as u32)
+    fn from(length: Length) -> Self {
+        length._0()
     }
 }

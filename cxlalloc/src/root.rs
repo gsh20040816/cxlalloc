@@ -4,7 +4,6 @@ use crate::slab;
 use crate::Allocator;
 use crate::Atomic;
 use crate::COUNT_ROOT;
-use crate::COUNT_THREAD;
 
 #[repr(C)]
 #[derive(Debug)]

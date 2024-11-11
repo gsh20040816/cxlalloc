@@ -3,7 +3,6 @@ use core::fmt;
 use core::fmt::Display;
 use core::ops;
 
-use crate::atomic::Packed;
 use crate::SIZE_BIT_SET;
 use crate::SIZE_SLAB;
 
@@ -18,7 +17,7 @@ impl<T> Array<T> {
         self.0
             .iter()
             .enumerate()
-            .map(|(index, element)| (Class(index as u8), element))
+            .map(|(index, element)| (Class::new_internal(index as u8), element))
             .skip(1)
     }
 }
@@ -35,18 +34,19 @@ where
 impl<T> ops::Index<Class> for Array<T> {
     type Output = T;
 
-    fn index(&self, Class(index): Class) -> &Self::Output {
-        unsafe { self.0.get_unchecked(index as usize) }
+    fn index(&self, class: Class) -> &Self::Output {
+        unsafe { self.0.get_unchecked(class._0() as usize) }
     }
 }
 
 impl<T> ops::IndexMut<Class> for Array<T> {
-    fn index_mut(&mut self, Class(index): Class) -> &mut Self::Output {
-        unsafe { self.0.get_unchecked_mut(index as usize) }
+    fn index_mut(&mut self, class: Class) -> &mut Self::Output {
+        unsafe { self.0.get_unchecked_mut(class._0() as usize) }
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[ribbit::pack(size = 8, debug, new(rename = "new_internal", vis = ""))]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub(crate) struct Class(u8);
 
 impl Display for Class {
@@ -67,8 +67,8 @@ impl Class {
     #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size {
-            0..1024 => Some(Class(((size + 7) / 8) as u8)),
-            1024..=32768 => Some(Class(
+            0..1024 => Some(Class::new_internal(((size + 7) / 8) as u8)),
+            1024..=32768 => Some(Class::new_internal(
                 128 + size.next_power_of_two().trailing_zeros() as u8 - 10,
             )),
             _ => None,
@@ -77,13 +77,13 @@ impl Class {
 
     #[inline]
     pub(crate) fn is_zero(&self) -> bool {
-        self.0 == 0
+        self._0() == 0
     }
 
     #[inline]
     pub(crate) fn size(&self) -> usize {
-        match self.0.checked_sub(128) {
-            None => self.0 as usize * 8,
+        match self._0().checked_sub(128) {
+            None => self._0() as usize * 8,
             Some(p) => 1024 << p,
         }
     }
@@ -117,16 +117,4 @@ const fn counts() -> Array<u16> {
     }
 
     Array(counts)
-}
-
-unsafe impl Packed for Class {
-    const BITS: u8 = 8;
-
-    fn pack(&self) -> u64 {
-        self.0 as u64
-    }
-
-    fn unpack(value: u64) -> Self {
-        Self(value as u8)
-    }
 }

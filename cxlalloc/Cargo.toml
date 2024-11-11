@@ -21,6 +21,7 @@ gcollections.workspace = true
 intervallum.workspace = true
 libc.workspace = true
 log.workspace = true
+ribbit.workspace = true
 
 [dev-dependencies]
 crash = { path = "../crash" }
