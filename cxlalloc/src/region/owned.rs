@@ -55,6 +55,10 @@ pub(crate) struct Meta {
 impl Meta {
     #[inline]
     pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
+        if !cfg!(feature = "recover-log") {
+            return;
+        }
+
         crate::fence();
         self.log_unsync(State::new(state));
         crate::fence();
@@ -62,6 +66,10 @@ impl Meta {
 
     #[inline]
     pub(crate) fn log_unsync(&mut self, state: State) {
+        if !cfg!(feature = "recover-log") {
+            return;
+        }
+
         self.state.store(Some(state));
         crate::flush(&self.state, false);
     }

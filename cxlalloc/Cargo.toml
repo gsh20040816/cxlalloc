@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+default = ["arch-gpf", "recover-log"]
 arch-gpf = []
 arch-clwb = []
 arch-clflushopt = []
 backend-shm = []
 extend = []
+recover-log = []
 stat-count = []
 stat-extend = []
 stat-size = ["dep:hdrhistogram"]
