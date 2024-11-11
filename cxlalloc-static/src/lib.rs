@@ -295,19 +295,8 @@ pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mu
     ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
 }
 
-#[allow(non_camel_case_types)]
-pub struct cxlalloc_set_t;
-
-/// Note: the second argument is left here for now for legacy reasons.
-///
-/// Originally, the ralloc interface required a user-defined function pointer
-/// for tracing data structures during its leak reclamation pass. Our allocator
-/// no longer uses this, but our programs were initially using the ralloc API.
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_get_root(
-    index: usize,
-    _: unsafe extern "C" fn(reachable: *mut cxlalloc_set_t, root: *mut ffi::c_void),
-) -> *mut ffi::c_void {
+pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
     let root = root::Index::new(index);
     ALLOCATOR.with_borrow(|allocator| {
         allocator

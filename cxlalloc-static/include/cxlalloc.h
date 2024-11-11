@@ -7,8 +7,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct cxlalloc_set_t cxlalloc_set_t;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -57,14 +55,7 @@ void *cxlalloc_realloc(void *pointer, size_t size);
 
 void *cxlalloc_memalign(size_t size, size_t alignment);
 
-/**
- * Note: the second argument is left here for now for legacy reasons.
- *
- * Originally, the ralloc interface required a user-defined function pointer
- * for tracing data structures during its leak reclamation pass. Our allocator
- * no longer uses this, but our programs were initially using the ralloc API.
- */
-void *cxlalloc_get_root(size_t index, void(*)(struct cxlalloc_set_t *reachable, void *root));
+void *cxlalloc_get_root(size_t index);
 
 void cxlalloc_set_root(size_t index, void *pointer);
 
