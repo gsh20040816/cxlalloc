@@ -25,17 +25,6 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         old.inner()
     }
 
-    fn notify(&self, help: &thread::Array<Help>, state: State<T>) {
-        if let Some(id) = state.id() {
-            let version = state.version();
-            if help[id].must_notify(version) {
-                crate::flush(&self.0, false);
-                // Notify is a CAS, which will serialize the flush
-                help[id].notify(version);
-            }
-        }
-    }
-
     pub(crate) fn update<F>(
         &self,
         help: &thread::Array<Help>,
@@ -48,16 +37,21 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
     {
         let mut old = self.0.load();
         let version = help[id].peek().next();
-        help[id].prepare(version);
 
-        // Must wait for persistence
-        crate::flush(&help[id], false);
-        crate::fence();
+        if cfg!(feature = "recover-cas") {
+            help[id].prepare(version);
+
+            // Must wait for persistence
+            crate::flush(&help[id], false);
+            crate::fence();
+        }
 
         loop {
             self.notify(help, old);
 
             let (new, log) = next(old.inner(), version)?;
+
+            // Unsync because following compare-exchange is serializing
             meta.log_unsync(region::owned::State::new(log));
 
             match self
@@ -66,6 +60,21 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
             {
                 Ok(_) => break Some(old.inner()),
                 Err(next) => old = next,
+            }
+        }
+    }
+
+    fn notify(&self, help: &thread::Array<Help>, state: State<T>) {
+        if !cfg!(feature = "recover-cas") {
+            return;
+        }
+
+        if let Some(id) = state.id() {
+            let version = state.version();
+            if help[id].must_notify(version) {
+                crate::flush(&self.0, false);
+                // Notify is a CAS, which will serialize the flush
+                help[id].notify(version);
             }
         }
     }

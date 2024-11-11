@@ -4,16 +4,26 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["arch-gpf", "recover-log"]
+default = ["arch-gpf", "recover"]
+
 arch-gpf = []
 arch-clwb = []
 arch-clflushopt = []
+
 backend-shm = []
+
 extend = []
+
+recover = ["recover-cas", "recover-log"]
+# Enable detectable CAS
+recover-cas = []
+# Enable state transition logging
 recover-log = []
+
 stat-count = []
 stat-extend = []
 stat-size = ["dep:hdrhistogram"]
+
 validate = []
 
 [dependencies]
