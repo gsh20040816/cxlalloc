@@ -78,7 +78,6 @@ impl Inner {
             process_count,
         );
 
-        let id = raw::region::Id::new(id);
         let slab_count = size.next_multiple_of(SIZE_SLAB) / SIZE_SLAB;
 
         // TODO: If heap extension is enabled, ensure that the shared and owned
@@ -86,21 +85,21 @@ impl Inner {
         // with MAP_FIXED at contiguous addresses.
         let shared_layout = region::Shared::layout(slab_count);
         let shared = backend.allocate(
-            id.with_suffix("shared"),
+            format!("{id}-shared"),
             shared_layout.size(),
             raw::region::RESERVATION,
         )?;
 
         let owned_layout = region::Owned::layout(slab_count);
         let owned = backend.allocate(
-            id.with_suffix("owned"),
+            format!("{id}-owned"),
             owned_layout.size(),
             raw::region::RESERVATION,
         )?;
 
         let data_layout = region::Data::layout(slab_count);
         let data = backend.allocate(
-            id.with_suffix("slab"),
+            format!("{id}-data"),
             data_layout.size(),
             raw::region::RESERVATION * 2,
         )?;

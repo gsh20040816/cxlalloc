@@ -2,14 +2,13 @@ use std::io;
 
 use crate::raw;
 use crate::raw::backend::Backend;
-use crate::raw::region;
 use crate::raw::Region;
 
 #[derive(Clone, Debug, Default)]
 pub struct Mmap;
 
 impl Backend for Mmap {
-    fn allocate(&self, id: region::Id, size: usize, reserved: usize) -> io::Result<Region> {
+    fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
         Region::new(id, size, reserved, None)
     }
 

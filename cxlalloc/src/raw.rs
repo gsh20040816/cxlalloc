@@ -8,8 +8,6 @@ pub(crate) use region::Region;
 use core::any;
 use std::io;
 
-use region::Id;
-
 // Note: we use an enum here to avoid dynamic allocation
 // of a `Box<dyn Backend>` trait object. This is fine
 // because the set of backends should not be extensible
@@ -22,7 +20,7 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub(crate) fn allocate(&self, id: Id, size: usize, reserved: usize) -> io::Result<Region> {
+    pub(crate) fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
         self.as_backend()
             .allocate(id, size, reserved)
             .inspect(|region| {
@@ -67,13 +65,12 @@ pub mod backend {
 
     use std::io;
 
-    use crate::raw::region;
     use crate::raw::Region;
 
     // This trait is an implementation detail for requiring
     // our backend implementations to expose the same interface.
     pub(super) trait Backend: Send + Sync {
-        fn allocate(&self, id: region::Id, size: usize, reserved: usize) -> io::Result<Region>;
+        fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region>;
 
         fn extend(&self, region: &Region) -> io::Result<()>;
 

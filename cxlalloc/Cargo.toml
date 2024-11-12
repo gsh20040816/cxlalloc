@@ -27,7 +27,6 @@ stat-size = ["dep:hdrhistogram"]
 validate = []
 
 [dependencies]
-arrayvec.workspace = true
 hdrhistogram = { workspace = true, optional = true }
 gcollections.workspace = true
 intervallum.workspace = true

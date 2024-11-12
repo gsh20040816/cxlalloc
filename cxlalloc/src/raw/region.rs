@@ -1,14 +1,9 @@
 use core::ffi;
-use core::ffi::CStr;
-use core::fmt;
-use core::fmt::Display;
-use core::fmt::Write as _;
 use core::ptr;
 use core::ptr::NonNull;
+use std::ffi::CString;
 use std::io;
 use std::os::fd::RawFd;
-
-use arrayvec::ArrayString;
 
 use crate::extend::Epoch;
 use crate::Atomic;
@@ -17,7 +12,7 @@ pub(crate) const RESERVATION: usize = 2usize.pow(40);
 
 pub(crate) struct Region {
     /// Unique identifier of this memory region
-    id: Id,
+    id: String,
 
     /// Size of this memory region in bytes
     size: usize,
@@ -37,7 +32,7 @@ pub(crate) struct Region {
 
 impl Region {
     pub(super) fn new(
-        id: Id,
+        id: String,
         size: usize,
         reserved: usize,
         file: Option<(RawFd, i64, bool)>,
@@ -122,11 +117,11 @@ impl Region {
         epoch.next()
     }
 
-    pub(super) fn epoch_to_metadata(&self, epoch: Epoch) -> (*mut ffi::c_void, usize, Id) {
+    pub(super) fn epoch_to_metadata(&self, epoch: Epoch) -> (*mut ffi::c_void, usize, CString) {
         (
             self.epoch_to_address(epoch),
             self.epoch_to_size(epoch),
-            self.epoch_to_id(epoch),
+            Self::epoch_to_path(&self.id, epoch),
         )
     }
 
@@ -141,8 +136,8 @@ impl Region {
         epoch.partial(self.size as u32) as usize
     }
 
-    pub(super) fn epoch_to_id(&self, epoch: Epoch) -> Id {
-        self.id.with_epoch(epoch)
+    pub(super) fn epoch_to_path(id: &str, epoch: Epoch) -> CString {
+        CString::new(format!("{id}-{}", u8::from(epoch))).unwrap()
     }
 
     pub(super) fn extend(
@@ -213,87 +208,5 @@ pub(crate) unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result
         Ok(())
     } else {
         Err(io::Error::last_os_error())
-    }
-}
-
-/// Fixed-size persistent region identifier to avoid
-/// dynamic allocation within the allocator.
-///
-/// Invariant: holds a valid null-terminated C string.
-#[derive(Debug)]
-pub(crate) struct Id(ArrayString<{ Self::MAX_LENGTH + 1 }>);
-
-impl Id {
-    const MAX_LENGTH: usize = 15;
-
-    pub(crate) fn new(prefix: &str) -> Self {
-        assert!(
-            prefix.len() <= Self::MAX_LENGTH,
-            "Region prefix {} exceeds maximum length {}",
-            prefix,
-            Self::MAX_LENGTH,
-        );
-
-        assert!(
-            !prefix.contains('\0'),
-            "Region prefix {} contains null byte",
-            prefix,
-        );
-
-        let mut id = ArrayString::from(prefix).unwrap();
-        id.push('\0');
-        Self(id)
-    }
-
-    #[cfg_attr(not(feature = "backend-shm"), allow(unused))]
-    pub(super) fn as_c_str(&self) -> &CStr {
-        CStr::from_bytes_with_nul(self.0.as_bytes()).unwrap()
-    }
-
-    pub(crate) fn with_suffix(&self, suffix: &str) -> Self {
-        assert!(
-            // -1 for null byte
-            // +1 for dash
-            self.0.len() - 1 + 1 + suffix.len() <= Self::MAX_LENGTH,
-            "Region identifier {}-{} exceeds maximum length {}",
-            self.0,
-            suffix,
-            Self::MAX_LENGTH,
-        );
-
-        let mut new = self.0;
-        assert_eq!(new.pop(), Some('\0'));
-        new.push('-');
-        new.push_str(suffix);
-        new.push('\0');
-        Id(new)
-    }
-
-    pub(super) fn with_epoch(&self, epoch: Epoch) -> Self {
-        let epoch = u8::from(epoch);
-
-        // log10(0..10) = 0
-        // log10(10..100) = 1
-        let digits = epoch.checked_ilog10().unwrap_or(0) as usize + 1;
-        assert!(
-            // -1 for null byte
-            // +1 for dash
-            self.0.len() - 1 + 1 + digits <= Self::MAX_LENGTH,
-            "Region identifier {}-{} exceeds maximum length {}",
-            self.0,
-            epoch,
-            Self::MAX_LENGTH,
-        );
-
-        let mut new = self.0;
-        assert_eq!(new.pop(), Some('\0'));
-        write!(&mut new, "-{}\0", epoch).unwrap();
-        Id(new)
-    }
-}
-
-impl Display for Id {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.0[..self.0.len() - 1])
     }
 }

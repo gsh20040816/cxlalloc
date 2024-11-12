@@ -6,7 +6,6 @@ use std::os::fd::OwnedFd;
 use crate::extend::Epoch;
 use crate::raw;
 use crate::raw::backend::Backend;
-use crate::raw::Id;
 use crate::raw::Region;
 use crate::SIZE_PAGE;
 
@@ -22,11 +21,12 @@ impl Shm {
 }
 
 impl Backend for Shm {
-    fn allocate(&self, id: Id, size: usize, reserved: usize) -> io::Result<Region> {
+    fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
         let size = size.next_multiple_of(SIZE_PAGE);
 
         unsafe {
-            let path = id.with_epoch(Epoch::default());
+            let path = Region::epoch_to_path(&id, Epoch::default());
+
             let (fd, clean) = match libc::shm_open(
                 path.as_c_str().as_ptr(),
                 libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
@@ -65,10 +65,10 @@ impl Backend for Shm {
     fn extend(&self, region: &Region) -> io::Result<()> {
         unsafe {
             let epoch = region.advance_epoch();
-            let (address, size, id) = region.epoch_to_metadata(epoch);
+            let (address, size, path) = region.epoch_to_metadata(epoch);
 
             let fd = match libc::shm_open(
-                id.as_c_str().as_ptr(),
+                path.as_c_str().as_ptr(),
                 libc::O_RDWR | libc::O_CREAT,
                 libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
             ) {
@@ -97,8 +97,8 @@ impl Backend for Shm {
             let end = region.epoch();
 
             while start <= end {
-                let id = region.epoch_to_id(start);
-                if libc::shm_unlink(id.as_c_str().as_ptr()) != 0 {
+                let (_, _, path) = region.epoch_to_metadata(start);
+                if libc::shm_unlink(path.as_c_str().as_ptr()) != 0 {
                     return Err(io::Error::last_os_error());
                 }
                 start = start.next();
