@@ -1,25 +1,27 @@
 use core::alloc::Layout;
 use core::ffi;
+use core::fmt::Display;
+use core::ops::Add;
 use core::ops::Index;
 use core::ops::Range;
 use core::ptr::NonNull;
 use std::sync::Mutex;
 
-use crate::atomic::Version;
+use ribbit::private::u24;
+
 use crate::cas;
 use crate::extend::Epoch;
 use crate::huge;
 use crate::raw;
 use crate::region;
+use crate::region::owned::BumpToLocal;
+use crate::region::owned::StateUnpacked;
 use crate::root;
 use crate::slab;
 use crate::thread;
 use crate::Atomic;
 use crate::BATCH_BUMP_POP;
 use crate::SIZE_PAGE;
-
-use super::owned::BumpToLocal;
-use super::owned::StateUnpacked;
 
 pub(crate) struct Shared<'raw> {
     capacity: u32,
@@ -56,36 +58,35 @@ impl<'raw> Shared<'raw> {
         }
     }
 
-    pub(crate) fn extend(
-        &self,
-        _id: thread::Id,
-        _epoch: Epoch,
-        _version: Option<Version>,
-    ) -> Result<(), Epoch> {
-        todo!()
-    }
-
     pub(crate) fn bump(
         &self,
         id: thread::Id,
         meta: &mut region::owned::Meta,
     ) -> Option<Range<slab::Index>> {
-        let length = self
+        let bump = self
             .meta
             .bump
             .update(&self.meta.help, id, meta, |old, version| {
-                if old._0() + BATCH_BUMP_POP >= self.capacity {
-                    None
+                let old_len = old.length();
+                let new_len = old_len + BATCH_BUMP_POP;
+
+                if u32::from(new_len) >= old.epoch().total(self.capacity) {
+                    panic!(
+                        "Heap extension not yet enabled. Tried to expand from {:#x} to {:#x} but capacity is {:#x}.",
+                        u32::from(old_len),
+                        u32::from(new_len),
+                        self.capacity
+                    );
                 } else {
                     Some((
-                        Length::new(old._0() + BATCH_BUMP_POP),
+                        old.with_length(new_len),
                         StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
                     ))
                 }
             })?;
 
-        let start = slab::Index::from_length(Length::new(length._0()));
-        let end = slab::Index::from_length(Length::new(length._0() + BATCH_BUMP_POP));
+        let start = slab::Index::from_length(bump.length());
+        let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
         Some(start..end)
     }
 
@@ -155,19 +156,9 @@ impl<'raw> Shared<'raw> {
 
 #[cfg(feature = "extend")]
 impl<'raw> Shared<'raw> {
-    pub(crate) fn request(&self) -> Option<Request> {
-        todo!()
-    }
-
     pub(crate) fn epoch(&self) -> Epoch {
         todo!()
     }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum Request {
-    Map(u16),
-    Extend(Epoch),
 }
 
 impl Index<root::Index> for Shared<'_> {
@@ -189,16 +180,38 @@ pub(crate) struct Meta<'raw> {
     roots: root::Array,
     free: slab::GlobalStack<'raw>,
     help: thread::Array<cas::Help>,
-    bump: cas::Detectable<Length>,
+    bump: cas::Detectable<Bump>,
     pub(crate) log: huge::Cxl<2048>,
 }
 
 #[ribbit::pack(size = 32, debug, new(vis = ""))]
 #[derive(Copy, Clone)]
-pub(crate) struct Length(u32);
+pub(crate) struct Bump {
+    #[ribbit(size = 24)]
+    length: Length,
+    #[ribbit(size = 8)]
+    epoch: Epoch,
+}
+
+#[ribbit::pack(size = 24)]
+#[derive(Copy, Clone)]
+pub(crate) struct Length(u24);
 
 impl From<Length> for u32 {
     fn from(length: Length) -> Self {
-        length._0()
+        length._0().value()
+    }
+}
+
+impl Add<u32> for Length {
+    type Output = Self;
+    fn add(self, rhs: u32) -> Self::Output {
+        Self::new(self._0() + u24::new(rhs))
+    }
+}
+
+impl Display for Length {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        Display::fmt(&u32::from(*self), f)
     }
 }

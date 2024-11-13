@@ -12,11 +12,7 @@ use crate::thread;
 use crate::Allocator;
 use crate::SIZE_SLAB;
 
-#[cfg(not(feature = "extend"))]
 pub type Heap = Inner;
-
-#[cfg(feature = "extend")]
-pub type Heap = std::sync::Arc<Inner>;
 
 /// This type represents sole ownership of an initialized backing store
 /// for the heap. If heap extension is enabled, we need to use an
@@ -140,17 +136,7 @@ impl Inner {
             raw.heap().replay_log();
         }
 
-        #[cfg(feature = "extend")]
-        {
-            let raw = std::sync::Arc::new(raw);
-            crate::extend::spawn(&raw);
-            Ok(raw)
-        }
-
-        #[cfg(not(feature = "extend"))]
-        {
-            Ok(raw)
-        }
+        Ok(raw)
     }
 
     pub fn allocator(&self, id: thread::Id) -> Allocator {
@@ -168,7 +154,7 @@ impl Inner {
         self.owned.is_clean() || self.shared.is_clean() || self.data.is_clean()
     }
 
-    #[cfg(feature = "extend")]
+    #[allow(unused)]
     pub(crate) fn extend(&self) -> io::Result<()> {
         self.backend.extend(&self.owned)?;
         self.backend.extend(&self.shared)?;

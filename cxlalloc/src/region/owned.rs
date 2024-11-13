@@ -4,12 +4,13 @@ use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::crash;
 use crate::raw;
-use crate::region::shared::Length;
 use crate::size;
 use crate::slab;
 use crate::thread;
 use crate::Atomic;
 use crate::SIZE_PAGE;
+
+use super::shared::Bump;
 
 pub(crate) struct Owned<'raw> {
     pub(crate) meta: &'raw mut Meta,
@@ -172,7 +173,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     BumpToLocal {
         #[ribbit(size = 32)]
-        length: Length,
+        bump: Bump,
 
         #[ribbit(size = 16)]
         version: Version,
