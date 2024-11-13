@@ -43,6 +43,10 @@ void cxlalloc_init(const char *name,
                    uint8_t process_id,
                    uint8_t process_count);
 
+bool cxlalloc_is_clean(void);
+
+void cxlalloc_init_thread(size_t thread_id);
+
 void *cxlalloc_malloc(size_t size);
 
 void cxlalloc_link(void *pointer);
