@@ -7,11 +7,16 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [features]
+recover-cas = ["cxlalloc/recover-cas"]
+recover-log = ["cxlalloc/recover-log"]
+recover = ["recover-cas", "recover-log"]
 stat-count = []
 
 [dependencies]
 ctor.workspace = true
-cxlalloc = { path = "../cxlalloc" }
+cxlalloc = { path = "../cxlalloc", default-features = false, features = [
+    "arch-gpf",
+] }
 libc.workspace = true
 log.workspace = true
 mimalloc.workspace = true
