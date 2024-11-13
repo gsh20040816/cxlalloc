@@ -15,6 +15,8 @@ use std::io;
 #[derive(Clone, Debug)]
 pub enum Backend {
     Mmap(backend::Mmap),
+    #[cfg(feature = "backend-ivshmem")]
+    Ivshmem(backend::Ivshmem),
     #[cfg(feature = "backend-shm")]
     Shm(backend::Shm),
 }
@@ -46,6 +48,8 @@ impl Backend {
     fn as_backend(&self) -> &dyn backend::Backend {
         match self {
             Backend::Mmap(mmap) => mmap,
+            #[cfg(feature = "backend-ivshmem")]
+            Backend::Ivshmem(ivshmem) => ivshmem,
             #[cfg(feature = "backend-shm")]
             Backend::Shm(shm) => shm,
         }
@@ -56,10 +60,18 @@ impl Backend {
 #[path = "raw"]
 pub mod backend {
     mod mmap;
+
+    #[cfg(feature = "backend-ivshmem")]
+    mod ivshmem;
+
     #[cfg(feature = "backend-shm")]
     mod shm;
 
     pub use mmap::Mmap;
+
+    #[cfg(feature = "backend-ivshmem")]
+    pub use ivshmem::Ivshmem;
+
     #[cfg(feature = "backend-shm")]
     pub use shm::Shm;
 

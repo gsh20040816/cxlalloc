@@ -14,6 +14,10 @@ pub(crate) struct Region {
     /// Unique identifier of this memory region
     id: String,
 
+    /// Offset into physical memory (for ivshmem driver)
+    #[cfg_attr(not(feature = "backend-ivshmem"), allow(dead_code))]
+    offset: i64,
+
     /// Size of this memory region in bytes
     size: usize,
 
@@ -86,6 +90,7 @@ impl Region {
 
         Ok(Region {
             id,
+            offset,
             size,
             reserved,
             epoch: Atomic::new(Epoch::default()),
@@ -98,6 +103,11 @@ impl Region {
         self.base
     }
 
+    #[cfg_attr(not(feature = "backend-ivshmem"), allow(unused))]
+    pub(crate) fn offset(&self) -> i64 {
+        self.offset
+    }
+
     pub(crate) fn size(&self) -> usize {
         self.size
     }
@@ -106,7 +116,10 @@ impl Region {
         self.clean
     }
 
-    #[cfg_attr(not(feature = "backend-shm"), allow(unused))]
+    #[cfg_attr(
+        not(any(feature = "backend-ivshmem", feature = "backend-shm")),
+        allow(unused)
+    )]
     pub(crate) fn epoch(&self) -> Epoch {
         self.epoch.load()
     }

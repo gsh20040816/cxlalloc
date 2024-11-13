@@ -10,7 +10,9 @@ arch-gpf = []
 arch-clwb = []
 arch-clflushopt = []
 
+backend-ivshmem = []
 backend-shm = []
+backend = ["backend-ivshmem", "backend-shm"]
 
 extend = []
 
