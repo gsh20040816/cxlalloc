@@ -71,6 +71,12 @@ pub unsafe extern "C" fn cxlalloc_init_backend(backend: *const ffi::c_char, _des
     {
         "mmap" => raw::Backend::Mmap(backend::Mmap),
 
+        #[cfg(feature = "backend-ivshmem")]
+        "ivshmem" => raw::Backend::Ivshmem(backend::Ivshmem::new(_destroy)),
+
+        #[cfg(not(feature = "backend-ivshmem"))]
+        "ivshmem" => panic!("cxlalloc-static crate was compiled without `backend-ivshmem` feature"),
+
         #[cfg(feature = "backend-shm")]
         "shm" => raw::Backend::Shm(backend::Shm::new(_destroy)),
 

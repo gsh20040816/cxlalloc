@@ -8,8 +8,12 @@ crate-type = ["lib", "staticlib"]
 
 [features]
 default = ["arch-gpf", "recover"]
+
 arch-gpf = ["cxlalloc/arch-gpf"]
+
+backend-ivshmem = ["cxlalloc/backend-ivshmem"]
 backend-shm = ["cxlalloc/backend-shm"]
+
 recover = ["cxlalloc/recover"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
