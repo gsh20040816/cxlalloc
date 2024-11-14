@@ -193,7 +193,9 @@ pub unsafe extern "C" fn cxlalloc_init(
                 let time = START.get_or_init(Instant::now).elapsed().as_nanos();
                 write!(buffer, "[{time:015}]")?;
 
-                writeln!(buffer, "[{}]: {}", record.target(), record.args())
+                writeln!(buffer, "[{}]: {}", record.target(), record.args())?;
+                buffer.flush()?;
+                Ok(())
             })
             .try_init();
 
