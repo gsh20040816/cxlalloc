@@ -21,6 +21,10 @@ impl Shm {
 }
 
 impl Backend for Shm {
+    fn name(&self) -> &'static str {
+        "shm"
+    }
+
     fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
         let size = size.next_multiple_of(SIZE_PAGE);
 

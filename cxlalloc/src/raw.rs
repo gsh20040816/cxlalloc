@@ -5,7 +5,6 @@ pub use heap::Builder;
 pub use heap::Heap;
 pub(crate) use region::Region;
 
-use core::any;
 use std::io;
 
 // Note: we use an enum here to avoid dynamic allocation
@@ -23,17 +22,16 @@ pub enum Backend {
 
 impl Backend {
     pub(crate) fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
-        self.as_backend()
-            .allocate(id, size, reserved)
-            .inspect(|region| {
-                log::info!(
-                    "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
-                    region.size(),
-                    region.base().as_ptr(),
-                    unsafe { region.base().as_ptr().byte_add(region.size()) },
-                    any::type_name::<Self>(),
-                );
-            })
+        let backend = self.as_backend();
+        backend.allocate(id, size, reserved).inspect(|region| {
+            log::info!(
+                "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
+                region.size(),
+                region.base().as_ptr(),
+                region.base().as_ptr().wrapping_byte_add(region.size()),
+                backend.name(),
+            );
+        })
     }
 
     #[cfg_attr(not(feature = "extend"), allow(dead_code))]
@@ -82,6 +80,8 @@ pub mod backend {
     // This trait is an implementation detail for requiring
     // our backend implementations to expose the same interface.
     pub(super) trait Backend: Send + Sync {
+        fn name(&self) -> &'static str;
+
         fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region>;
 
         fn extend(&self, region: &Region) -> io::Result<()>;

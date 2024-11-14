@@ -8,6 +8,10 @@ use crate::raw::Region;
 pub struct Mmap;
 
 impl Backend for Mmap {
+    fn name(&self) -> &'static str {
+        "mmap"
+    }
+
     fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
         Region::new(id, size, reserved, None)
     }

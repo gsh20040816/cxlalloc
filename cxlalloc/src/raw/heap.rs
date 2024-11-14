@@ -62,12 +62,12 @@ impl Inner {
     ) -> io::Result<Heap> {
         log::info!(
             "Requesting heap with \
-            backend = {:?}, \
+            backend = {}, \
             size = {}, \
             thread_count = {}, \
             process_id = {}, \
             process_count = {}",
-            backend,
+            backend.as_backend().name(),
             size,
             thread_count,
             process_id,

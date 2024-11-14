@@ -28,11 +28,13 @@ impl Ivshmem {
 }
 
 impl Backend for Ivshmem {
+    fn name(&self) -> &'static str {
+        "ivshmem"
+    }
+
     fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
         let path = Region::epoch_to_path(&id, Epoch::default());
         let size = size.next_multiple_of(SIZE_PAGE);
-
-        let _start = std::time::Instant::now();
         let allocation = driver::find_cxl_alloc_nomap(&self.device, &path, size)?;
 
         Region::new(
