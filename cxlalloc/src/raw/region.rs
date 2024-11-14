@@ -1,3 +1,4 @@
+use core::cmp;
 use core::ffi;
 use core::ptr;
 use core::ptr::NonNull;
@@ -37,6 +38,7 @@ pub(crate) struct Region {
 impl Region {
     pub(super) fn new(
         id: String,
+        address: Option<NonNull<ffi::c_void>>,
         size: usize,
         reserved: usize,
         file: Option<(RawFd, i64, bool)>,
@@ -46,10 +48,16 @@ impl Region {
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
         let reservation = match unsafe {
             libc::mmap64(
-                ptr::null_mut(),
-                reserved,
+                address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut),
+                cmp::max(size, reserved),
                 libc::PROT_NONE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                libc::MAP_PRIVATE
+                    | libc::MAP_ANONYMOUS
+                    | if address.is_some() {
+                        libc::MAP_FIXED_NOREPLACE
+                    } else {
+                        0
+                    },
                 -1,
                 0,
             )

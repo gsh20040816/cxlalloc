@@ -1,3 +1,5 @@
+use core::ffi;
+use core::ptr::NonNull;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd as _;
@@ -9,23 +11,21 @@ use crate::raw::backend::Backend;
 use crate::raw::Region;
 use crate::SIZE_PAGE;
 
-#[derive(Clone, Debug)]
-pub struct Shm {
-    destroy: bool,
-}
-
-impl Shm {
-    pub fn new(destroy: bool) -> Self {
-        Self { destroy }
-    }
-}
+#[derive(Debug)]
+pub struct Shm;
 
 impl Backend for Shm {
     fn name(&self) -> &'static str {
         "shm"
     }
 
-    fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
+    fn allocate(
+        &self,
+        id: String,
+        address: Option<NonNull<ffi::c_void>>,
+        size: usize,
+        reserved: usize,
+    ) -> io::Result<Region> {
         let size = size.next_multiple_of(SIZE_PAGE);
 
         unsafe {
@@ -61,7 +61,13 @@ impl Backend for Shm {
                 return Err(io::Error::last_os_error());
             }
 
-            let region = Region::new(id, size, reserved, Some((fd.as_raw_fd(), 0, clean)))?;
+            let region = Region::new(
+                id,
+                address,
+                size,
+                reserved,
+                Some((fd.as_raw_fd(), 0, clean)),
+            )?;
             Ok(region)
         }
     }
@@ -89,13 +95,11 @@ impl Backend for Shm {
         }
     }
 
+    fn unmap(&self, region: &Region) -> io::Result<()> {
+        region.unmap()
+    }
+
     fn free(&self, region: &Region) -> io::Result<()> {
-        region.unmap()?;
-
-        if !self.destroy {
-            return Ok(());
-        }
-
         unsafe {
             let mut start = Epoch::default();
             let end = region.epoch();

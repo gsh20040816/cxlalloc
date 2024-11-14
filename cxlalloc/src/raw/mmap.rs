@@ -1,3 +1,5 @@
+use core::ffi;
+use core::ptr::NonNull;
 use std::io;
 
 use crate::raw;
@@ -12,8 +14,14 @@ impl Backend for Mmap {
         "mmap"
     }
 
-    fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
-        Region::new(id, size, reserved, None)
+    fn allocate(
+        &self,
+        id: String,
+        address: Option<NonNull<ffi::c_void>>,
+        size: usize,
+        reserved: usize,
+    ) -> io::Result<Region> {
+        Region::new(id, address, size, reserved, None)
     }
 
     fn extend(&self, region: &Region) -> io::Result<()> {
@@ -22,8 +30,12 @@ impl Backend for Mmap {
         region.extend(address, size, None).map(drop)
     }
 
-    fn free(&self, region: &Region) -> io::Result<()> {
+    fn unmap(&self, region: &Region) -> io::Result<()> {
         region.unmap()
+    }
+
+    fn free(&self, _: &Region) -> io::Result<()> {
+        Ok(())
     }
 }
 

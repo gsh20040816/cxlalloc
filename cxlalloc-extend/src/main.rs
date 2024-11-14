@@ -61,7 +61,7 @@ fn main() {
         }
         Some(process_id) => {
             for _ in 0..command.iterations {
-                let backend = cxlalloc::raw::Backend::Shm(backend::Shm::new(process_id == 0));
+                let backend = cxlalloc::raw::Backend::Shm(backend::Shm);
 
                 let raw = cxlalloc::raw::Builder::default()
                     .backend(backend)

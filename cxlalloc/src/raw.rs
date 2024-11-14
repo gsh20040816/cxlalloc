@@ -5,13 +5,15 @@ pub use heap::Builder;
 pub use heap::Heap;
 pub(crate) use region::Region;
 
+use core::ffi;
+use core::ptr::NonNull;
 use std::io;
 
 // Note: we use an enum here to avoid dynamic allocation
 // of a `Box<dyn Backend>` trait object. This is fine
 // because the set of backends should not be extensible
 // by downstream consumers.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Backend {
     Mmap(backend::Mmap),
     #[cfg(feature = "backend-ivshmem")]
@@ -21,22 +23,34 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub(crate) fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
+    pub(crate) fn allocate(
+        &self,
+        id: String,
+        address: Option<NonNull<ffi::c_void>>,
+        size: usize,
+        reserved: usize,
+    ) -> io::Result<Region> {
         let backend = self.as_backend();
-        backend.allocate(id, size, reserved).inspect(|region| {
-            log::info!(
-                "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
-                region.size(),
-                region.base().as_ptr(),
-                region.base().as_ptr().wrapping_byte_add(region.size()),
-                backend.name(),
-            );
-        })
+        backend
+            .allocate(id, address, size, reserved)
+            .inspect(|region| {
+                log::info!(
+                    "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
+                    region.size(),
+                    region.base().as_ptr(),
+                    region.base().as_ptr().wrapping_byte_add(region.size()),
+                    backend.name(),
+                );
+            })
     }
 
     #[cfg_attr(not(feature = "extend"), allow(dead_code))]
     pub(crate) fn extend(&self, region: &Region) -> io::Result<()> {
         self.as_backend().extend(region)
+    }
+
+    pub(crate) fn unmap(&self, region: &Region) -> io::Result<()> {
+        self.as_backend().unmap(region)
     }
 
     pub(crate) fn free(&self, region: &Region) -> io::Result<()> {
@@ -73,6 +87,8 @@ pub mod backend {
     #[cfg(feature = "backend-shm")]
     pub use shm::Shm;
 
+    use core::ffi;
+    use core::ptr::NonNull;
     use std::io;
 
     use crate::raw::Region;
@@ -82,9 +98,17 @@ pub mod backend {
     pub(super) trait Backend: Send + Sync {
         fn name(&self) -> &'static str;
 
-        fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region>;
+        fn allocate(
+            &self,
+            id: String,
+            address: Option<NonNull<ffi::c_void>>,
+            size: usize,
+            reserved: usize,
+        ) -> io::Result<Region>;
 
         fn extend(&self, region: &Region) -> io::Result<()>;
+
+        fn unmap(&self, region: &Region) -> io::Result<()>;
 
         fn free(&self, region: &Region) -> io::Result<()>;
     }

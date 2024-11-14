@@ -1,7 +1,8 @@
+use core::ffi;
+use core::ptr::NonNull;
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd as _;
-use std::sync::Arc;
 
 use crate::raw;
 use crate::raw::backend::Backend;
@@ -9,20 +10,19 @@ use crate::raw::Region;
 use crate::Epoch;
 use crate::SIZE_PAGE;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Ivshmem {
-    device: Arc<File>,
-    destroy: bool,
+    device: File,
 }
 
 impl Ivshmem {
-    pub fn new(destroy: bool) -> Self {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         File::options()
             .read(true)
             .write(true)
             .open("/dev/cxl_ivpci0")
-            .map(Arc::new)
-            .map(|device| Self { device, destroy })
+            .map(|device| Self { device })
             .expect("Failed to open `/dev/cxl_ivpci0`: is CXL driver module loaded?")
     }
 }
@@ -32,13 +32,20 @@ impl Backend for Ivshmem {
         "ivshmem"
     }
 
-    fn allocate(&self, id: String, size: usize, reserved: usize) -> io::Result<Region> {
+    fn allocate(
+        &self,
+        id: String,
+        address: Option<NonNull<ffi::c_void>>,
+        size: usize,
+        reserved: usize,
+    ) -> io::Result<Region> {
         let path = Region::epoch_to_path(&id, Epoch::default());
         let size = size.next_multiple_of(SIZE_PAGE);
         let allocation = driver::find_cxl_alloc_nomap(&self.device, &path, size)?;
 
         Region::new(
             id,
+            address,
             size,
             reserved,
             Some((
@@ -64,13 +71,11 @@ impl Backend for Ivshmem {
             .map(drop)
     }
 
+    fn unmap(&self, region: &Region) -> io::Result<()> {
+        region.unmap()
+    }
+
     fn free(&self, region: &Region) -> io::Result<()> {
-        region.unmap()?;
-
-        if !self.destroy {
-            return Ok(());
-        }
-
         let mut start = Epoch::default();
         let end = region.epoch();
 

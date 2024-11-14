@@ -34,6 +34,9 @@ pub struct Inner {
     pub(crate) process_count: usize,
 
     pub(crate) state: Mutex<huge::Dram>,
+
+    /// Free on drop
+    free: bool,
 }
 
 /// # Safety
@@ -58,6 +61,7 @@ impl Inner {
             thread_count,
             process_id,
             process_count,
+            free,
         }: Builder,
     ) -> io::Result<Heap> {
         log::info!(
@@ -82,6 +86,7 @@ impl Inner {
         let shared_layout = region::Shared::layout(slab_count);
         let shared = backend.allocate(
             format!("{id}-shared"),
+            None,
             shared_layout.size(),
             raw::region::RESERVATION,
         )?;
@@ -89,6 +94,7 @@ impl Inner {
         let owned_layout = region::Owned::layout(slab_count);
         let owned = backend.allocate(
             format!("{id}-owned"),
+            None,
             owned_layout.size(),
             raw::region::RESERVATION,
         )?;
@@ -96,6 +102,7 @@ impl Inner {
         let data_layout = region::Data::layout(slab_count);
         let data = backend.allocate(
             format!("{id}-data"),
+            None,
             data_layout.size(),
             raw::region::RESERVATION * 2,
         )?;
@@ -130,6 +137,7 @@ impl Inner {
             state: Mutex::default(),
             process_id,
             process_count,
+            free,
         };
 
         if !raw.is_clean() {
@@ -165,16 +173,32 @@ impl Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        if let Err(error) = self.backend.unmap(&self.shared) {
+            log::error!("Failed to unmap shared region: {:?}", error);
+        }
+
+        if let Err(error) = self.backend.unmap(&self.owned) {
+            log::error!("Failed to unmap owned region: {:?}", error);
+        }
+
+        if let Err(error) = self.backend.unmap(&self.data) {
+            log::error!("Failed to unmap data region: {:?}", error);
+        }
+
+        if !self.free {
+            return;
+        }
+
         if let Err(error) = self.backend.free(&self.shared) {
-            log::error!("Failed to free metadata region: {:?}", error);
+            log::error!("Failed to free shared region: {:?}", error);
         }
 
         if let Err(error) = self.backend.free(&self.owned) {
-            log::error!("Failed to free descriptor region: {:?}", error);
+            log::error!("Failed to free owned region: {:?}", error);
         }
 
         if let Err(error) = self.backend.free(&self.data) {
-            log::error!("Failed to free slab region: {:?}", error);
+            log::error!("Failed to free data region: {:?}", error);
         }
     }
 }
@@ -185,6 +209,7 @@ pub struct Builder {
     thread_count: usize,
     process_id: usize,
     process_count: usize,
+    free: bool,
 }
 
 impl Builder {
@@ -216,6 +241,11 @@ impl Builder {
         self.process_count = process_count;
         self
     }
+
+    pub fn free(mut self, free: bool) -> Self {
+        self.free = free;
+        self
+    }
 }
 
 impl Default for Builder {
@@ -226,6 +256,7 @@ impl Default for Builder {
             thread_count: 1,
             process_id: 0,
             process_count: 1,
+            free: false,
         }
     }
 }

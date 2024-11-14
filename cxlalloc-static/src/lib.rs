@@ -19,7 +19,44 @@ use cxlalloc::root;
 use cxlalloc::Allocator;
 
 static RAW: OnceLock<raw::Heap> = OnceLock::new();
-static BACKEND: OnceLock<raw::Backend> = OnceLock::new();
+static BACKEND: OnceLock<Backend> = OnceLock::new();
+
+enum Backend {
+    Mmap,
+    Shm,
+    Ivshmem,
+}
+
+impl Backend {
+    fn parse(name: &str) -> Self {
+        match name {
+            "mmap" => Backend::Mmap,
+            "ivshmem" => Backend::Ivshmem,
+            "shm" => Backend::Shm,
+            unknown => panic!("Expected one of [mmap, ivshmem, shm], but got {}", unknown),
+        }
+    }
+
+    fn instantiate(&self) -> raw::Backend {
+        match self {
+            Backend::Mmap => raw::Backend::Mmap(backend::Mmap),
+
+            #[cfg(feature = "backend-shm")]
+            Backend::Shm => raw::Backend::Shm(backend::Shm),
+            #[cfg(not(feature = "backend-shm"))]
+            Backend::Shm => {
+                panic!("cxlalloc-static crate was compiled without `backend-shm` feature")
+            }
+
+            #[cfg(feature = "backend-ivshmem")]
+            Backend::Ivshmem => raw::Backend::Ivshmem(backend::Ivshmem::new()),
+            #[cfg(not(feature = "backend-ivshmem"))]
+            Backend::Ivshmem => {
+                panic!("cxlalloc-static crate was compiled without `backend-ivshmem` feature")
+            }
+        }
+    }
+}
 
 thread_local! {
     // Using a const initializer was causing some linking errors when using clang-15.
@@ -64,29 +101,13 @@ impl Drop for Id {
 ///
 /// Note: this is a separate function for backward compatibility.
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_init_backend(backend: *const ffi::c_char, _destroy: bool) {
-    let backend = match CStr::from_ptr(backend)
-        .to_str()
-        .expect("Backend must be valid UTF-8")
-    {
-        "mmap" => raw::Backend::Mmap(backend::Mmap),
-
-        #[cfg(feature = "backend-ivshmem")]
-        "ivshmem" => raw::Backend::Ivshmem(backend::Ivshmem::new(_destroy)),
-
-        #[cfg(not(feature = "backend-ivshmem"))]
-        "ivshmem" => panic!("cxlalloc-static crate was compiled without `backend-ivshmem` feature"),
-
-        #[cfg(feature = "backend-shm")]
-        "shm" => raw::Backend::Shm(backend::Shm::new(_destroy)),
-
-        #[cfg(not(feature = "backend-shm"))]
-        "shm" => panic!("cxlalloc-static crate was compiled without `backend-shm` feature"),
-
-        unknown => panic!("Expected one of [mmap, shm], but got {}", unknown),
-    };
-
-    BACKEND.get_or_init(|| backend);
+pub unsafe extern "C" fn cxlalloc_init_backend(backend: *const ffi::c_char) {
+    BACKEND.get_or_init(|| {
+        CStr::from_ptr(backend)
+            .to_str()
+            .map(Backend::parse)
+            .expect("Backend name must be valid UTF-8")
+    });
 }
 
 /// Control the global logger filter at runtime.
@@ -128,11 +149,6 @@ pub unsafe extern "C" fn cxlalloc_init(
     process_count: u8,
 ) {
     cxlalloc_init_thread(thread_id as usize);
-
-    #[allow(unreachable_code)]
-    let backend = BACKEND
-        .get_or_init(|| raw::Backend::Mmap(backend::Mmap))
-        .clone();
 
     RAW.get_or_init(move || {
         let _ = env_logger::Builder::from_default_env()
@@ -188,7 +204,7 @@ pub unsafe extern "C" fn cxlalloc_init(
             .trim_start_matches("/dev/shm/");
 
         raw::Builder::default()
-            .backend(backend)
+            .backend(BACKEND.get_or_init(|| Backend::Mmap).instantiate())
             .size(size)
             .thread_count(thread_count as usize)
             .process_id(process_id as usize)
