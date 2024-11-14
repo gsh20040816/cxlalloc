@@ -13,6 +13,7 @@ use crate::cas;
 use crate::extend::Epoch;
 use crate::huge;
 use crate::raw;
+use crate::raw::Backend;
 use crate::region;
 use crate::region::owned::BumpToLocal;
 use crate::region::owned::StateUnpacked;
@@ -27,6 +28,7 @@ pub(crate) struct Shared<'raw> {
     capacity: u32,
     process_count: usize,
     process_id: usize,
+    backend: &'raw Backend,
     meta: &'raw Meta<'raw>,
     pub(crate) slabs: slab::Slice<'raw, slab::Shared>,
 }
@@ -53,6 +55,7 @@ impl<'raw> Shared<'raw> {
             capacity: raw.capacity,
             process_count: raw.process_count,
             process_id: raw.process_id,
+            backend: &raw.backend,
             meta: raw.shared.base().cast::<Meta>().as_ref(),
             slabs: slab::Slice::from_raw(&raw.shared, offset),
         }
@@ -96,9 +99,14 @@ impl<'raw> Shared<'raw> {
         base: NonNull<u64>,
         size: usize,
     ) -> NonNull<u64> {
-        self.meta
-            .log
-            .allocate(state, self.process_count, self.process_id, base, size)
+        self.meta.log.allocate(
+            self.backend,
+            state,
+            self.process_count,
+            self.process_id,
+            base,
+            size,
+        )
     }
 
     pub(crate) unsafe fn free_log(
@@ -107,16 +115,26 @@ impl<'raw> Shared<'raw> {
         base: NonNull<u64>,
         pointer: NonNull<ffi::c_void>,
     ) {
-        self.meta
-            .log
-            .free(state, self.process_count, self.process_id, base, pointer)
+        self.meta.log.free(
+            self.backend,
+            state,
+            self.process_count,
+            self.process_id,
+            base,
+            pointer,
+        )
     }
 
     pub(crate) unsafe fn replay_log(&self, state: &Mutex<huge::Dram>, base: NonNull<u64>) {
         let state = &mut *state.lock().unwrap();
-        self.meta
-            .log
-            .replay(state, base, self.process_count, self.process_id, None);
+        self.meta.log.replay(
+            self.backend,
+            state,
+            base,
+            self.process_count,
+            self.process_id,
+            None,
+        );
     }
 
     pub(crate) unsafe fn size_log(

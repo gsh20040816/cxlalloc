@@ -107,6 +107,18 @@ impl Region {
         })
     }
 
+    pub(crate) fn reconstruct(id: String, base: NonNull<u64>, size: usize, offset: i64) -> Self {
+        Region {
+            id,
+            offset,
+            size,
+            reserved: size,
+            epoch: Atomic::new(Epoch::default()),
+            base,
+            clean: false,
+        }
+    }
+
     pub(crate) fn base(&self) -> NonNull<u64> {
         self.base
     }

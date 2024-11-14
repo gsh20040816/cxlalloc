@@ -3,6 +3,8 @@ use core::ffi;
 use core::num::NonZeroU32;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
+use core::sync::atomic::AtomicI64;
+use core::sync::atomic::Ordering;
 use std::sync::Mutex;
 
 use gcollections::ops::Bounded as _;
@@ -12,6 +14,8 @@ use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
+use crate::raw::Backend;
+use crate::raw::Region;
 use crate::stat;
 use crate::Atomic;
 use crate::SIZE_PAGE;
@@ -72,6 +76,7 @@ pub(crate) struct Cxl<const SIZE: usize> {
 impl<const SIZE: usize> Cxl<SIZE> {
     pub(crate) fn allocate(
         &self,
+        backend: &Backend,
         state: &Mutex<Dram>,
         process_count: usize,
         process_id: usize,
@@ -85,7 +90,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
         let size = NonZeroUsize::new(size).unwrap();
 
         loop {
-            let tail = self.tail(state, base, process_count, process_id);
+            let tail = self.tail(backend, state, base, process_count, process_id);
             let next = Tail::new(
                 process_id as u16,
                 index,
@@ -111,7 +116,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             match self.global.compare_exchange(tail, Some(next)) {
                 Ok(_) => {
                     self.validate(next);
-                    self.apply(state, base, process_count, process_id, next);
+                    self.apply(backend, state, base, process_count, process_id, next);
                     log::info!("Applied allocate {next:?}",);
                     return NonNull::new(
                         base.as_ptr()
@@ -127,6 +132,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
     pub(crate) fn free(
         &self,
+        backend: &Backend,
         state: &Mutex<Dram>,
         process_count: usize,
         process_id: usize,
@@ -140,7 +146,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
         loop {
             let tail = self
-                .tail(state, base, process_count, process_id)
+                .tail(backend, state, base, process_count, process_id)
                 .expect("Called free with no allocation log entry");
 
             let next = Tail::new(process_id as u16, index, tail.lsn().next());
@@ -159,7 +165,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             match self.global.compare_exchange(Some(tail), Some(next)) {
                 Ok(_) => {
                     self.validate(next);
-                    self.apply(state, base, process_count, process_id, next);
+                    self.apply(backend, state, base, process_count, process_id, next);
                     log::info!("Applied free {next:?}");
                     return;
                 }
@@ -274,6 +280,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
     fn tail(
         &self,
+        backend: &Backend,
         state: &mut Dram,
         base: NonNull<u64>,
         process_count: usize,
@@ -288,7 +295,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
             cmp::Ordering::Greater => self.validate(tail),
         }
 
-        self.replay(state, base, process_count, process_id, seen);
+        self.replay(backend, state, base, process_count, process_id, seen);
         Some(tail)
     }
 
@@ -334,6 +341,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
 
     pub(crate) fn replay(
         &self,
+        backend: &Backend,
         state: &mut Dram,
         base: NonNull<u64>,
         process_count: usize,
@@ -375,12 +383,13 @@ impl<const SIZE: usize> Cxl<SIZE> {
         );
 
         for entry in entries {
-            self.apply(state, base, process_count, process_id, entry);
+            self.apply(backend, state, base, process_count, process_id, entry);
         }
     }
 
     fn apply(
         &self,
+        backend: &Backend,
         state: &mut Dram,
         base: NonNull<u64>,
         process_count: usize,
@@ -414,37 +423,28 @@ impl<const SIZE: usize> Cxl<SIZE> {
                     .cast::<ffi::c_void>()
                     .wrapping_byte_add(offset);
 
-                match libc::mmap64(
-                    address,
-                    size.get(),
-                    libc::PROT_WRITE | libc::PROT_READ,
-                    libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_FIXED_NOREPLACE,
-                    -1,
-                    0,
-                ) {
-                    libc::MAP_FAILED => panic!(
-                        "mmap {:#x?}-{:#x?} ({:#x?})",
-                        address,
-                        address.wrapping_byte_add(size.get()),
-                        size
-                    ),
-                    actual => {
-                        assert_eq!(address, actual);
-                        log::info!(
-                            "mmap {:#x?}-{:#x?} ({:#x?})",
-                            address,
-                            address.wrapping_byte_add(size.get()),
-                            size
-                        );
-                        crate::raw::region::mbind(actual, size.get()).unwrap();
-                    }
-                }
+                let region = backend
+                    .allocate(
+                        // FIXME: prefix with heap ID
+                        format!("huge-{}", allocate.lsn()._0()),
+                        NonNull::new(address),
+                        size.get(),
+                        0,
+                    )
+                    .unwrap_or_else(|_| panic!("Failed to allocate huge region"));
 
                 address
-                    .cast::<Atomic<Tail>>()
+                    .cast::<Atomic<Option<Tail>>>()
                     .as_ref()
                     .unwrap()
-                    .store(entry);
+                    .store(Some(entry));
+
+                address
+                    .wrapping_byte_add(size_of::<Atomic<Option<Tail>>>())
+                    .cast::<AtomicI64>()
+                    .as_ref()
+                    .unwrap()
+                    .store(region.offset(), Ordering::Release);
 
                 allocate.lsn()
             },
@@ -474,18 +474,26 @@ impl<const SIZE: usize> Cxl<SIZE> {
                         .unwrap()
                 };
 
-                // Unmap for process
-                unsafe {
-                    log::info!(
-                        "unmap {:#x?}-{:#x?} ({:#x})",
-                        address,
-                        address.wrapping_byte_add(size.get()),
-                        size.get()
-                    );
-                    assert_eq!(libc::munmap(address, size.get()), 0);
-                }
+                let offset = unsafe {
+                    address
+                        .wrapping_byte_add(size_of::<Atomic<Option<Tail>>>())
+                        .cast::<AtomicI64>()
+                        .as_ref()
+                        .unwrap()
+                        .load(Ordering::Acquire)
+                };
 
-                // FIXME: last thread in process
+                // Unmap for process
+                let region = Region::reconstruct(
+                    format!("huge-{}", tail.lsn()._0()),
+                    NonNull::new(address).unwrap().cast(),
+                    size.get(),
+                    offset,
+                );
+
+                backend.unmap(&region).expect("Failed to unmap");
+
+                // Last process frees
                 if self
                     .local
                     .iter()
@@ -500,23 +508,20 @@ impl<const SIZE: usize> Cxl<SIZE> {
                         .load()
                         .map(|meta| meta.unpack())
                     {
-                        Some(MetaUnpacked::Allocate(allocate))
+                        meta @ Some(MetaUnpacked::Allocate(allocate))
                             if allocate.lsn() == tail.lsn() && !allocate.freed() =>
                         {
                             assert!(allocate.valid());
+
+                            backend.free(&region).expect("Failed to free");
+
                             let _ = self.logs[tail.process_id() as usize][tail.index() as usize]
                                 .meta
                                 .compare_exchange(
-                                    Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
-                                        allocate.lsn(),
-                                        true,
-                                        false,
-                                    )))),
-                                    Some(Meta::new(MetaUnpacked::Allocate(Allocate::new(
-                                        allocate.lsn(),
-                                        true,
-                                        true,
-                                    )))),
+                                    meta.map(Meta::new),
+                                    Some(Meta::new(MetaUnpacked::Allocate(
+                                        allocate.with_freed(true),
+                                    ))),
                                 );
                         }
                         _ => (),
