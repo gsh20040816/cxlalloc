@@ -125,16 +125,31 @@ impl<'raw> Shared<'raw> {
         )
     }
 
-    pub(crate) unsafe fn replay_log(&self, state: &Mutex<huge::Dram>, base: NonNull<u64>) {
+    pub(crate) unsafe fn replay_log(
+        &self,
+        state: &Mutex<huge::Dram>,
+        base: NonNull<u64>,
+        clean: bool,
+    ) {
         let state = &mut *state.lock().unwrap();
-        self.meta.log.replay(
-            self.backend,
-            state,
-            base,
-            self.process_count,
-            self.process_id,
-            None,
-        );
+        if clean {
+            self.meta.log.replay(
+                self.backend,
+                state,
+                base,
+                self.process_count,
+                self.process_id,
+                None,
+            );
+        } else {
+            self.meta.log.tail(
+                self.backend,
+                state,
+                base,
+                self.process_count,
+                self.process_id,
+            );
+        }
     }
 
     pub(crate) unsafe fn size_log(

@@ -117,7 +117,7 @@ impl<'raw> Allocator<'raw> {
     pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
         let offset = self.heap.shared[root].load()?;
         // HACK: support flag-guarded initialization of large allocations
-        self.heap().replay_log();
+        self.heap().replay_log(false);
         Some(self.heap.offset_to_pointer(offset))
     }
 

@@ -278,7 +278,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
         index
     }
 
-    fn tail(
+    pub(crate) fn tail(
         &self,
         backend: &Backend,
         state: &mut Dram,
@@ -539,7 +539,7 @@ impl<const SIZE: usize> Cxl<SIZE> {
 #[ribbit::pack(size = 64, nonzero, debug)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-struct Tail {
+pub(crate) struct Tail {
     process_id: u16,
     index: u16,
     #[ribbit(size = 32, nonzero)]

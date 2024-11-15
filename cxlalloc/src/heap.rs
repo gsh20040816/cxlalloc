@@ -75,9 +75,9 @@ impl<'raw> Heap<'raw> {
         Some(self.offset_to_pointer(offset).as_mut())
     }
 
-    pub(crate) fn replay_log(&self) {
+    pub(crate) fn replay_log(&self, clean: bool) {
         unsafe {
-            self.shared.replay_log(self.state, self.data.huge());
+            self.shared.replay_log(self.state, self.data.huge(), clean);
         }
     }
 }

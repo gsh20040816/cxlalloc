@@ -141,7 +141,7 @@ impl Inner {
         };
 
         if !raw.is_clean() {
-            raw.heap().replay_log();
+            raw.heap().replay_log(true);
         }
 
         Ok(raw)
