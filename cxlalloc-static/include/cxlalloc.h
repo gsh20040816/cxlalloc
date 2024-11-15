@@ -20,7 +20,7 @@ extern "C" {
  *
  * Note: this is a separate function for backward compatibility.
  */
-void cxlalloc_init_backend(const char *backend, bool _destroy);
+void cxlalloc_init_backend(const char *backend);
 
 /**
  * Control the global logger filter at runtime.
