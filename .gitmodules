@@ -1,9 +1,9 @@
 [submodule "mimalloc-bench"]
 	path = extern/mimalloc-bench
-	url = git@github.com:nwtnni/mimalloc-bench.git
+	url = https://github.com/nwtnni/mimalloc-bench.git
 [submodule "extern/silo"]
 	path = extern/silo
-	url = git@github.com:nwtnni/silo.git
+	url = https://github.com/nwtnni/silo.git
 [submodule "extern/memento"]
 	path = extern/memento
-	url = git@github.com:nwtnni/memento.git
+	url = https://github.com/nwtnni/memento.git
