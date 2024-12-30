@@ -4,6 +4,9 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
 use crate::bitset::Bit;
+use crate::clflush;
+use crate::fence;
+use crate::stat;
 
 /// Fixed-size bitset implementation.
 ///
@@ -24,11 +27,34 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
             .for_each(|row| row.store(0, Ordering::Release));
     }
 
+    // https://stackoverflow.com/questions/45556086/how-to-set-bits-of-a-bit-vector-efficiently-in-parallel
     pub(crate) fn set(&self, bit: Bit) {
         let row = bit.row();
         let col = bit.col();
-        self.0[row].fetch_or(1 << col, Ordering::SeqCst);
-        crate::flush(&self.0[row], false);
+
+        let mask = 1 << col;
+        let word = &self.0[row];
+
+        let mut prev = word.load(Ordering::Relaxed);
+
+        loop {
+            word.store(prev | mask, Ordering::Relaxed);
+            // Flush to memory and invalidate our cache so
+            // that we can see writes from other hosts in
+            // a software cache-coherent region.
+            clflush(word as *const _ as _, true);
+            fence();
+            prev = word.load(Ordering::Relaxed);
+            match prev & mask > 0 {
+                true => {
+                    stat::inc(&stat::REMOTE);
+                    break;
+                }
+                false => {
+                    stat::inc(&stat::REMOTE_CONTEND);
+                }
+            }
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {

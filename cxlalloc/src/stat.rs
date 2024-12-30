@@ -68,6 +68,8 @@ stat![
     GLOBAL_POP_CONTEND_HELP,
     FLUSH,
     FENCE,
+    REMOTE,
+    REMOTE_CONTEND,
 ];
 
 #[inline]

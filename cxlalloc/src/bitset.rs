@@ -4,8 +4,8 @@ mod hi;
 pub(crate) use atomic::AtomicBitSet;
 pub(crate) use hi::HiBitSet;
 
-#[ribbit::pack(size = 12)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[ribbit::pack(size = 12, debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Bit(u12);
 
 impl Bit {

@@ -58,30 +58,31 @@ pub(crate) fn flush<T>(address: &T, invalidate: bool) {
         return;
     }
 
-    fn inner(address: *const u8, invalidate: bool) {
-        unsafe {
-            match invalidate {
-                false if cfg!(feature = "arch-clwb") => core::arch::asm! {
-                    "clwb [{address}]",
-                    address = in(reg) address,
-                    options(nomem, preserves_flags, nostack),
-                },
-                _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
-                    "clflushopt [{address}]",
-                    address = in(reg) address,
-                    options(nomem, preserves_flags, nostack),
-                },
-                _ => core::arch::x86_64::_mm_clflush(address),
-            }
-        }
-    }
-
     for line in 0..size_of::<T>().next_multiple_of(SIZE_CACHE_LINE) / SIZE_CACHE_LINE {
         stat::inc(&stat::FLUSH);
-        inner(
+        clflush(
             (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
             invalidate,
         );
+    }
+}
+
+#[inline]
+pub(crate) fn clflush(address: *const u8, invalidate: bool) {
+    unsafe {
+        match invalidate {
+            false if cfg!(feature = "arch-clwb") => core::arch::asm! {
+                "clwb [{address}]",
+                address = in(reg) address,
+                options(nomem, preserves_flags, nostack),
+            },
+            _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
+                "clflushopt [{address}]",
+                address = in(reg) address,
+                options(nomem, preserves_flags, nostack),
+            },
+            _ => core::arch::x86_64::_mm_clflush(address),
+        }
     }
 }
 
