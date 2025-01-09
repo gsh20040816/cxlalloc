@@ -150,6 +150,12 @@ impl From<Offset> for usize {
     }
 }
 
+#[repr(C, align(64))]
+pub(crate) struct Descriptor {
+    pub(crate) owned: Owned,
+    pub(crate) shared: Shared,
+}
+
 pub(crate) struct Slice<'raw, S> {
     base: NonNull<S>,
     _raw: PhantomData<&'raw raw::Region>,
