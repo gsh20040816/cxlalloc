@@ -18,7 +18,7 @@ impl<'raw> Data<'raw> {
         Layout::array::<[u8; SIZE_SLAB]>(slab_count).unwrap()
     }
 
-    pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Inner) -> Self {
+    pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Heap) -> Self {
         Self {
             base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
             huge: NonNull::new(

@@ -41,7 +41,7 @@ impl<'raw> Shared<'raw> {
             .pad_to_align()
     }
 
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap) -> Self {
         // FIXME: deduplicate with `layout`
         let offset = Layout::new::<Meta>()
             .extend(Layout::array::<slab::Shared>(1).unwrap())

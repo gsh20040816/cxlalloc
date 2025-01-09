@@ -28,7 +28,7 @@ impl<'raw> Owned<'raw> {
             .pad_to_align()
     }
 
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap, id: thread::Id) -> Self {
         // FIXME: deduplicate with `layout`
         let (_, offset) = Layout::new::<thread::Array<Meta>>()
             .extend(slab::Slice::<slab::Owned>::layout(1).unwrap())

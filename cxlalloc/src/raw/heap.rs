@@ -10,13 +10,9 @@ use crate::thread;
 use crate::Allocator;
 use crate::SIZE_SLAB;
 
-pub type Heap = Inner;
-
 /// This type represents sole ownership of an initialized backing store
-/// for the heap. If heap extension is enabled, we need to use an
-/// [`std::sync::Arc`] internally to pass the store to the background
-/// heap extension thread, but the public interface remains the same.
-pub struct Inner {
+/// for the heap.
+pub struct Heap {
     pub(crate) backend: Backend,
     pub(crate) shared: Region,
     pub(crate) owned: Region,
@@ -39,16 +35,16 @@ pub struct Inner {
 ///
 /// The memory regions are mapped for the entire process, so
 /// the pointers remain valid when transferred to a different thread.
-unsafe impl Send for Inner {}
+unsafe impl Send for Heap {}
 
 /// # Safety
 ///
 /// The only (public) way to interact with a [`Raw`] is through
 /// a [`crate::Heap`] or [`crate::Allocator`], which expose
 /// thread-safe methods.
-unsafe impl Sync for Inner {}
+unsafe impl Sync for Heap {}
 
-impl Inner {
+impl Heap {
     fn new(
         id: &str,
         Builder {
@@ -166,7 +162,7 @@ impl Inner {
     }
 }
 
-impl Drop for Inner {
+impl Drop for Heap {
     fn drop(&mut self) {
         if let Err(error) = self.backend.unmap(&self.shared) {
             log::error!("Failed to unmap shared region: {:?}", error);
@@ -209,7 +205,7 @@ pub struct Builder {
 
 impl Builder {
     pub fn build(self, id: &str) -> io::Result<Heap> {
-        Inner::new(id, self)
+        Heap::new(id, self)
     }
 
     pub fn backend<B: Into<Backend>>(mut self, backend: B) -> Self {

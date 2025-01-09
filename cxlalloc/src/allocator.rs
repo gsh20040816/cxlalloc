@@ -32,7 +32,7 @@ pub struct Allocator<'raw> {
 }
 
 impl<'raw> Allocator<'raw> {
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
+    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap, id: thread::Id) -> Self {
         let heap = Heap::from_raw(raw);
         let free = huge::Allocator::default();
         let owned = region::Owned::from_raw(raw, id);

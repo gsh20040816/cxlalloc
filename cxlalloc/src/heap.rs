@@ -12,7 +12,7 @@ pub struct Heap<'raw> {
 }
 
 impl<'raw> Heap<'raw> {
-    pub(crate) unsafe fn from_raw(heap: &'raw raw::heap::Inner) -> Self {
+    pub(crate) unsafe fn from_raw(heap: &'raw raw::heap::Heap) -> Self {
         Heap {
             shared: region::Shared::from_raw(heap),
             data: region::Data::from_raw(heap),
