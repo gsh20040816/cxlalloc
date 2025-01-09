@@ -24,13 +24,13 @@ use crate::bitset::Bit;
 use crate::cas;
 use crate::cas::help;
 use crate::raw;
-use crate::region;
-use crate::region::owned::GlobalToLocal;
-use crate::region::owned::LocalToGlobal;
-use crate::region::owned::StateUnpacked;
-use crate::region::shared::Length;
 use crate::size;
 use crate::thread;
+use crate::view;
+use crate::view::owned::GlobalToLocal;
+use crate::view::owned::LocalToGlobal;
+use crate::view::owned::StateUnpacked;
+use crate::view::shared::Length;
 use crate::SIZE_SLAB;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]

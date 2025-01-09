@@ -10,14 +10,14 @@ use crate::thread;
 use super::shared::Bump;
 
 #[repr(C, align(64))]
-pub(crate) struct Owned(thread::Array<UnsafeCell<Free>>);
+pub(crate) struct Array(thread::Array<UnsafeCell<Owned>>);
 
-pub(crate) struct Free {
+pub(crate) struct Owned {
     pub(crate) r#unsized: slab::LocalStack,
     pub(crate) r#sized: size::Array<slab::LocalStack>,
 }
 
-impl Free {
+impl Owned {
     // #[inline]
     // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
     //     if !cfg!(feature = "recover-log") {

@@ -1,6 +1,6 @@
 use crate::atomic::Version;
-use crate::region;
 use crate::thread;
+use crate::view;
 use crate::Atomic;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);
@@ -33,7 +33,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         mut next: F,
     ) -> Option<T>
     where
-        F: FnMut(T, Version) -> Option<(T, region::owned::StateUnpacked)>,
+        F: FnMut(T, Version) -> Option<(T, view::owned::StateUnpacked)>,
     {
         let mut old = self.0.load();
         let version = help[id].peek().next();

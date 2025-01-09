@@ -1,8 +1,8 @@
 use crate::cas;
 use crate::size;
 use crate::thread;
+use crate::view;
 use crate::Atomic;
-use crate::Heap;
 
 // Multiple-reader, multiple-writer
 pub(crate) struct Global {
@@ -14,17 +14,16 @@ pub(crate) enum Offset {}
 
 // Single-reader, single-writer
 pub(crate) struct Local {
-    state: crate::region::owned::State,
+    state: (),
 }
 
 pub struct Allocator<'raw> {
     id: thread::Id,
-
     global: &'raw Global,
 
     local: &'raw Local,
-
-    heap: Heap<'raw, size::Class>,
+    //
+    // heap: Heap<'raw, size::Class>,
 }
 
 // impl<'raw> Allocator<'raw> {

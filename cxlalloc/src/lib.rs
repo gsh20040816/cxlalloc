@@ -4,15 +4,14 @@ mod bitset;
 mod r#box;
 mod cas;
 mod extend;
-mod heap;
 mod huge;
 pub mod raw;
-mod region;
 pub mod root;
 mod size;
 mod slab;
 pub mod stat;
 pub mod thread;
+mod view;
 
 #[cfg(test)]
 mod crash;
@@ -29,7 +28,6 @@ mod crash {
 pub use allocator::Allocator;
 pub use atomic::Atomic;
 pub use extend::Epoch;
-pub use heap::Heap;
 pub use r#box::Box;
 pub use root::Root;
 
