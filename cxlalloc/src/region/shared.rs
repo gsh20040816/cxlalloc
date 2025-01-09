@@ -118,7 +118,7 @@ impl<'raw> Shared<'raw> {
 }
 
 #[cfg(feature = "extend")]
-impl<'raw> Shared<'raw> {
+impl Shared<'_> {
     pub(crate) fn epoch(&self) -> Epoch {
         todo!()
     }

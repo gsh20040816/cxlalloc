@@ -123,7 +123,7 @@ impl<'raw> Allocator<'raw> {
     }
 }
 
-impl<'raw> Allocator<'raw> {
+impl Allocator<'_> {
     pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
         let offset = self.heap.shared[root].load()?;
         // HACK: support flag-guarded initialization of large allocations
@@ -529,7 +529,7 @@ impl<'raw> Allocator<'raw> {
 }
 
 #[cfg(feature = "extend")]
-impl<'raw> Allocator<'raw> {
+impl Allocator<'_> {
     pub fn extend(&mut self) {
         todo!()
     }

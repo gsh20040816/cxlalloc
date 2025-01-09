@@ -218,7 +218,7 @@ impl Slice<'_, Owned> {
     }
 }
 
-impl<'raw, S> core::ops::Index<Index> for Slice<'raw, S> {
+impl<S> core::ops::Index<Index> for Slice<'_, S> {
     type Output = S;
     fn index(&self, index: Index) -> &Self::Output {
         unsafe { self.base.add(index._0().get() as usize).as_ref() }
@@ -275,7 +275,7 @@ pub(crate) struct GlobalStack<'raw> {
     _raw: PhantomData<&'raw raw::Heap>,
 }
 
-impl<'raw> GlobalStack<'raw> {
+impl GlobalStack<'_> {
     pub(crate) fn push(
         &self,
         id: thread::Id,
@@ -316,7 +316,7 @@ impl<'raw> GlobalStack<'raw> {
     }
 }
 
-impl<'raw> GlobalStack<'raw> {
+impl GlobalStack<'_> {
     pub(crate) fn is_empty(&self, help: &thread::Array<cas::Help>) -> bool {
         self.head.load(help).is_none()
     }
