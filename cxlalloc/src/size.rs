@@ -8,6 +8,15 @@ use crate::SIZE_SLAB;
 
 pub(crate) const MIN: usize = 8;
 
+pub(crate) trait Bracket {
+    const SIZE_SLAB: usize;
+}
+
+impl Bracket for Class {
+    // TODO: get rid of crate::SIZE_SLAB
+    const SIZE_SLAB: usize = crate::SIZE_SLAB;
+}
+
 #[repr(transparent)]
 #[derive(Debug)]
 pub(crate) struct Array<T>([T; 1 + CLASS_COUNT]);

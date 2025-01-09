@@ -4,23 +4,36 @@ use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
 use crate::raw;
+use crate::size;
+use crate::size::Bracket as _;
 use crate::slab;
-use crate::SIZE_SLAB;
 
-pub(crate) struct Data<'raw> {
+pub(crate) struct Data<'raw, B> {
     pub(crate) base: NonNull<u64>,
     huge: NonNull<u64>,
     _raw: PhantomData<&'raw raw::Region>,
+    _bracket: PhantomData<B>,
 }
 
-impl<'raw> Data<'raw> {
+impl<'raw> Data<'raw, size::Class>
+where
+    size::Class: size::Bracket,
+{
     pub(crate) fn layout(slab_count: usize) -> Layout {
-        Layout::array::<[u8; SIZE_SLAB]>(slab_count).unwrap()
+        Layout::array::<u8>(size::Class::SIZE_SLAB * slab_count).unwrap()
     }
 
     pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Heap) -> Self {
         Self {
-            base: NonNull::new(region.data.base().as_ptr().wrapping_byte_sub(SIZE_SLAB)).unwrap(),
+            base: NonNull::new(
+                region
+                    .data
+                    .base()
+                    .as_ptr()
+                    .wrapping_byte_sub(size::Class::SIZE_SLAB),
+            )
+            .unwrap(),
+            // FIXME: make separate data region for huge
             huge: NonNull::new(
                 region
                     .data
@@ -30,9 +43,16 @@ impl<'raw> Data<'raw> {
             )
             .unwrap(),
             _raw: PhantomData,
+            _bracket: PhantomData,
         }
     }
+}
 
+impl<B> Data<'_, B>
+where
+    B: size::Bracket,
+{
+    // FIXME: make separate data region for huge
     pub(crate) fn huge(&self) -> NonNull<u64> {
         self.huge
     }
@@ -42,7 +62,7 @@ impl<'raw> Data<'raw> {
     }
 
     pub(crate) fn checked_offset_to_offset(&self, offset: usize) -> Option<slab::Offset> {
-        let offset = offset + SIZE_SLAB;
+        let offset = offset + B::SIZE_SLAB;
         // FIXME: check epoch
         if offset > crate::raw::region::RESERVATION * 2 {
             None
@@ -53,7 +73,7 @@ impl<'raw> Data<'raw> {
 
     pub(crate) fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<slab::Offset> {
         // FIXME: check epoch
-        if pointer.as_ptr().cast::<u64>() < self.base.as_ptr().wrapping_byte_add(SIZE_SLAB)
+        if pointer.as_ptr().cast::<u64>() < self.base.as_ptr().wrapping_byte_add(B::SIZE_SLAB)
             || pointer.as_ptr().cast::<u64>()
                 >= self
                     .huge
@@ -74,3 +94,8 @@ impl<'raw> Data<'raw> {
         }
     }
 }
+
+#[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""))]
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct Offset(NonZeroU64);

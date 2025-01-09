@@ -3,12 +3,13 @@ use core::ptr::NonNull;
 
 use crate::raw;
 use crate::region;
+use crate::size;
 use crate::slab;
 use crate::Root;
 
 pub struct Heap<'raw> {
     pub(crate) shared: region::Shared<'raw>,
-    pub(crate) data: region::Data<'raw>,
+    pub(crate) data: region::Data<'raw, size::Class>,
 }
 
 impl<'raw> Heap<'raw> {
