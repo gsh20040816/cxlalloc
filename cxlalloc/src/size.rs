@@ -12,7 +12,7 @@ pub(crate) trait Bracket {
     const SIZE_SLAB: usize;
 }
 
-impl Bracket for Class {
+impl Bracket for Small {
     // TODO: get rid of crate::SIZE_SLAB
     const SIZE_SLAB: usize = crate::SIZE_SLAB;
 }
@@ -22,11 +22,11 @@ impl Bracket for Class {
 pub(crate) struct Array<T>([T; 1 + CLASS_COUNT]);
 
 impl<T> Array<T> {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Class, &T)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Small, &T)> {
         self.0
             .iter()
             .enumerate()
-            .map(|(index, element)| (Class::new_internal(index as u8), element))
+            .map(|(index, element)| (Small::new_internal(index as u8), element))
             .skip(1)
     }
 }
@@ -40,25 +40,25 @@ where
     }
 }
 
-impl<T> ops::Index<Class> for Array<T> {
+impl<T> ops::Index<Small> for Array<T> {
     type Output = T;
 
-    fn index(&self, class: Class) -> &Self::Output {
+    fn index(&self, class: Small) -> &Self::Output {
         unsafe { self.0.get_unchecked(class._0() as usize) }
     }
 }
 
-impl<T> ops::IndexMut<Class> for Array<T> {
-    fn index_mut(&mut self, class: Class) -> &mut Self::Output {
+impl<T> ops::IndexMut<Small> for Array<T> {
+    fn index_mut(&mut self, class: Small) -> &mut Self::Output {
         unsafe { self.0.get_unchecked_mut(class._0() as usize) }
     }
 }
 
 #[ribbit::pack(size = 8, debug, new(rename = "new_internal", vis = ""))]
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
-pub(crate) struct Class(u8);
+pub(crate) struct Small(u8);
 
-impl Display for Class {
+impl Display for Small {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.size())
     }
@@ -67,17 +67,17 @@ impl Display for Class {
 // 8..1024 4k..32k
 const CLASS_COUNT: usize = 128 + 5;
 
-pub(crate) const SLAB: Class = match Class::new(SIZE_SLAB) {
+pub(crate) const SLAB: Small = match Small::new(SIZE_SLAB) {
     None => unreachable!(),
     Some(class) => class,
 };
 
-impl Class {
+impl Small {
     #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size {
-            0..1024 => Some(Class::new_internal(((size + 7) / 8) as u8)),
-            1024..=32768 => Some(Class::new_internal(
+            0..1024 => Some(Small::new_internal(((size + 7) / 8) as u8)),
+            1024..=32768 => Some(Small::new_internal(
                 128 + size.next_power_of_two().trailing_zeros() as u8 - 10,
             )),
             _ => None,

@@ -100,7 +100,7 @@ thread_local! {
 }
 
 #[inline]
-pub(crate) fn record_small(class: size::Class) {
+pub(crate) fn record_small(class: size::Small) {
     if !cfg!(feature = "stat-size") {
         return;
     }

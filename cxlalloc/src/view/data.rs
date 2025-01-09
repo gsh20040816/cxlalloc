@@ -14,12 +14,12 @@ pub(crate) struct Data<'raw, B> {
     _bracket: PhantomData<B>,
 }
 
-impl<'raw> Data<'raw, size::Class>
+impl<'raw> Data<'raw, size::Small>
 where
-    size::Class: size::Bracket,
+    size::Small: size::Bracket,
 {
     pub(crate) fn layout(slab_count: usize) -> Layout {
-        Layout::array::<u8>(size::Class::SIZE_SLAB * slab_count).unwrap()
+        Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count).unwrap()
     }
 
     pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Heap) -> Self {
@@ -29,7 +29,7 @@ where
                     .data
                     .base()
                     .as_ptr()
-                    .wrapping_byte_sub(size::Class::SIZE_SLAB),
+                    .wrapping_byte_sub(size::Small::SIZE_SLAB),
             )
             .unwrap(),
             _raw: PhantomData,

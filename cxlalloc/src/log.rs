@@ -14,7 +14,7 @@ pub(crate) enum State {
         index: Option<slab::Index>,
 
         #[ribbit(size = 8)]
-        class: size::Class,
+        class: size::Small,
     },
 
     #[ribbit(size = 48)]

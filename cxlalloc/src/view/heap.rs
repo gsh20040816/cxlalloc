@@ -55,7 +55,7 @@ impl Owned {
         owned: &slab::Slice<slab::Owned>,
         shared: &slab::Slice<slab::Shared>,
         id: thread::Id,
-        class: size::Class,
+        class: size::Small,
     ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
             return false;
@@ -89,7 +89,7 @@ impl Owned {
     pub(crate) fn sized_to_unsized(
         &mut self,
         slabs: &slab::Slice<slab::Owned>,
-        class: size::Class,
+        class: size::Small,
         index: slab::Index,
     ) {
         // Special case: not in sized list

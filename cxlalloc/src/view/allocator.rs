@@ -22,6 +22,6 @@ pub struct Allocator<'raw> {
     shared: &'raw Shared,
     owned: &'raw thread::Array<UnsafeCell<Owned>>,
 
-    small: view::Heap<'raw, size::Class>,
+    small: view::Heap<'raw, size::Small>,
     huge: view::Huge<'raw>,
 }

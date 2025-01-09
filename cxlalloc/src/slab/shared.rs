@@ -30,7 +30,7 @@ pub(crate) struct Meta {
 #[derive(Copy, Clone)]
 pub(crate) struct Owner {
     #[ribbit(size = 8)]
-    pub(crate) class: size::Class,
+    pub(crate) class: size::Small,
 
     #[ribbit(size = 16)]
     pub(crate) id: Option<thread::Id>,
