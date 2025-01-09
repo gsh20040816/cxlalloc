@@ -5,6 +5,7 @@ mod r#box;
 mod cas;
 mod extend;
 mod huge;
+mod log;
 pub mod raw;
 pub mod root;
 mod size;

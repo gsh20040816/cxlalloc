@@ -1,4 +1,5 @@
 use crate::atomic::Version;
+use crate::log;
 use crate::thread;
 use crate::view;
 use crate::Atomic;
@@ -33,7 +34,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         mut next: F,
     ) -> Option<T>
     where
-        F: FnMut(T, Version) -> Option<(T, view::owned::StateUnpacked)>,
+        F: FnMut(T, Version) -> Option<(T, log::StateUnpacked)>,
     {
         let mut old = self.0.load();
         let version = help[id].peek().next();
