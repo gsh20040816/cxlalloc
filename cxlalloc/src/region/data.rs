@@ -10,7 +10,6 @@ use crate::slab;
 
 pub(crate) struct Data<'raw, B> {
     pub(crate) base: NonNull<u64>,
-    huge: NonNull<u64>,
     _raw: PhantomData<&'raw raw::Region>,
     _bracket: PhantomData<B>,
 }
@@ -33,15 +32,6 @@ where
                     .wrapping_byte_sub(size::Class::SIZE_SLAB),
             )
             .unwrap(),
-            // FIXME: make separate data region for huge
-            huge: NonNull::new(
-                region
-                    .data
-                    .base()
-                    .as_ptr()
-                    .wrapping_byte_add(crate::raw::region::RESERVATION),
-            )
-            .unwrap(),
             _raw: PhantomData,
             _bracket: PhantomData,
         }
@@ -52,11 +42,6 @@ impl<B> Data<'_, B>
 where
     B: size::Bracket,
 {
-    // FIXME: make separate data region for huge
-    pub(crate) fn huge(&self) -> NonNull<u64> {
-        self.huge
-    }
-
     pub(crate) fn offset_to_pointer<T>(&self, offset: slab::Offset) -> NonNull<T> {
         unsafe { self.base.byte_add(NonZeroUsize::from(offset).get()) }.cast()
     }
@@ -73,13 +58,7 @@ where
 
     pub(crate) fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<slab::Offset> {
         // FIXME: check epoch
-        if pointer.as_ptr().cast::<u64>() < self.base.as_ptr().wrapping_byte_add(B::SIZE_SLAB)
-            || pointer.as_ptr().cast::<u64>()
-                >= self
-                    .huge
-                    .as_ptr()
-                    .wrapping_byte_add(crate::raw::region::RESERVATION)
-        {
+        if pointer.as_ptr().cast::<u64>() < self.base.as_ptr().wrapping_byte_add(B::SIZE_SLAB) {
             None
         } else {
             Some(self.pointer_to_offset(pointer))

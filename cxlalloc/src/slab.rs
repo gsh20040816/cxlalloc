@@ -276,22 +276,20 @@ impl LocalStack {
 }
 
 #[repr(C)]
-pub(crate) struct GlobalStack<'raw> {
+pub(crate) struct GlobalStack {
     head: cas::Detectable<Option<Index>>,
-    _raw: PhantomData<&'raw raw::Heap>,
 }
 
-impl GlobalStack<'_> {
+impl GlobalStack {
     pub(crate) fn push(
         &self,
         id: thread::Id,
-        meta: &mut region::owned::Meta,
         slabs: &Slice<Owned>,
         help: &thread::Array<cas::Help>,
         head: Index,
         tail: Index,
     ) {
-        self.head.update(help, id, meta, |old, version| {
+        self.head.update(help, id, |old, version| {
             slabs[tail].next.store(old);
             crate::flush(&slabs[tail].next, false);
             Some((
@@ -304,12 +302,11 @@ impl GlobalStack<'_> {
     pub(crate) fn pop(
         &self,
         id: thread::Id,
-        meta: &mut region::owned::Meta,
         slabs: &Slice<Owned>,
         help: &thread::Array<cas::Help>,
     ) -> Option<Index> {
         self.head
-            .update(help, id, meta, |old, version| {
+            .update(help, id, |old, version| {
                 let old = old?;
                 let new = slabs[old].next.load();
 
@@ -320,9 +317,7 @@ impl GlobalStack<'_> {
             })
             .flatten()
     }
-}
 
-impl GlobalStack<'_> {
     pub(crate) fn is_empty(&self, help: &thread::Array<cas::Help>) -> bool {
         self.head.load(help).is_none()
     }

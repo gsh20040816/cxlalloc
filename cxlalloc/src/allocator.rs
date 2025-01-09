@@ -5,7 +5,6 @@ use core::sync::atomic;
 
 use crate::atomic::Version;
 use crate::huge;
-use crate::link;
 use crate::raw;
 use crate::region;
 use crate::region::owned::ApplicationToSized;
@@ -26,515 +25,513 @@ use crate::COUNT_CACHE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
-    huge: huge::Allocator,
-    owned: region::Owned<'raw>,
-    heap: Heap<'raw>,
+    heap: Heap<'raw, size::Class>,
 }
 
-impl<'raw> Allocator<'raw> {
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap, id: thread::Id) -> Self {
-        let heap = Heap::from_raw(raw);
-        let free = huge::Allocator::default();
-        let owned = region::Owned::from_raw(raw, id);
-
-        Self {
-            id,
-            huge: free,
-            owned,
-            heap,
-        }
-    }
-
-    pub fn heap(&self) -> &Heap<'raw> {
-        &self.heap
-    }
-
-    pub unsafe fn root<T>(&self, index: root::Index) -> Root<'raw, T> {
-        Root::new(self, index)
-    }
-
-    pub fn allocate_at<'root, T: Default, L: link::Erase<'raw, 'root, T>>(
-        &mut self,
-        _: L,
-    ) -> &'root mut T {
-        todo!()
-    }
-
-    #[cold]
-    fn allocate_small(&mut self, class: size::Class) -> Option<slab::Index> {
-        stat::inc(&stat::ALLOCATE_SMALL);
-
-        if class.is_zero() {
-            stat::inc(&stat::ALLOCATE_SMALL_ZERO);
-            return None;
-        }
-
-        let thread = &mut *self.owned.meta;
-
-        // Fast path: local unsized
-        if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
-            stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
-            return thread.r#sized[class].peek();
-        }
-
-        loop {
-            if let Some(index) = self.heap.shared.pop(self.id, thread, &self.owned.slabs) {
-                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
-                slab::transfer(
-                    &self.heap.shared.slabs,
-                    &self.owned.slabs,
-                    index,
-                    None,
-                    Some(self.id),
-                );
-
-                thread.r#unsized.push(&self.owned.slabs, index);
-                break;
-            }
-
-            match self.heap.shared.bump(self.id, thread) {
-                Some(range) => {
-                    stat::inc(&stat::ALLOCATE_SMALL_BUMP);
-                    slab::transfer_all(
-                        &self.heap.shared.slabs,
-                        &self.owned.slabs,
-                        range.start,
-                        BATCH_BUMP_POP as usize,
-                        None,
-                        Some(self.id),
-                    );
-
-                    unsafe {
-                        self.owned.slabs.link(range.clone(), None);
-                        thread
-                            .r#unsized
-                            .set(Some(range.start), BATCH_BUMP_POP as usize);
-                    }
-                    break;
-                }
-                None => {
-                    todo!()
-                }
-            }
-        }
-
-        thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class);
-        thread.r#sized[class].peek()
-    }
-}
-
-impl Allocator<'_> {
-    pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
-        let offset = self.heap.shared[root].load()?;
-        // HACK: support flag-guarded initialization of large allocations
-        self.heap().replay_log(false);
-        Some(self.heap.offset_to_pointer(offset))
-    }
-
-    pub unsafe fn set_root_untyped(
-        &self,
-        root: root::Index,
-        pointer: Option<NonNull<ffi::c_void>>,
-    ) {
-        let offset = pointer.map(|pointer| self.heap.pointer_to_offset(pointer));
-        self.heap.shared[root].store(offset);
-    }
-
-    pub unsafe fn realloc_untyped(
-        &mut self,
-        old_pointer: NonNull<ffi::c_void>,
-        new_size: usize,
-    ) -> *mut ffi::c_void {
-        let old_size = self.heap.class(old_pointer);
-
-        if old_size >= new_size {
-            return old_pointer.as_ptr();
-        }
-
-        let new_pointer = self.allocate_untyped(new_size);
-        core::ptr::copy_nonoverlapping::<u8>(
-            old_pointer.as_ptr().cast(),
-            new_pointer.cast(),
-            old_size,
-        );
-
-        self.free_untyped(old_pointer);
-        new_pointer
-    }
-
-    #[inline]
-    pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
-        stat::inc(&stat::ALLOCATE);
-
-        let class = size::Class::new(size);
-
-        let class = match class {
-            None => {
-                stat::inc(&stat::ALLOCATE_LARGE);
-                let size = size.next_multiple_of(crate::SIZE_PAGE);
-
-                loop {
-                    match self.huge.allocate(size) {
-                        Some(descriptor) => {
-                            // save record somewhere
-                            // will it conflict with link record?
-                            //
-                            // in order to link, we need to...
-                            // - log link site
-                            // - peek allocation
-                            // - write to site
-                            // - clear allocation
-                            //
-                            // what about allocation class?
-                            // - if crash before writing to site, abort
-                            // - if crash after writing to site, recover from site
-                            //
-                            // what about huge allocation?
-                            // - need to log what
-                            // - secondary link record
-                            // - hard-code dedicated spot for huge
-
-                            // allocate next free descriptor
-                            let class =
-                                size::Class::new(mem::size_of::<huge::Descriptor>()).unwrap();
-                            let index = match self.owned.meta.r#sized[class].peek() {
-                                Some(index) => index,
-                                None => match self.allocate_small(class) {
-                                    Some(index) => index,
-                                    None => return core::ptr::null_mut(),
-                                },
-                            };
-
-                            let free = unsafe { &mut *self.owned.slabs[index].free.get() };
-                            let block = free.peek();
-
-                            let offset = index.offset_block(class, block);
-                            let mut pointer =
-                                self.heap.offset_to_pointer::<huge::Descriptor>(offset);
-
-                            let descriptor = unsafe {
-                                pointer.write_volatile(descriptor);
-                                pointer.as_mut()
-                            };
-
-                            // point at previous head in data region
-                            if let Some(prev) =
-                                self.heap.shared.meta.huge.descriptors[self.id].load()
-                            {
-                                let prev = self.heap.offset_to_pointer(prev);
-                                unsafe {
-                                    crate::Box::link(&mut descriptor.next, prev.as_ref());
-                                    crate::fence();
-                                }
-                            }
-
-                            // update linked list of huge descriptors
-                            self.heap.shared.meta.huge.descriptors[self.id].store(Some(offset));
-
-                            // pop block
-                            free.unset(block);
-                            if free.is_empty() {
-                                self.detach(class);
-                            }
-
-                            // mmap huge allocation
-                            let region = self
-                                .heap
-                                .shared
-                                .backend
-                                .allocate(
-                                    format!("huge-{}-{}", self.id, descriptor.id),
-                                    Some(
-                                        self.heap
-                                            .data
-                                            .huge()
-                                            .byte_add(descriptor.offset.into())
-                                            .cast(),
-                                    ),
-                                    descriptor.size,
-                                    0,
-                                )
-                                .unwrap();
-
-                            return region.base().cast().as_ptr();
-                        }
-                        // claim a virtual address space region
-                        None => {
-                            let slot = self.heap.shared.meta.huge.claim(self.id);
-                            self.huge.claim(slot);
-                        }
-                    }
-                }
-            }
-            Some(class) => class,
-        };
-
-        stat::record_small(class);
-
-        let index = match self.owned.meta.r#sized[class].peek() {
-            Some(index) => {
-                stat::inc(&stat::ALLOCATE_FAST);
-                index
-            }
-            None => match self.allocate_small(class) {
-                Some(index) => index,
-                None => return core::ptr::null_mut(),
-            },
-        };
-
-        let free = unsafe { &mut *self.owned.slabs[index].free.get() };
-        let block = free.peek();
-
-        self.owned
-            .meta
-            .log_sync(StateUnpacked::SizedToApplication(SizedToApplication::new(
-                index, block,
-            )));
-        free.unset(block);
-
-        if free.is_empty() {
-            self.detach(class);
-        }
-
-        let offset = unsafe { index.offset_block(class, block) };
-        self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
-    }
-
-    #[cold]
-    fn detach(&mut self, class: size::Class) {
-        let index = self.owned.meta.r#sized[class]
-            .pop(&self.owned.slabs)
-            .unwrap();
-
-        let shared = &self.heap.shared.slabs[index];
-        if !shared.free.is_empty() {
-            stat::inc(&stat::ALLOCATE_FAST_DISOWN);
-            let owner = shared.owner.load();
-            shared
-                .owner
-                .store(slab::shared::Owner::new(owner.class(), None));
-            crate::flush(&shared.owner, false);
-            self.transfer(index, Some(self.id), None);
-        } else {
-            stat::inc(&stat::ALLOCATE_FAST_DETACH);
-        }
-
-        if cfg!(feature = "validate") {
-            assert!(self.owned.meta.r#sized[class]
-                .trace(&self.owned.slabs)
-                .all(|other| other != index));
-        }
-    }
-
-    #[inline]
-    pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
-        stat::inc(&stat::FREE);
-
-        if pointer.as_ptr() >= self.heap.data.huge().as_ptr().cast::<ffi::c_void>()
-            && pointer.as_ptr()
-                < self
-                    .heap
-                    .data
-                    .huge()
-                    .as_ptr()
-                    .cast::<ffi::c_void>()
-                    .wrapping_byte_add(1 << 40)
-        {
-            stat::inc(&stat::FREE_LARGE);
-            let offset = pointer.as_ptr() as usize - self.heap.data.huge().as_ptr() as usize;
-            let slot = huge::Slot::from_offset(offset);
-            let owner = self.heap.shared.meta.huge[slot].load().unwrap();
-
-            let desc_offset = self.heap.shared.meta.huge.descriptors[owner]
-                .load()
-                .unwrap();
-
-            let mut walk = self
-                .heap
-                .offset_to_pointer::<huge::Descriptor>(desc_offset)
-                .as_ref();
-
-            while usize::from(walk.offset) != offset {
-                walk = walk.next.as_ref().unwrap();
-            }
-
-            walk.free.store(true, atomic::Ordering::Relaxed);
-            return;
-        }
-
-        let offset = self.heap.pointer_to_offset(pointer);
-        let index = slab::Index::from(offset);
-
-        let shared = &self.heap.shared.slabs[index];
-        let owner = shared.owner.load();
-        let class = owner.class();
-
-        if owner.id() != Some(self.id) {
-            return self.free_remote(offset, index, class);
-        }
-
-        stat::inc(&stat::FREE_FAST);
-        let slab = &self.owned.slabs[index];
-        let block = offset.index_block(class);
-        let free = &mut *slab.free.get();
-
-        self.owned
-            .meta
-            .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
-                index, block,
-            )));
-
-        let count = free.len();
-        free.set(block);
-
-        match count {
-            count if count + 1 == class.count() => {
-                stat::inc(&stat::FREE_FAST_UNSIZED);
-                self.owned
-                    .meta
-                    .sized_to_unsized(&self.owned.slabs, class, index);
-
-                self.unsized_to_global();
-            }
-            0 => self.attach(class, index),
-            _ => (),
-        }
-    }
-
-    #[cold]
-    fn attach(&mut self, class: size::Class, index: slab::Index) {
-        if cfg!(feature = "validate") {
-            assert!(self.owned.meta.r#sized[class]
-                .trace(&self.owned.slabs)
-                .all(|other| other != index));
-        }
-
-        self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
-        stat::inc(&stat::FREE_FAST_ATTACH);
-    }
-
-    #[cold]
-    unsafe fn free_remote(&mut self, offset: slab::Offset, index: slab::Index, class: size::Class) {
-        stat::inc(&stat::FREE_REMOTE);
-
-        let slab = &self.heap.shared.slabs[index];
-        let block = offset.index_block(class);
-        let version = slab.meta.load().version();
-
-        self.owned
-            .meta
-            .log_sync(StateUnpacked::Remote(Remote::new(index, block, version)));
-
-        slab.free.set(block);
-
-        if slab.free.is_full(class.count()) {
-            self.claim(index, version);
-        }
-    }
-
-    #[cold]
-    fn claim(&mut self, index: slab::Index, version: Version) {
-        stat::inc(&stat::FREE_REMOTE_GLOBAL);
-
-        let slab = &self.heap.shared.slabs[index];
-
-        // Note: must use version from *before* we set our bit,
-        // or else the full slab becomes globally visible and
-        // some other thread can update the version.
-        let old = slab::shared::Meta::new(version, slab.meta.load().claim());
-        let new = slab::shared::Meta::new(version.next(), Some(self.id));
-
-        match slab.meta.compare_exchange(old, new) {
-            Ok(_) => {
-                crate::flush(&slab.meta, false);
-                crate::fence();
-                stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN);
-            }
-            Err(_) => {
-                crate::flush(&slab.meta, true);
-                stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
-                return;
-            }
-        }
-
-        slab.free.clear();
-        crate::flush(&slab.free, false);
-
-        if cfg!(feature = "validate") {
-            assert!(
-                self.owned
-                    .meta
-                    .r#unsized
-                    .trace(&self.owned.slabs)
-                    .all(|other| other != index),
-                "Claim does not introduce alias",
-            );
-        }
-
-        let victim = slab.owner.load().id();
-
-        self.transfer(index, victim, Some(self.id));
-
-        if victim.is_some() {
-            stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
-            slab.owner.store(slab::shared::Owner::new(
-                size::Class::default(),
-                Some(self.id),
-            ));
-            crate::flush(&slab.owner, false);
-        }
-
-        self.owned.meta.r#unsized.push(&self.owned.slabs, index);
-        self.unsized_to_global();
-    }
-
-    fn unsized_to_global(&mut self) {
-        let count = self.owned.meta.r#unsized.len();
-        if count < COUNT_CACHE_SLAB {
-            return;
-        }
-
-        let mut iter = self
-            .owned
-            .meta
-            .r#unsized
-            .trace(&self.owned.slabs)
-            .inspect(|index| self.transfer(*index, Some(self.id), None))
-            .take(BATCH_GLOBAL_PUSH);
-
-        let head = iter.next().unwrap();
-        let tail = iter.last().unwrap();
-        let next = self.owned.slabs[tail].next.load();
-
-        self.owned
-            .meta
-            .log_sync(StateUnpacked::LocalToGlobalSave(LocalToGlobalSave::new(
-                head,
-            )));
-
-        self.owned
-            .meta
-            .r#unsized
-            .set(next, count - BATCH_GLOBAL_PUSH);
-
-        self.heap
-            .shared
-            .push(self.id, self.owned.meta, &self.owned.slabs, head, tail);
-    }
-
-    #[inline]
-    fn transfer(&self, index: slab::Index, old: Option<thread::Id>, new: Option<thread::Id>) {
-        slab::transfer(&self.heap.shared.slabs, &self.owned.slabs, index, old, new);
-    }
-}
-
-#[cfg(feature = "extend")]
-impl Allocator<'_> {
-    pub fn extend(&mut self) {
-        todo!()
-    }
-
-    pub fn epoch(&self) -> crate::extend::Epoch {
-        self.heap.shared.epoch()
-    }
-}
+// impl<'raw> Allocator<'raw> {
+//     pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap, id: thread::Id) -> Self {
+//         let heap = Heap::from_raw(raw);
+//         let free = huge::Allocator::default();
+//         let owned = region::Owned::from_raw(raw, id);
+//
+//         Self {
+//             id,
+//             huge: free,
+//             owned,
+//             heap,
+//         }
+//     }
+//
+//     pub fn heap(&self) -> &Heap<'raw> {
+//         &self.heap
+//     }
+//
+//     pub unsafe fn root<T>(&self, index: root::Index) -> Root<'raw, T> {
+//         Root::new(self, index)
+//     }
+//
+//     pub fn allocate_at<'root, T: Default, L: link::Erase<'raw, 'root, T>>(
+//         &mut self,
+//         _: L,
+//     ) -> &'root mut T {
+//         todo!()
+//     }
+//
+//     #[cold]
+//     fn allocate_small(&mut self, class: size::Class) -> Option<slab::Index> {
+//         stat::inc(&stat::ALLOCATE_SMALL);
+//
+//         if class.is_zero() {
+//             stat::inc(&stat::ALLOCATE_SMALL_ZERO);
+//             return None;
+//         }
+//
+//         let thread = &mut *self.owned.meta;
+//
+//         // Fast path: local unsized
+//         if thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class) {
+//             stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
+//             return thread.r#sized[class].peek();
+//         }
+//
+//         loop {
+//             if let Some(index) = self.heap.shared.pop(self.id, thread, &self.owned.slabs) {
+//                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
+//                 slab::transfer(
+//                     &self.heap.shared.slabs,
+//                     &self.owned.slabs,
+//                     index,
+//                     None,
+//                     Some(self.id),
+//                 );
+//
+//                 thread.r#unsized.push(&self.owned.slabs, index);
+//                 break;
+//             }
+//
+//             match self.heap.shared.bump(self.id, thread) {
+//                 Some(range) => {
+//                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
+//                     slab::transfer_all(
+//                         &self.heap.shared.slabs,
+//                         &self.owned.slabs,
+//                         range.start,
+//                         BATCH_BUMP_POP as usize,
+//                         None,
+//                         Some(self.id),
+//                     );
+//
+//                     unsafe {
+//                         self.owned.slabs.link(range.clone(), None);
+//                         thread
+//                             .r#unsized
+//                             .set(Some(range.start), BATCH_BUMP_POP as usize);
+//                     }
+//                     break;
+//                 }
+//                 None => {
+//                     todo!()
+//                 }
+//             }
+//         }
+//
+//         thread.unsized_to_sized(&self.owned.slabs, &self.heap.shared.slabs, self.id, class);
+//         thread.r#sized[class].peek()
+//     }
+// }
+//
+// impl Allocator<'_> {
+//     pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
+//         let offset = self.heap.shared[root].load()?;
+//         // HACK: support flag-guarded initialization of large allocations
+//         self.heap().replay_log(false);
+//         Some(self.heap.offset_to_pointer(offset))
+//     }
+//
+//     pub unsafe fn set_root_untyped(
+//         &self,
+//         root: root::Index,
+//         pointer: Option<NonNull<ffi::c_void>>,
+//     ) {
+//         let offset = pointer.map(|pointer| self.heap.pointer_to_offset(pointer));
+//         self.heap.shared[root].store(offset);
+//     }
+//
+//     pub unsafe fn realloc_untyped(
+//         &mut self,
+//         old_pointer: NonNull<ffi::c_void>,
+//         new_size: usize,
+//     ) -> *mut ffi::c_void {
+//         let old_size = self.heap.class(old_pointer);
+//
+//         if old_size >= new_size {
+//             return old_pointer.as_ptr();
+//         }
+//
+//         let new_pointer = self.allocate_untyped(new_size);
+//         core::ptr::copy_nonoverlapping::<u8>(
+//             old_pointer.as_ptr().cast(),
+//             new_pointer.cast(),
+//             old_size,
+//         );
+//
+//         self.free_untyped(old_pointer);
+//         new_pointer
+//     }
+//
+//     #[inline]
+//     pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
+//         stat::inc(&stat::ALLOCATE);
+//
+//         let class = size::Class::new(size);
+//
+//         let class = match class {
+//             None => {
+//                 stat::inc(&stat::ALLOCATE_LARGE);
+//                 let size = size.next_multiple_of(crate::SIZE_PAGE);
+//
+//                 loop {
+//                     match self.huge.allocate(size) {
+//                         Some(descriptor) => {
+//                             // save record somewhere
+//                             // will it conflict with link record?
+//                             //
+//                             // in order to link, we need to...
+//                             // - log link site
+//                             // - peek allocation
+//                             // - write to site
+//                             // - clear allocation
+//                             //
+//                             // what about allocation class?
+//                             // - if crash before writing to site, abort
+//                             // - if crash after writing to site, recover from site
+//                             //
+//                             // what about huge allocation?
+//                             // - need to log what
+//                             // - secondary link record
+//                             // - hard-code dedicated spot for huge
+//
+//                             // allocate next free descriptor
+//                             let class =
+//                                 size::Class::new(mem::size_of::<huge::Descriptor>()).unwrap();
+//                             let index = match self.owned.meta.r#sized[class].peek() {
+//                                 Some(index) => index,
+//                                 None => match self.allocate_small(class) {
+//                                     Some(index) => index,
+//                                     None => return core::ptr::null_mut(),
+//                                 },
+//                             };
+//
+//                             let free = unsafe { &mut *self.owned.slabs[index].free.get() };
+//                             let block = free.peek();
+//
+//                             let offset = index.offset_block(class, block);
+//                             let mut pointer =
+//                                 self.heap.offset_to_pointer::<huge::Descriptor>(offset);
+//
+//                             let descriptor = unsafe {
+//                                 pointer.write_volatile(descriptor);
+//                                 pointer.as_mut()
+//                             };
+//
+//                             // point at previous head in data region
+//                             if let Some(prev) =
+//                                 self.heap.shared.meta.huge.descriptors[self.id].load()
+//                             {
+//                                 let prev = self.heap.offset_to_pointer(prev);
+//                                 unsafe {
+//                                     crate::Box::link(&mut descriptor.next, prev.as_ref());
+//                                     crate::fence();
+//                                 }
+//                             }
+//
+//                             // update linked list of huge descriptors
+//                             self.heap.shared.meta.huge.descriptors[self.id].store(Some(offset));
+//
+//                             // pop block
+//                             free.unset(block);
+//                             if free.is_empty() {
+//                                 self.detach(class);
+//                             }
+//
+//                             // mmap huge allocation
+//                             let region = self
+//                                 .heap
+//                                 .shared
+//                                 .backend
+//                                 .allocate(
+//                                     format!("huge-{}-{}", self.id, descriptor.id),
+//                                     Some(
+//                                         self.heap
+//                                             .data
+//                                             .huge()
+//                                             .byte_add(descriptor.offset.into())
+//                                             .cast(),
+//                                     ),
+//                                     descriptor.size,
+//                                     0,
+//                                 )
+//                                 .unwrap();
+//
+//                             return region.base().cast().as_ptr();
+//                         }
+//                         // claim a virtual address space region
+//                         None => {
+//                             let slot = self.heap.shared.meta.huge.claim(self.id);
+//                             self.huge.claim(slot);
+//                         }
+//                     }
+//                 }
+//             }
+//             Some(class) => class,
+//         };
+//
+//         stat::record_small(class);
+//
+//         let index = match self.owned.meta.r#sized[class].peek() {
+//             Some(index) => {
+//                 stat::inc(&stat::ALLOCATE_FAST);
+//                 index
+//             }
+//             None => match self.allocate_small(class) {
+//                 Some(index) => index,
+//                 None => return core::ptr::null_mut(),
+//             },
+//         };
+//
+//         let free = unsafe { &mut *self.owned.slabs[index].free.get() };
+//         let block = free.peek();
+//
+//         self.owned
+//             .meta
+//             .log_sync(StateUnpacked::SizedToApplication(SizedToApplication::new(
+//                 index, block,
+//             )));
+//         free.unset(block);
+//
+//         if free.is_empty() {
+//             self.detach(class);
+//         }
+//
+//         let offset = unsafe { index.offset_block(class, block) };
+//         self.heap.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
+//     }
+//
+//     #[cold]
+//     fn detach(&mut self, class: size::Class) {
+//         let index = self.owned.meta.r#sized[class]
+//             .pop(&self.owned.slabs)
+//             .unwrap();
+//
+//         let shared = &self.heap.shared.slabs[index];
+//         if !shared.free.is_empty() {
+//             stat::inc(&stat::ALLOCATE_FAST_DISOWN);
+//             let owner = shared.owner.load();
+//             shared
+//                 .owner
+//                 .store(slab::shared::Owner::new(owner.class(), None));
+//             crate::flush(&shared.owner, false);
+//             self.transfer(index, Some(self.id), None);
+//         } else {
+//             stat::inc(&stat::ALLOCATE_FAST_DETACH);
+//         }
+//
+//         if cfg!(feature = "validate") {
+//             assert!(self.owned.meta.r#sized[class]
+//                 .trace(&self.owned.slabs)
+//                 .all(|other| other != index));
+//         }
+//     }
+//
+//     #[inline]
+//     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
+//         stat::inc(&stat::FREE);
+//
+//         if pointer.as_ptr() >= self.heap.data.huge().as_ptr().cast::<ffi::c_void>()
+//             && pointer.as_ptr()
+//                 < self
+//                     .heap
+//                     .data
+//                     .huge()
+//                     .as_ptr()
+//                     .cast::<ffi::c_void>()
+//                     .wrapping_byte_add(1 << 40)
+//         {
+//             stat::inc(&stat::FREE_LARGE);
+//             let offset = pointer.as_ptr() as usize - self.heap.data.huge().as_ptr() as usize;
+//             let slot = huge::Slot::from_offset(offset);
+//             let owner = self.heap.shared.meta.huge[slot].load().unwrap();
+//
+//             let desc_offset = self.heap.shared.meta.huge.descriptors[owner]
+//                 .load()
+//                 .unwrap();
+//
+//             let mut walk = self
+//                 .heap
+//                 .offset_to_pointer::<huge::Descriptor>(desc_offset)
+//                 .as_ref();
+//
+//             while usize::from(walk.offset) != offset {
+//                 walk = walk.next.as_ref().unwrap();
+//             }
+//
+//             walk.free.store(true, atomic::Ordering::Relaxed);
+//             return;
+//         }
+//
+//         let offset = self.heap.pointer_to_offset(pointer);
+//         let index = slab::Index::from(offset);
+//
+//         let shared = &self.heap.shared.slabs[index];
+//         let owner = shared.owner.load();
+//         let class = owner.class();
+//
+//         if owner.id() != Some(self.id) {
+//             return self.free_remote(offset, index, class);
+//         }
+//
+//         stat::inc(&stat::FREE_FAST);
+//         let slab = &self.owned.slabs[index];
+//         let block = offset.index_block(class);
+//         let free = &mut *slab.free.get();
+//
+//         self.owned
+//             .meta
+//             .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
+//                 index, block,
+//             )));
+//
+//         let count = free.len();
+//         free.set(block);
+//
+//         match count {
+//             count if count + 1 == class.count() => {
+//                 stat::inc(&stat::FREE_FAST_UNSIZED);
+//                 self.owned
+//                     .meta
+//                     .sized_to_unsized(&self.owned.slabs, class, index);
+//
+//                 self.unsized_to_global();
+//             }
+//             0 => self.attach(class, index),
+//             _ => (),
+//         }
+//     }
+//
+//     #[cold]
+//     fn attach(&mut self, class: size::Class, index: slab::Index) {
+//         if cfg!(feature = "validate") {
+//             assert!(self.owned.meta.r#sized[class]
+//                 .trace(&self.owned.slabs)
+//                 .all(|other| other != index));
+//         }
+//
+//         self.owned.meta.r#sized[class].push(&self.owned.slabs, index);
+//         stat::inc(&stat::FREE_FAST_ATTACH);
+//     }
+//
+//     #[cold]
+//     unsafe fn free_remote(&mut self, offset: slab::Offset, index: slab::Index, class: size::Class) {
+//         stat::inc(&stat::FREE_REMOTE);
+//
+//         let slab = &self.heap.shared.slabs[index];
+//         let block = offset.index_block(class);
+//         let version = slab.meta.load().version();
+//
+//         self.owned
+//             .meta
+//             .log_sync(StateUnpacked::Remote(Remote::new(index, block, version)));
+//
+//         slab.free.set(block);
+//
+//         if slab.free.is_full(class.count()) {
+//             self.claim(index, version);
+//         }
+//     }
+//
+//     #[cold]
+//     fn claim(&mut self, index: slab::Index, version: Version) {
+//         stat::inc(&stat::FREE_REMOTE_GLOBAL);
+//
+//         let slab = &self.heap.shared.slabs[index];
+//
+//         // Note: must use version from *before* we set our bit,
+//         // or else the full slab becomes globally visible and
+//         // some other thread can update the version.
+//         let old = slab::shared::Meta::new(version, slab.meta.load().claim());
+//         let new = slab::shared::Meta::new(version.next(), Some(self.id));
+//
+//         match slab.meta.compare_exchange(old, new) {
+//             Ok(_) => {
+//                 crate::flush(&slab.meta, false);
+//                 crate::fence();
+//                 stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN);
+//             }
+//             Err(_) => {
+//                 crate::flush(&slab.meta, true);
+//                 stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
+//                 return;
+//             }
+//         }
+//
+//         slab.free.clear();
+//         crate::flush(&slab.free, false);
+//
+//         if cfg!(feature = "validate") {
+//             assert!(
+//                 self.owned
+//                     .meta
+//                     .r#unsized
+//                     .trace(&self.owned.slabs)
+//                     .all(|other| other != index),
+//                 "Claim does not introduce alias",
+//             );
+//         }
+//
+//         let victim = slab.owner.load().id();
+//
+//         self.transfer(index, victim, Some(self.id));
+//
+//         if victim.is_some() {
+//             stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
+//             slab.owner.store(slab::shared::Owner::new(
+//                 size::Class::default(),
+//                 Some(self.id),
+//             ));
+//             crate::flush(&slab.owner, false);
+//         }
+//
+//         self.owned.meta.r#unsized.push(&self.owned.slabs, index);
+//         self.unsized_to_global();
+//     }
+//
+//     fn unsized_to_global(&mut self) {
+//         let count = self.owned.meta.r#unsized.len();
+//         if count < COUNT_CACHE_SLAB {
+//             return;
+//         }
+//
+//         let mut iter = self
+//             .owned
+//             .meta
+//             .r#unsized
+//             .trace(&self.owned.slabs)
+//             .inspect(|index| self.transfer(*index, Some(self.id), None))
+//             .take(BATCH_GLOBAL_PUSH);
+//
+//         let head = iter.next().unwrap();
+//         let tail = iter.last().unwrap();
+//         let next = self.owned.slabs[tail].next.load();
+//
+//         self.owned
+//             .meta
+//             .log_sync(StateUnpacked::LocalToGlobalSave(LocalToGlobalSave::new(
+//                 head,
+//             )));
+//
+//         self.owned
+//             .meta
+//             .r#unsized
+//             .set(next, count - BATCH_GLOBAL_PUSH);
+//
+//         self.heap
+//             .shared
+//             .push(self.id, self.owned.meta, &self.owned.slabs, head, tail);
+//     }
+//
+//     #[inline]
+//     fn transfer(&self, index: slab::Index, old: Option<thread::Id>, new: Option<thread::Id>) {
+//         slab::transfer(&self.heap.shared.slabs, &self.owned.slabs, index, old, new);
+//     }
+// }
+//
+// #[cfg(feature = "extend")]
+// impl Allocator<'_> {
+//     pub fn extend(&mut self) {
+//         todo!()
+//     }
+//
+//     pub fn epoch(&self) -> crate::extend::Epoch {
+//         self.heap.shared.epoch()
+//     }
+// }

@@ -21,130 +21,95 @@ use crate::Atomic;
 use crate::BATCH_BUMP_POP;
 use crate::SIZE_PAGE;
 
-pub(crate) struct Shared<'raw> {
-    capacity: u32,
-    process_count: usize,
-    process_id: usize,
-    pub(crate) backend: &'raw Backend,
-    pub(crate) meta: &'raw Meta<'raw>,
-    pub(crate) slabs: slab::Slice<'raw, slab::Shared>,
-}
-
-impl<'raw> Shared<'raw> {
-    pub(crate) fn layout(slab_count: usize) -> Layout {
-        Layout::new::<Meta>()
-            .extend(slab::Slice::<slab::Shared>::layout(slab_count).unwrap())
-            .unwrap()
-            .0
-            .align_to(SIZE_PAGE)
-            .unwrap()
-            .pad_to_align()
-    }
-
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap) -> Self {
-        // FIXME: deduplicate with `layout`
-        let offset = Layout::new::<Meta>()
-            .extend(Layout::array::<slab::Shared>(1).unwrap())
-            .unwrap()
-            .1;
-
-        Self {
-            capacity: raw.capacity,
-            process_count: raw.process_count,
-            process_id: raw.process_id,
-            backend: &raw.backend,
-            meta: raw.shared.base().cast::<Meta>().as_ref(),
-            slabs: slab::Slice::from_raw(&raw.shared, offset),
-        }
-    }
-
-    pub(crate) fn bump(
-        &self,
-        id: thread::Id,
-        meta: &mut region::owned::Meta,
-    ) -> Option<Range<slab::Index>> {
-        let bump = self
-            .meta
-            .bump
-            .update(&self.meta.help, id, meta, |old, version| {
-                let old_len = old.length();
-                let new_len = old_len + BATCH_BUMP_POP;
-
-                if u32::from(new_len) >= old.epoch().total(self.capacity) {
-                    panic!(
-                        "Heap extension not yet enabled. Tried to expand from {:#x} to {:#x} but capacity is {:#x}.",
-                        u32::from(old_len),
-                        u32::from(new_len),
-                        self.capacity
-                    );
-                } else {
-                    Some((
-                        old.with_length(new_len),
-                        StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
-                    ))
-                }
-            })?;
-
-        let start = slab::Index::from_length(bump.length());
-        let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
-        Some(start..end)
-    }
-
-    pub(crate) fn push(
-        &self,
-        id: thread::Id,
-        meta: &mut region::owned::Meta,
-        slabs: &slab::Slice<slab::Owned>,
-        head: slab::Index,
-        tail: slab::Index,
-    ) {
-        self.meta
-            .free
-            .push(id, meta, slabs, &self.meta.help, head, tail);
-    }
-
-    pub(crate) fn pop(
-        &self,
-        id: thread::Id,
-        meta: &mut region::owned::Meta,
-        slabs: &slab::Slice<slab::Owned>,
-    ) -> Option<slab::Index> {
-        if self.meta.free.is_empty(&self.meta.help) {
-            return None;
-        }
-
-        self.meta.free.pop(id, meta, slabs, &self.meta.help)
-    }
-}
-
-#[cfg(feature = "extend")]
-impl Shared<'_> {
-    pub(crate) fn epoch(&self) -> Epoch {
-        todo!()
-    }
-}
-
-impl Index<root::Index> for Shared<'_> {
-    type Output = Atomic<Option<slab::Offset>>;
-    fn index(&self, index: root::Index) -> &Self::Output {
-        &self.meta.roots[index]
-    }
-}
-
-impl Index<thread::Id> for Shared<'_> {
-    type Output = cas::Help;
-    fn index(&self, id: thread::Id) -> &Self::Output {
-        &self.meta.help[id]
-    }
-}
-
 #[repr(C)]
-pub(crate) struct Meta<'raw> {
-    roots: root::Array,
-    free: slab::GlobalStack<'raw>,
-    help: thread::Array<cas::Help>,
+pub(crate) struct Shared {
+    free: slab::GlobalStack,
     bump: cas::Detectable<Bump>,
-    pub(crate) huge: huge::Array,
+}
+
+impl Shared {
+    // pub(crate) fn layout(slab_count: usize) -> Layout {
+    //     Layout::new::<Meta>()
+    //         .extend(slab::Slice::<slab::Shared>::layout(slab_count).unwrap())
+    //         .unwrap()
+    //         .0
+    //         .align_to(SIZE_PAGE)
+    //         .unwrap()
+    //         .pad_to_align()
+    // }
+    //
+    // pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap) -> Self {
+    //     // FIXME: deduplicate with `layout`
+    //     let offset = Layout::new::<Meta>()
+    //         .extend(Layout::array::<slab::Shared>(1).unwrap())
+    //         .unwrap()
+    //         .1;
+    //
+    //     Self {
+    //         capacity: raw.capacity,
+    //         process_count: raw.process_count,
+    //         process_id: raw.process_id,
+    //         backend: &raw.backend,
+    //         meta: raw.shared.base().cast::<Meta>().as_ref(),
+    //         slabs: slab::Slice::from_raw(&raw.shared, offset),
+    //     }
+    // }
+    //
+    // pub(crate) fn bump(
+    //     &self,
+    //     id: thread::Id,
+    //     meta: &mut region::Owned,
+    // ) -> Option<Range<slab::Index>> {
+    //     let bump = self
+    //         .meta
+    //         .bump
+    //         .update(&self.meta.help, id, meta, |old, version| {
+    //             let old_len = old.length();
+    //             let new_len = old_len + BATCH_BUMP_POP;
+    //
+    //             if u32::from(new_len) >= old.epoch().total(self.capacity) {
+    //                 panic!(
+    //                     "Heap extension not yet enabled. Tried to expand from {:#x} to {:#x} but capacity is {:#x}.",
+    //                     u32::from(old_len),
+    //                     u32::from(new_len),
+    //                     self.capacity
+    //                 );
+    //             } else {
+    //                 Some((
+    //                     old.with_length(new_len),
+    //                     StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
+    //                 ))
+    //             }
+    //         })?;
+    //
+    //     let start = slab::Index::from_length(bump.length());
+    //     let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
+    //     Some(start..end)
+    // }
+    //
+    // pub(crate) fn push(
+    //     &self,
+    //     id: thread::Id,
+    //     // meta: &mut region::owned::Meta,
+    //     slabs: &slab::Slice<slab::Owned>,
+    //     head: slab::Index,
+    //     tail: slab::Index,
+    // ) {
+    //     self.free.push(id, meta, slabs, &self.meta.help, head, tail);
+    // }
+    //
+    // pub(crate) fn pop(
+    //     &self,
+    //     id: thread::Id,
+    //     meta: &mut region::owned::Meta,
+    //     slabs: &slab::Slice<slab::Owned>,
+    // ) -> Option<slab::Index> {
+    //     if self.free.is_empty(&self.meta.help) {
+    //         return None;
+    //     }
+    //
+    //     self.free.pop(id, meta, slabs, &self.meta.help)
+    // }
 }
 
 #[ribbit::pack(size = 32, debug, new(vis = ""))]

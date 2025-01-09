@@ -6,7 +6,6 @@ mod cas;
 mod extend;
 mod heap;
 mod huge;
-mod link;
 pub mod raw;
 mod region;
 pub mod root;

@@ -1,79 +1,43 @@
-use core::alloc::Layout;
+use core::cell::UnsafeCell;
 
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::crash;
-use crate::raw;
 use crate::size;
 use crate::slab;
 use crate::thread;
-use crate::Atomic;
-use crate::SIZE_PAGE;
 
 use super::shared::Bump;
 
-pub(crate) struct Owned<'raw> {
-    pub(crate) meta: &'raw mut Meta,
-    pub(crate) slabs: slab::Slice<'raw, slab::Owned>,
-}
-
-impl<'raw> Owned<'raw> {
-    pub(crate) fn layout(slab_count: usize) -> Layout {
-        Layout::new::<thread::Array<Meta>>()
-            .extend(slab::Slice::<slab::Owned>::layout(slab_count).unwrap())
-            .unwrap()
-            .0
-            .align_to(SIZE_PAGE)
-            .unwrap()
-            .pad_to_align()
-    }
-
-    pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap, id: thread::Id) -> Self {
-        // FIXME: deduplicate with `layout`
-        let (_, offset) = Layout::new::<thread::Array<Meta>>()
-            .extend(slab::Slice::<slab::Owned>::layout(1).unwrap())
-            .unwrap();
-
-        Self {
-            meta: raw
-                .owned
-                .base()
-                .cast::<Meta>()
-                .add(u16::from(id) as usize)
-                .as_mut(),
-            slabs: slab::Slice::from_raw(&raw.owned, offset),
-        }
-    }
-}
-
 #[repr(C, align(64))]
-pub(crate) struct Meta {
-    pub(crate) state: Atomic<Option<State>>,
+pub(crate) struct Owned(thread::Array<UnsafeCell<Free>>);
+
+pub(crate) struct Free {
     pub(crate) r#unsized: slab::LocalStack,
     pub(crate) r#sized: size::Array<slab::LocalStack>,
 }
 
-impl Meta {
-    #[inline]
-    pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
-        if !cfg!(feature = "recover-log") {
-            return;
-        }
-
-        crate::fence();
-        self.log_unsync(State::new(state));
-        crate::fence();
-    }
-
-    #[inline]
-    pub(crate) fn log_unsync(&mut self, state: State) {
-        if !cfg!(feature = "recover-log") {
-            return;
-        }
-
-        self.state.store(Some(state));
-        crate::flush(&self.state, false);
-    }
+impl Free {
+    // #[inline]
+    // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
+    //     if !cfg!(feature = "recover-log") {
+    //         return;
+    //     }
+    //
+    //     crate::fence();
+    //     self.log_unsync(State::new(state));
+    //     crate::fence();
+    // }
+    //
+    // #[inline]
+    // pub(crate) fn log_unsync(&mut self, state: State) {
+    //     if !cfg!(feature = "recover-log") {
+    //         return;
+    //     }
+    //
+    //     self.state.store(Some(state));
+    //     crate::flush(&self.state, false);
+    // }
 
     pub(crate) fn unsized_to_sized(
         &mut self,
@@ -91,9 +55,9 @@ impl Meta {
         let slab = &owned[index];
         let next = slab.next.load();
 
-        self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
-            next, class,
-        )));
+        // self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
+        //     next, class,
+        // )));
 
         self.r#sized[class].push(owned, index);
         unsafe {

@@ -29,7 +29,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         &self,
         help: &thread::Array<Help>,
         id: thread::Id,
-        meta: &mut region::owned::Meta,
+        // meta: &mut region::Owned,
         mut next: F,
     ) -> Option<T>
     where
@@ -52,7 +52,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
             let (new, log) = next(old.inner(), version)?;
 
             // Unsync because following compare-exchange is serializing
-            meta.log_unsync(region::owned::State::new(log));
+            // meta.log_unsync(region::owned::State::new(log));
 
             match self
                 .0

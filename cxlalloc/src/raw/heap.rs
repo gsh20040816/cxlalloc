@@ -1,12 +1,8 @@
 use std::io;
 
-use crate::raw;
 use crate::raw::backend;
-use crate::raw::region::RESERVATION;
 use crate::raw::Backend;
 use crate::raw::Region;
-use crate::region;
-use crate::thread;
 use crate::Allocator;
 use crate::SIZE_SLAB;
 
@@ -70,82 +66,7 @@ impl Heap {
             process_count,
         );
 
-        let slab_count = size.next_multiple_of(SIZE_SLAB) / SIZE_SLAB;
-
-        // TODO: If heap extension is enabled, ensure that the shared and owned
-        // region will be page size aligned, so we can mmap new regions
-        // with MAP_FIXED at contiguous addresses.
-        let shared_layout = region::Shared::layout(slab_count);
-        let shared = backend.allocate(
-            format!("{id}-shared"),
-            None,
-            shared_layout.size(),
-            raw::region::RESERVATION,
-        )?;
-
-        let owned_layout = region::Owned::layout(slab_count);
-        let owned = backend.allocate(
-            format!("{id}-owned"),
-            None,
-            owned_layout.size(),
-            raw::region::RESERVATION,
-        )?;
-
-        let data_layout = region::Data::layout(slab_count);
-        let data = backend.allocate(
-            format!("{id}-data"),
-            None,
-            data_layout.size(),
-            raw::region::RESERVATION * 2,
-        )?;
-
-        // Note: not calling `munmap` here and mapping
-        // with `MAP_FIXED` in the huge allocator seems to
-        // cause a SEGFAULT, even though it seems equivalent
-        // to unmapping here and mapping with `MAP_FIXED_NOREPLACE`?
-        //
-        // In particular, the no-replace mappings aren't failing...
-        unsafe {
-            libc::munmap(
-                data.base()
-                    .as_ptr()
-                    .cast::<libc::c_void>()
-                    .wrapping_byte_add(raw::region::RESERVATION),
-                RESERVATION,
-            );
-        }
-
-        log::info!(
-            "Constructing heap with aligned size {}",
-            slab_count * SIZE_SLAB
-        );
-
-        let raw = Self {
-            backend,
-            shared,
-            owned,
-            data,
-            capacity: slab_count.try_into().unwrap(),
-            process_id,
-            process_count,
-            free,
-        };
-
-        if !raw.is_clean() {
-            raw.heap().replay_log(true);
-        }
-
-        Ok(raw)
-    }
-
-    pub fn allocator(&self, id: thread::Id) -> Allocator {
-        // TODO: safety?
-        unsafe { Allocator::from_raw(self, id) }
-    }
-
-    pub fn heap(&self) -> crate::Heap {
-        // TODO: safety?
-        unsafe { crate::Heap::from_raw(self) }
+        todo!()
     }
 
     pub fn is_clean(&self) -> bool {
