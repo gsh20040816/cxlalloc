@@ -19,7 +19,7 @@ pub(crate) struct State<T> {
 }
 
 impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
-    pub(crate) fn load(&self, help: &thread::Array<Help>) -> T {
+    pub(crate) fn load(&self, help: &help::Array) -> T {
         let old = self.0.load();
         self.notify(help, old);
         old.inner()
@@ -27,7 +27,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
 
     pub(crate) fn update<F>(
         &self,
-        help: &thread::Array<Help>,
+        help: &help::Array,
         id: thread::Id,
         // meta: &mut region::Owned,
         mut next: F,
@@ -64,7 +64,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         }
     }
 
-    fn notify(&self, help: &thread::Array<Help>, state: State<T>) {
+    fn notify(&self, help: &help::Array, state: State<T>) {
         if !cfg!(feature = "recover-cas") {
             return;
         }
@@ -115,5 +115,19 @@ impl Help {
             .compare_exchange(Inner::new(version, false), Inner::new(version, true));
 
         crate::flush(self, false);
+    }
+}
+
+pub(crate) mod help {
+    use core::ops::Index;
+
+    pub(crate) struct Array(crate::thread::Array<super::Help>);
+
+    impl Index<crate::thread::Id> for Array {
+        type Output = super::Help;
+
+        fn index(&self, index: crate::thread::Id) -> &Self::Output {
+            &self.0[index]
+        }
     }
 }

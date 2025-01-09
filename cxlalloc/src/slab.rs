@@ -22,6 +22,7 @@ use ribbit::private::u12;
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::cas;
+use crate::cas::help;
 use crate::raw;
 use crate::region;
 use crate::region::owned::GlobalToLocal;
@@ -285,7 +286,7 @@ impl GlobalStack {
         &self,
         id: thread::Id,
         slabs: &Slice<Owned>,
-        help: &thread::Array<cas::Help>,
+        help: &help::Array,
         head: Index,
         tail: Index,
     ) {
@@ -303,7 +304,7 @@ impl GlobalStack {
         &self,
         id: thread::Id,
         slabs: &Slice<Owned>,
-        help: &thread::Array<cas::Help>,
+        help: &help::Array,
     ) -> Option<Index> {
         self.head
             .update(help, id, |old, version| {
@@ -318,7 +319,7 @@ impl GlobalStack {
             .flatten()
     }
 
-    pub(crate) fn is_empty(&self, help: &thread::Array<cas::Help>) -> bool {
+    pub(crate) fn is_empty(&self, help: &help::Array) -> bool {
         self.head.load(help).is_none()
     }
 }

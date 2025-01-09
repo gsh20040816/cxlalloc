@@ -1,30 +1,29 @@
-use core::ffi;
-use core::mem;
-use core::ptr::NonNull;
-use core::sync::atomic;
-
-use crate::atomic::Version;
-use crate::huge;
-use crate::raw;
-use crate::region;
-use crate::region::owned::ApplicationToSized;
-use crate::region::owned::LocalToGlobalSave;
-use crate::region::owned::Remote;
-use crate::region::owned::SizedToApplication;
-use crate::region::owned::StateUnpacked;
-use crate::root;
+use crate::cas;
 use crate::size;
-use crate::slab;
-use crate::stat;
 use crate::thread;
+use crate::Atomic;
 use crate::Heap;
-use crate::Root;
-use crate::BATCH_BUMP_POP;
-use crate::BATCH_GLOBAL_PUSH;
-use crate::COUNT_CACHE_SLAB;
+
+// Multiple-reader, multiple-writer
+pub(crate) struct Global {
+    root: Atomic<Option<Offset>>,
+    help: thread::Array<cas::Help>,
+}
+
+pub(crate) enum Offset {}
+
+// Single-reader, single-writer
+pub(crate) struct Local {
+    state: crate::region::owned::State,
+}
 
 pub struct Allocator<'raw> {
     id: thread::Id,
+
+    global: &'raw Global,
+
+    local: &'raw Local,
+
     heap: Heap<'raw, size::Class>,
 }
 
