@@ -3,9 +3,20 @@ use core::num::NonZeroIsize;
 use core::ops::Deref;
 use core::ops::DerefMut;
 
+#[derive(Debug)]
 pub struct Box<T> {
     delta: NonZeroIsize,
     _type: PhantomData<T>,
+}
+
+impl<T> Box<T> {
+    pub unsafe fn link(pointer: &mut Option<Box<T>>, pointee: &T) {
+        let delta = (pointee as *const _ as isize) - (pointer as *const _ as isize);
+        *pointer = Some(Box {
+            delta: NonZeroIsize::new(delta).unwrap(),
+            _type: PhantomData,
+        });
+    }
 }
 
 impl<T> Deref for Box<T> {

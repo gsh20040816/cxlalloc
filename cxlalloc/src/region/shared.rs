@@ -1,11 +1,8 @@
 use core::alloc::Layout;
-use core::ffi;
 use core::fmt::Display;
 use core::ops::Add;
 use core::ops::Index;
 use core::ops::Range;
-use core::ptr::NonNull;
-use std::sync::Mutex;
 
 use ribbit::private::u24;
 
@@ -28,8 +25,8 @@ pub(crate) struct Shared<'raw> {
     capacity: u32,
     process_count: usize,
     process_id: usize,
-    backend: &'raw Backend,
-    meta: &'raw Meta<'raw>,
+    pub(crate) backend: &'raw Backend,
+    pub(crate) meta: &'raw Meta<'raw>,
     pub(crate) slabs: slab::Slice<'raw, slab::Shared>,
 }
 
@@ -93,73 +90,6 @@ impl<'raw> Shared<'raw> {
         Some(start..end)
     }
 
-    pub(crate) fn allocate_log(
-        &self,
-        state: &Mutex<huge::Dram>,
-        base: NonNull<u64>,
-        size: usize,
-    ) -> NonNull<u64> {
-        self.meta.log.allocate(
-            self.backend,
-            state,
-            self.process_count,
-            self.process_id,
-            base,
-            size,
-        )
-    }
-
-    pub(crate) unsafe fn free_log(
-        &self,
-        state: &Mutex<huge::Dram>,
-        base: NonNull<u64>,
-        pointer: NonNull<ffi::c_void>,
-    ) {
-        self.meta.log.free(
-            self.backend,
-            state,
-            self.process_count,
-            self.process_id,
-            base,
-            pointer,
-        )
-    }
-
-    pub(crate) unsafe fn replay_log(
-        &self,
-        state: &Mutex<huge::Dram>,
-        base: NonNull<u64>,
-        clean: bool,
-    ) {
-        let state = &mut *state.lock().unwrap();
-        if clean {
-            self.meta.log.replay(
-                self.backend,
-                state,
-                base,
-                self.process_count,
-                self.process_id,
-                None,
-            );
-        } else {
-            self.meta.log.tail(
-                self.backend,
-                state,
-                base,
-                self.process_count,
-                self.process_id,
-            );
-        }
-    }
-
-    pub(crate) unsafe fn size_log(
-        &self,
-        base: NonNull<u64>,
-        pointer: NonNull<ffi::c_void>,
-    ) -> usize {
-        self.meta.log.size(base, pointer)
-    }
-
     pub(crate) fn push(
         &self,
         id: thread::Id,
@@ -214,7 +144,7 @@ pub(crate) struct Meta<'raw> {
     free: slab::GlobalStack<'raw>,
     help: thread::Array<cas::Help>,
     bump: cas::Detectable<Bump>,
-    pub(crate) log: huge::Cxl<2048>,
+    pub(crate) huge: huge::Array,
 }
 
 #[ribbit::pack(size = 32, debug, new(vis = ""))]

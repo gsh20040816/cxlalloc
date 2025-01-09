@@ -8,7 +8,7 @@ use crate::slab;
 use crate::SIZE_SLAB;
 
 pub(crate) struct Data<'raw> {
-    base: NonNull<u64>,
+    pub(crate) base: NonNull<u64>,
     huge: NonNull<u64>,
     _raw: PhantomData<&'raw raw::Region>,
 }

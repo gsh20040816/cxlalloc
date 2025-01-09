@@ -1,7 +1,10 @@
 use core::ffi;
+use core::mem;
 use core::ptr::NonNull;
+use core::sync::atomic;
 
 use crate::atomic::Version;
+use crate::huge;
 use crate::link;
 use crate::raw;
 use crate::region;
@@ -23,6 +26,7 @@ use crate::COUNT_CACHE_SLAB;
 
 pub struct Allocator<'raw> {
     id: thread::Id,
+    huge: huge::Allocator,
     owned: region::Owned<'raw>,
     heap: Heap<'raw>,
 }
@@ -30,9 +34,15 @@ pub struct Allocator<'raw> {
 impl<'raw> Allocator<'raw> {
     pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Inner, id: thread::Id) -> Self {
         let heap = Heap::from_raw(raw);
+        let free = huge::Allocator::default();
         let owned = region::Owned::from_raw(raw, id);
 
-        Self { id, owned, heap }
+        Self {
+            id,
+            huge: free,
+            owned,
+            heap,
+        }
     }
 
     pub fn heap(&self) -> &Heap<'raw> {
@@ -161,12 +171,100 @@ impl<'raw> Allocator<'raw> {
         let class = match class {
             None => {
                 stat::inc(&stat::ALLOCATE_LARGE);
-                return self
-                    .heap
-                    .shared
-                    .allocate_log(self.heap.state, self.heap.data.huge(), size)
-                    .as_ptr()
-                    .cast();
+                let size = size.next_multiple_of(crate::SIZE_PAGE);
+
+                loop {
+                    match self.huge.allocate(size) {
+                        Some(descriptor) => {
+                            // save record somewhere
+                            // will it conflict with link record?
+                            //
+                            // in order to link, we need to...
+                            // - log link site
+                            // - peek allocation
+                            // - write to site
+                            // - clear allocation
+                            //
+                            // what about allocation class?
+                            // - if crash before writing to site, abort
+                            // - if crash after writing to site, recover from site
+                            //
+                            // what about huge allocation?
+                            // - need to log what
+                            // - secondary link record
+                            // - hard-code dedicated spot for huge
+
+                            // allocate next free descriptor
+                            let class =
+                                size::Class::new(mem::size_of::<huge::Descriptor>()).unwrap();
+                            let index = match self.owned.meta.r#sized[class].peek() {
+                                Some(index) => index,
+                                None => match self.allocate_small(class) {
+                                    Some(index) => index,
+                                    None => return core::ptr::null_mut(),
+                                },
+                            };
+
+                            let free = unsafe { &mut *self.owned.slabs[index].free.get() };
+                            let block = free.peek();
+
+                            let offset = index.offset_block(class, block);
+                            let mut pointer =
+                                self.heap.offset_to_pointer::<huge::Descriptor>(offset);
+
+                            let descriptor = unsafe {
+                                pointer.write_volatile(descriptor);
+                                pointer.as_mut()
+                            };
+
+                            // point at previous head in data region
+                            if let Some(prev) =
+                                self.heap.shared.meta.huge.descriptors[self.id].load()
+                            {
+                                let prev = self.heap.offset_to_pointer(prev);
+                                unsafe {
+                                    crate::Box::link(&mut descriptor.next, prev.as_ref());
+                                    crate::fence();
+                                }
+                            }
+
+                            // update linked list of huge descriptors
+                            self.heap.shared.meta.huge.descriptors[self.id].store(Some(offset));
+
+                            // pop block
+                            free.unset(block);
+                            if free.is_empty() {
+                                self.detach(class);
+                            }
+
+                            // mmap huge allocation
+                            let region = self
+                                .heap
+                                .shared
+                                .backend
+                                .allocate(
+                                    format!("huge-{}-{}", self.id, descriptor.id),
+                                    Some(
+                                        self.heap
+                                            .data
+                                            .huge()
+                                            .byte_add(descriptor.offset.into())
+                                            .cast(),
+                                    ),
+                                    descriptor.size,
+                                    0,
+                                )
+                                .unwrap();
+
+                            return region.base().cast().as_ptr();
+                        }
+                        // claim a virtual address space region
+                        None => {
+                            let slot = self.heap.shared.meta.huge.claim(self.id);
+                            self.huge.claim(slot);
+                        }
+                    }
+                }
             }
             Some(class) => class,
         };
@@ -243,10 +341,25 @@ impl<'raw> Allocator<'raw> {
                     .wrapping_byte_add(1 << 40)
         {
             stat::inc(&stat::FREE_LARGE);
-            return self
+            let offset = pointer.as_ptr() as usize - self.heap.data.huge().as_ptr() as usize;
+            let slot = huge::Slot::from_offset(offset);
+            let owner = self.heap.shared.meta.huge[slot].load().unwrap();
+
+            let desc_offset = self.heap.shared.meta.huge.descriptors[owner]
+                .load()
+                .unwrap();
+
+            let mut walk = self
                 .heap
-                .shared
-                .free_log(self.heap.state, self.heap.data.huge(), pointer);
+                .offset_to_pointer::<huge::Descriptor>(desc_offset)
+                .as_ref();
+
+            while usize::from(walk.offset) != offset {
+                walk = walk.next.as_ref().unwrap();
+            }
+
+            walk.free.store(true, atomic::Ordering::Relaxed);
+            return;
         }
 
         let offset = self.heap.pointer_to_offset(pointer);

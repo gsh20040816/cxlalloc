@@ -1,7 +1,5 @@
 use std::io;
-use std::sync::Mutex;
 
-use crate::huge;
 use crate::raw;
 use crate::raw::backend;
 use crate::raw::region::RESERVATION;
@@ -32,8 +30,6 @@ pub struct Inner {
     /// once per process as opposed to once per thread.
     pub(crate) process_id: usize,
     pub(crate) process_count: usize,
-
-    pub(crate) state: Mutex<huge::Dram>,
 
     /// Free on drop
     free: bool,
@@ -134,7 +130,6 @@ impl Inner {
             owned,
             data,
             capacity: slab_count.try_into().unwrap(),
-            state: Mutex::default(),
             process_id,
             process_count,
             free,

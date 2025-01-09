@@ -1,15 +1,12 @@
 use core::ffi;
 use core::ptr::NonNull;
-use std::sync::Mutex;
 
-use crate::huge;
 use crate::raw;
 use crate::region;
 use crate::slab;
 use crate::Root;
 
 pub struct Heap<'raw> {
-    pub(crate) state: &'raw Mutex<huge::Dram>,
     pub(crate) shared: region::Shared<'raw>,
     pub(crate) data: region::Data<'raw>,
 }
@@ -17,7 +14,6 @@ pub struct Heap<'raw> {
 impl<'raw> Heap<'raw> {
     pub(crate) unsafe fn from_raw(heap: &'raw raw::heap::Inner) -> Self {
         Heap {
-            state: &heap.state,
             shared: region::Shared::from_raw(heap),
             data: region::Data::from_raw(heap),
         }
@@ -49,10 +45,7 @@ impl<'raw> Heap<'raw> {
                     .cast::<ffi::c_void>()
                     .wrapping_byte_add(1 << 40)
         {
-            return unsafe {
-                self.shared
-                    .size_log(self.data.huge(), pointer.cast::<ffi::c_void>())
-            };
+            todo!()
         }
 
         let offset = self.pointer_to_offset(pointer);
@@ -76,8 +69,6 @@ impl<'raw> Heap<'raw> {
     }
 
     pub(crate) fn replay_log(&self, clean: bool) {
-        unsafe {
-            self.shared.replay_log(self.state, self.data.huge(), clean);
-        }
+        todo!()
     }
 }
