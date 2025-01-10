@@ -14,7 +14,12 @@ use crate::COUNT_CACHE_SLAB;
 
 impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
     #[inline]
-    pub(crate) fn pop(&mut self, id: thread::Id, class: B, index: slab::Index) -> *mut ffi::c_void {
+    pub(crate) fn pop(
+        &mut self,
+        id: thread::Id,
+        class: B,
+        index: slab::Index<B>,
+    ) -> *mut ffi::c_void {
         let free = unsafe { &mut *self.slabs[index].local.free.get() };
         let block = free.peek();
 
@@ -42,7 +47,7 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
         id: thread::Id,
         help: &help::Array,
         class: B,
-    ) -> Option<slab::Index> {
+    ) -> Option<slab::Index<B>> {
         if let Some(index) = self.owned.r#sized[class].peek() {
             stat::inc(&stat::ALLOCATE_FAST);
             return Some(index);
@@ -52,7 +57,7 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
     }
 
     #[cold]
-    fn allocate(&mut self, id: thread::Id, help: &help::Array, class: B) -> Option<slab::Index> {
+    fn allocate(&mut self, id: thread::Id, help: &help::Array, class: B) -> Option<slab::Index<B>> {
         stat::inc(&stat::ALLOCATE_SMALL);
 
         if class.is_min() {
@@ -129,7 +134,7 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
     }
 
     #[cold]
-    fn attach(&mut self, class: B, index: slab::Index) {
+    fn attach(&mut self, class: B, index: slab::Index<B>) {
         if cfg!(feature = "validate") {
             assert!(self.owned.r#sized[class]
                 .trace(&self.slabs)
@@ -142,7 +147,7 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
 
     // FIXME: offset
     #[cold]
-    unsafe fn free_remote(&mut self, offset: (), index: slab::Index, class: B) {
+    unsafe fn free_remote(&mut self, offset: (), index: slab::Index<B>, class: B) {
         stat::inc(&stat::FREE_REMOTE);
         todo!()
 
@@ -162,7 +167,13 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
     }
 
     #[cold]
-    fn claim(&mut self, id: thread::Id, help: &help::Array, index: slab::Index, version: Version) {
+    fn claim(
+        &mut self,
+        id: thread::Id,
+        help: &help::Array,
+        index: slab::Index<B>,
+        version: Version,
+    ) {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
         let slab = &self.slabs[index].remote;
@@ -243,7 +254,7 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
     }
 
     #[inline]
-    fn transfer(&self, index: slab::Index, old: Option<thread::Id>, new: Option<thread::Id>) {
+    fn transfer(&self, index: slab::Index<B>, old: Option<thread::Id>, new: Option<thread::Id>) {
         slab::transfer(&self.slabs, index, old, new);
     }
 }

@@ -25,10 +25,22 @@ use crate::view::heap::Length;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub(crate) struct Index(NonZeroU32);
+#[derive(PartialEq, Eq)]
+pub(crate) struct Index<B> {
+    value: NonZeroU32,
+    #[ribbit(size = 0)]
+    _bracket: B,
+}
 
-impl Index {
+impl<B> Clone for Index<B> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<B> Copy for Index<B> {}
+
+impl<B> Index<B> {
     pub(crate) fn from_length(length: Length) -> Self {
         NonZeroU32::new(u32::from(length) + 1)
             .map(Self::new)
@@ -42,37 +54,37 @@ impl Index {
     }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
-        self._0().checked_add(count).map(Self::new).unwrap()
+        self.value().checked_add(count).map(Self::new).unwrap()
     }
 }
 
-impl Debug for Index {
+impl<B> Debug for Index<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        Debug::fmt(&(self._0().get() - 1), f)
+        Debug::fmt(&(self.value().get() - 1), f)
     }
 }
 
-impl Display for Index {
+impl<B> Display for Index<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&(self._0().get() - 1), f)
+        Display::fmt(&(self.value().get() - 1), f)
     }
 }
 
-impl From<Index> for NonZeroU32 {
-    fn from(index: Index) -> Self {
-        index._0()
+impl<B> From<Index<B>> for NonZeroU32 {
+    fn from(index: Index<B>) -> Self {
+        index.value()
     }
 }
 
-impl From<Index> for u32 {
-    fn from(index: Index) -> Self {
-        index._0().get() - 1
+impl<B> From<Index<B>> for u32 {
+    fn from(index: Index<B>) -> Self {
+        index.value().get() - 1
     }
 }
 
 #[repr(C, align(64))]
 pub(crate) struct Descriptor<B> {
-    pub(crate) local: Local,
+    pub(crate) local: Local<B>,
     pub(crate) remote: Remote<B>,
 }
 
@@ -96,8 +108,8 @@ impl<B> Slice<'_, B> {
         }
     }
 
-    pub(crate) unsafe fn link(&self, range: Range<Index>, head: Option<Index>) {
-        let range = (range.start._0().get()..range.end._0().get())
+    pub(crate) unsafe fn link(&self, range: Range<Index<B>>, head: Option<Index<B>>) {
+        let range = (range.start.value().get()..range.end.value().get())
             .map(NonZeroU32::new)
             .map(Option::unwrap)
             .map(Index::new);
@@ -116,7 +128,7 @@ impl<B> Slice<'_, B> {
         }
     }
 
-    pub(crate) fn trace(&self, mut head: Option<Index>) -> impl Iterator<Item = Index> + '_ {
+    pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
         iter::from_fn(move || {
             let next = head?;
             head = self[next].local.next.load();
@@ -125,17 +137,17 @@ impl<B> Slice<'_, B> {
     }
 }
 
-impl<B> core::ops::Index<Index> for Slice<'_, B> {
+impl<B> core::ops::Index<Index<B>> for Slice<'_, B> {
     type Output = Descriptor<B>;
-    fn index(&self, index: Index) -> &Self::Output {
-        unsafe { self.base.add(index._0().get() as usize).as_ref() }
+    fn index(&self, index: Index<B>) -> &Self::Output {
+        unsafe { self.base.add(index.value().get() as usize).as_ref() }
     }
 }
 
 #[inline]
 pub(crate) fn transfer<B>(
     slabs: &Slice<B>,
-    index: Index,
+    index: Index<B>,
     old: Option<thread::Id>,
     new: Option<thread::Id>,
 ) where
@@ -177,7 +189,7 @@ pub(crate) fn transfer<B>(
 #[inline]
 pub(crate) fn transfer_all<B>(
     slabs: &Slice<B>,
-    index: Index,
+    index: Index<B>,
     count: usize,
     old: Option<thread::Id>,
     new: Option<thread::Id>,

@@ -99,7 +99,7 @@ impl<B> Shared<B> {
         id: thread::Id,
         capacity: u32,
         help: &help::Array,
-    ) -> Option<Range<slab::Index>> {
+    ) -> Option<Range<slab::Index<B>>> {
         let bump = self
             .bump
             .update(&help, id, |old, version| {
@@ -131,8 +131,8 @@ impl<B> Shared<B> {
         id: thread::Id,
         slabs: &view::Slab<B>,
         help: &help::Array,
-        head: slab::Index,
-        tail: slab::Index,
+        head: slab::Index<B>,
+        tail: slab::Index<B>,
     ) {
         self.free.push(id, slabs, help, head, tail);
     }
@@ -142,7 +142,7 @@ impl<B> Shared<B> {
         id: thread::Id,
         slabs: &view::Slab<B>,
         help: &help::Array,
-    ) -> Option<slab::Index> {
+    ) -> Option<slab::Index<B>> {
         if self.free.is_empty(help) {
             return None;
         }
@@ -248,7 +248,12 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(&mut self, slabs: &view::Slab<B>, class: B, index: slab::Index) {
+    pub(crate) fn sized_to_unsized(
+        &mut self,
+        slabs: &view::Slab<B>,
+        class: B,
+        index: slab::Index<B>,
+    ) {
         // Special case: not in sized list
         if class.is_max() {
             return self.r#unsized.push(slabs, index);

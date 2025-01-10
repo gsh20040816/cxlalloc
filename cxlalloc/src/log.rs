@@ -11,7 +11,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     UnsizedToSized {
         #[ribbit(size = 32)]
-        index: Option<slab::Index>,
+        index: Option<slab::Index<size::Small>>,
 
         #[ribbit(size = 8)]
         class: size::Small,
@@ -21,7 +21,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     GlobalToLocal {
         #[ribbit(size = 32)]
-        index: slab::Index,
+        index: slab::Index<size::Small>,
 
         #[ribbit(size = 16)]
         version: Version,
@@ -41,7 +41,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     LocalToGlobal {
         #[ribbit(size = 32)]
-        index: slab::Index,
+        index: slab::Index<size::Small>,
 
         #[ribbit(size = 16)]
         version: Version,
@@ -51,7 +51,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     SizedToApplication {
         #[ribbit(size = 32)]
-        index: slab::Index,
+        index: slab::Index<size::Small>,
 
         #[ribbit(size = 12)]
         block: Bit,
@@ -61,7 +61,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     ApplicationToSized {
         #[ribbit(size = 32)]
-        index: slab::Index,
+        index: slab::Index<size::Small>,
 
         #[ribbit(size = 12)]
         block: Bit,
@@ -71,14 +71,14 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     LocalToGlobalSave {
         #[ribbit(size = 32)]
-        index: slab::Index,
+        index: slab::Index<size::Small>,
     },
 
     #[ribbit(size = 60)]
     #[derive(Copy, Clone)]
     Remote {
         #[ribbit(size = 32)]
-        index: slab::Index,
+        index: slab::Index<size::Small>,
 
         #[ribbit(size = 12)]
         block: Bit,
