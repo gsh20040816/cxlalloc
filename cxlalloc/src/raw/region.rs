@@ -1,4 +1,3 @@
-use core::cmp;
 use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr;
@@ -44,6 +43,18 @@ impl Region {
         reserved: Option<NonZeroUsize>,
         file: Option<(RawFd, i64, bool)>,
     ) -> io::Result<Self> {
+        let reserved = reserved.map(|reserved| {
+            assert!(
+                reserved.get() >= size,
+                "Reservation {} must be larger than size {}",
+                reserved,
+                size
+            );
+
+            reserved.get().next_multiple_of(crate::SIZE_PAGE)
+        });
+        let size = size.next_multiple_of(crate::SIZE_PAGE);
+
         // In order to keep heap regions contiguous when extending, we need
         // to reserve an unbacked region of virtual address space via `mmap` with
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
@@ -52,7 +63,7 @@ impl Region {
             Some(size) => match unsafe {
                 libc::mmap64(
                     address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut),
-                    size.get(),
+                    size,
                     libc::PROT_NONE,
                     libc::MAP_PRIVATE
                         | libc::MAP_ANONYMOUS
@@ -69,13 +80,13 @@ impl Region {
                 address => address,
             },
         };
-        let reserved = reserved.map(NonZeroUsize::get).unwrap_or(size);
 
         let (fd, offset, flags, clean) = match file {
             Some((fd, offset, clean)) => (fd, offset, libc::MAP_SHARED_VALIDATE, clean),
             None => (-1, 0, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, true),
         };
 
+        let reserved = reserved.unwrap_or(size);
         let base = match unsafe {
             libc::mmap64(
                 reservation,
