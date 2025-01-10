@@ -1,3 +1,5 @@
+use core::ffi;
+
 use crate::atomic::Version;
 use crate::cas::help;
 use crate::size;
@@ -11,12 +13,46 @@ use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
 
 impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
+    #[inline]
+    pub(crate) fn pop(&mut self, id: thread::Id, class: B, index: slab::Index) -> *mut ffi::c_void {
+        let free = unsafe { &mut *self.slabs[index].local.free.get() };
+        let block = free.peek();
+
+        // FIXME: log
+        // self.owned
+        //     .log_sync(StateUnpacked::SizedToApplication(SizedToApplication::new(
+        //         index, block,
+        //     )));
+
+        free.unset(block);
+
+        if free.is_empty() {
+            self.detach(id, class);
+        }
+
+        todo!()
+
+        // let offset = unsafe { index.offset(class, block) };
+        // self.data.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
+    }
+
+    #[inline]
     pub(crate) fn peek(
         &mut self,
         id: thread::Id,
         help: &help::Array,
         class: B,
     ) -> Option<slab::Index> {
+        if let Some(index) = self.owned.r#sized[class].peek() {
+            stat::inc(&stat::ALLOCATE_FAST);
+            return Some(index);
+        };
+
+        self.allocate(id, help, class)
+    }
+
+    #[cold]
+    fn allocate(&mut self, id: thread::Id, help: &help::Array, class: B) -> Option<slab::Index> {
         stat::inc(&stat::ALLOCATE_SMALL);
 
         if class.is_min() {

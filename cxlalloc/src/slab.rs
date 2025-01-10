@@ -16,8 +16,10 @@ use core::num::NonZeroU32;
 use core::ops::Range;
 use core::ptr::NonNull;
 
+use crate::bitset::Bit;
 use crate::raw;
 use crate::size;
+use crate::size::Bracket as _;
 use crate::thread;
 use crate::view::heap::Length;
 
@@ -33,15 +35,11 @@ impl Index {
             .unwrap()
     }
 
-    // #[inline]
-    // pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
-    //     debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
-    //     let base = NonZeroUsize::from(Offset::from(*self));
-    //     let delta = class.size() * usize::from(index);
-    //     NonZeroU64::try_from(base.checked_add(delta).unwrap())
-    //         .map(Offset::new_internal)
-    //         .unwrap()
-    // }
+    #[inline]
+    pub(crate) unsafe fn offset(&self, class: size::Small, index: Bit) -> usize {
+        debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
+        todo!()
+    }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
         self._0().checked_add(count).map(Self::new).unwrap()
