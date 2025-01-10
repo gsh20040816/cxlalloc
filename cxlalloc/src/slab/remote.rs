@@ -1,18 +1,15 @@
 use crate::atomic::Version;
 use crate::bitset::AtomicBitSet;
-use crate::size;
 use crate::thread;
 use crate::Atomic;
 use crate::SIZE_BIT_SET;
 
 #[repr(C, align(64))]
-pub(crate) struct Shared {
+pub(crate) struct Remote<B> {
     pub(crate) meta: Atomic<Meta>,
-    pub(crate) owner: Atomic<Owner>,
+    pub(crate) owner: Atomic<Owner<B>>,
     pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
 }
-
-const _: [(); 8 * 64] = [(); size_of::<Shared>()];
 
 #[ribbit::pack(size = 32)]
 #[repr(C)]
@@ -28,9 +25,9 @@ pub(crate) struct Meta {
 #[ribbit::pack(size = 24)]
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub(crate) struct Owner {
+pub(crate) struct Owner<B> {
     #[ribbit(size = 8)]
-    pub(crate) class: size::Small,
+    pub(crate) class: B,
 
     #[ribbit(size = 16)]
     pub(crate) id: Option<thread::Id>,

@@ -6,13 +6,13 @@ use crate::raw;
 use crate::slab;
 
 pub(crate) struct Slab<'raw, B> {
-    descriptors: slab::Slice<'raw, slab::Descriptor>,
+    descriptors: slab::Slice<'raw, B>,
     _raw: PhantomData<&'raw raw::Region>,
     _bracket: PhantomData<B>,
 }
 
 impl<'raw, B> Slab<'raw, B> {
-    pub(crate) fn new(descriptors: slab::Slice<'raw, slab::Descriptor>) -> Self {
+    pub(crate) fn new(descriptors: slab::Slice<'raw, B>) -> Self {
         Self {
             descriptors,
             _raw: PhantomData,
@@ -21,6 +21,6 @@ impl<'raw, B> Slab<'raw, B> {
     }
 
     pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
-        slab::Slice::<slab::Descriptor>::layout(count)
+        slab::Slice::<B>::layout(count)
     }
 }

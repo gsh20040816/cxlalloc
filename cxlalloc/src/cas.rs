@@ -1,7 +1,6 @@
 use crate::atomic::Version;
 use crate::log;
 use crate::thread;
-use crate::view;
 use crate::Atomic;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);

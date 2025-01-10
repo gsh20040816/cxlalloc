@@ -14,10 +14,10 @@ use crate::Epoch;
 
 pub struct Heap<'raw, B> {
     /// Multiple-reader, multiple-writer metadata
-    pub(crate) shared: &'raw Shared,
+    pub(crate) shared: &'raw Shared<B>,
 
     /// Single-reader, single-writer metadata
-    pub(crate) owned: &'raw thread::Array<UnsafeCell<Owned>>,
+    pub(crate) owned: &'raw thread::Array<UnsafeCell<Owned<B>>>,
 
     pub(crate) slabs: view::Slab<'raw, B>,
     pub(crate) data: view::Data<'raw, B>,
@@ -25,8 +25,8 @@ pub struct Heap<'raw, B> {
 
 impl<'raw, B> Heap<'raw, B> {
     pub(crate) fn new(
-        shared: &'raw Shared,
-        owned: &'raw thread::Array<UnsafeCell<Owned>>,
+        shared: &'raw Shared<B>,
+        owned: &'raw thread::Array<UnsafeCell<Owned<B>>>,
         slabs: view::Slab<'raw, B>,
         data: view::Data<'raw, B>,
     ) -> Self {
@@ -40,12 +40,12 @@ impl<'raw, B> Heap<'raw, B> {
 }
 
 #[repr(C)]
-pub(crate) struct Shared {
-    free: slab::GlobalStack,
+pub(crate) struct Shared<B> {
+    free: slab::stack::Global<B>,
     bump: cas::Detectable<Bump>,
 }
 
-impl Shared {
+impl<B> Shared<B> {
     // pub(crate) fn layout(slab_count: usize) -> Layout {
     //     Layout::new::<Meta>()
     //         .extend(slab::Slice::<slab::Shared>::layout(slab_count).unwrap())
@@ -162,12 +162,15 @@ impl Display for Length {
     }
 }
 
-pub(crate) struct Owned {
-    pub(crate) r#unsized: slab::LocalStack,
-    pub(crate) r#sized: size::Array<slab::LocalStack>,
+pub(crate) struct Owned<B> {
+    pub(crate) r#unsized: slab::stack::Local<B>,
+    pub(crate) r#sized: size::Array<B, slab::stack::Local<B>>,
 }
 
-impl Owned {
+impl<B> Owned<B>
+where
+    B: size::Bracket,
+{
     // #[inline]
     // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
     //     if !cfg!(feature = "recover-log") {
@@ -191,10 +194,9 @@ impl Owned {
 
     pub(crate) fn unsized_to_sized(
         &mut self,
-        owned: &slab::Slice<slab::Owned>,
-        shared: &slab::Slice<slab::Shared>,
+        slabs: &slab::Slice<B>,
         id: thread::Id,
-        class: size::Small,
+        class: B,
     ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
             return false;
@@ -202,22 +204,22 @@ impl Owned {
 
         crash::define!(unsized_to_sized_pre_log);
 
-        let slab = &owned[index];
-        let next = slab.next.load();
+        let slab = &slabs[index];
+        let next = slab.local.next.load();
 
         // self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
         //     next, class,
         // )));
 
-        self.r#sized[class].push(owned, index);
+        self.r#sized[class].push(slabs, index);
         unsafe {
-            (*slab.free.get()).fill(class.count());
+            (*slab.local.free.get()).fill(class.count());
         }
 
-        shared[index]
+        slab.remote
             .owner
-            .store(slab::shared::Owner::new(class, Some(id)));
-        crate::flush(&shared[index].owner, false);
+            .store(slab::remote::Owner::new(class, Some(id)));
+        crate::flush(&slab.remote.owner, false);
 
         let count = self.r#unsized.len();
         self.r#unsized.set(next, count - 1);
@@ -227,16 +229,16 @@ impl Owned {
     #[cold]
     pub(crate) fn sized_to_unsized(
         &mut self,
-        slabs: &slab::Slice<slab::Owned>,
-        class: size::Small,
+        slabs: &slab::Slice<B>,
+        class: B,
         index: slab::Index,
     ) {
         // Special case: not in sized list
-        if class == size::SLAB {
+        if class.is_max() {
             return self.r#unsized.push(slabs, index);
         }
 
-        let next = slabs[index].next.load();
+        let next = slabs[index].local.next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
 
@@ -245,14 +247,14 @@ impl Owned {
             self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
-                match slabs[walk].next.load() {
+                match slabs[walk].local.next.load() {
                     None => panic!("removing non-existent slab {} {}", index, class),
                     Some(next) if next == index => break walk,
                     Some(next) => walk = next,
                 }
             };
 
-            slabs[prev].next.store(next);
+            slabs[prev].local.next.store(next);
             crate::flush(&slabs[prev], false);
         };
 

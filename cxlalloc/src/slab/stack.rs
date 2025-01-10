@@ -1,19 +1,21 @@
+use core::marker::PhantomData;
+
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
 use crate::log;
 use crate::slab::Index;
-use crate::slab::Owned;
 use crate::slab::Slice;
 use crate::thread;
 
 #[repr(C)]
-pub(crate) struct LocalStack {
+pub(crate) struct Local<B> {
     head: Option<Index>,
     count: usize,
+    _bracket: PhantomData<B>,
 }
 
-impl LocalStack {
+impl<B> Local<B> {
     pub(crate) fn peek(&self) -> Option<Index> {
         self.head
     }
@@ -28,16 +30,16 @@ impl LocalStack {
         crate::flush(&self, false);
     }
 
-    pub(crate) fn pop(&mut self, slabs: &Slice<Owned>) -> Option<Index> {
+    pub(crate) fn pop(&mut self, slabs: &Slice<B>) -> Option<Index> {
         let index = self.head?;
         self.count -= 1;
-        self.head = slabs[index].next.load();
+        self.head = slabs[index].local.next.load();
         crate::flush(self, false);
         Some(index)
     }
 
-    pub(crate) fn push(&mut self, slabs: &Slice<Owned>, index: Index) {
-        let slab = &slabs[index];
+    pub(crate) fn push(&mut self, slabs: &Slice<B>, index: Index) {
+        let slab = &slabs[index].local;
         slab.next.store(self.head);
         crate::flush(&slab.next, false);
 
@@ -46,28 +48,29 @@ impl LocalStack {
         crate::flush(&self.head, false);
     }
 
-    pub(crate) fn trace<'a>(&self, slabs: &'a Slice<Owned>) -> impl Iterator<Item = Index> + 'a {
+    pub(crate) fn trace<'a>(&self, slabs: &'a Slice<B>) -> impl Iterator<Item = Index> + 'a {
         slabs.trace(self.head)
     }
 }
 
 #[repr(C)]
-pub(crate) struct GlobalStack {
+pub(crate) struct Global<B> {
     head: cas::Detectable<Option<Index>>,
+    _bracket: PhantomData<B>,
 }
 
-impl GlobalStack {
+impl<B> Global<B> {
     pub(crate) fn push(
         &self,
         id: thread::Id,
-        slabs: &Slice<Owned>,
+        slabs: &Slice<B>,
         help: &help::Array,
         head: Index,
         tail: Index,
     ) {
         self.head.update(help, id, |old, version| {
-            slabs[tail].next.store(old);
-            crate::flush(&slabs[tail].next, false);
+            slabs[tail].local.next.store(old);
+            crate::flush(&slabs[tail].local.next, false);
             Some((
                 Some(head),
                 log::StateUnpacked::LocalToGlobal(log::LocalToGlobal::new(head, version)),
@@ -78,13 +81,13 @@ impl GlobalStack {
     pub(crate) fn pop(
         &self,
         id: thread::Id,
-        slabs: &Slice<Owned>,
+        slabs: &Slice<B>,
         help: &help::Array,
     ) -> Option<Index> {
         self.head
             .update(help, id, |old, version| {
                 let old = old?;
-                let new = slabs[old].next.load();
+                let new = slabs[old].local.next.load();
 
                 Some((
                     new,

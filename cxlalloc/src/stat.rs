@@ -3,6 +3,7 @@ use core::fmt::Write as _;
 use std::thread::LocalKey;
 
 use crate::size;
+use crate::size::Bracket as _;
 
 pub fn dump(id: usize) {
     dump_counters(id);
@@ -82,7 +83,7 @@ pub(crate) fn inc(counter: &'static LocalKey<Cell<usize>>) {
 }
 
 thread_local! {
-    static SMALL: size::Array<Cell<usize>> = size::Array::default();
+    static SMALL: size::Array<size::Small, Cell<usize>> = size::Array::default();
 
     // FIXME: this leaks memory, but we need it for now if we want to track
     // size statistics through the `LD_PRELOAD` shim.

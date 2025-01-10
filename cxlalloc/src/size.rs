@@ -1,6 +1,7 @@
 use core::array;
 use core::fmt;
 use core::fmt::Display;
+use core::marker::PhantomData;
 use core::ops;
 
 use crate::SIZE_BIT_SET;
@@ -8,22 +9,32 @@ use crate::SIZE_SLAB;
 
 pub(crate) const MIN: usize = 8;
 
-pub(crate) trait Bracket {
+pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Display {
     const SIZE_SLAB: usize;
-}
 
-impl Bracket for Small {
-    // TODO: get rid of crate::SIZE_SLAB
-    const SIZE_SLAB: usize = crate::SIZE_SLAB;
+    fn pack(self) -> u8 {
+        ribbit::private::pack(self)
+    }
+
+    fn is_min(&self) -> bool;
+
+    fn is_max(&self) -> bool;
+
+    fn size(&self) -> usize;
+
+    fn count(&self) -> usize;
 }
 
 #[repr(transparent)]
 #[derive(Debug)]
-pub(crate) struct Array<T>([T; 1 + CLASS_COUNT]);
+pub(crate) struct Array<B, T> {
+    inner: [T; 1 + CLASS_COUNT],
+    _bracket: PhantomData<B>,
+}
 
-impl<T> Array<T> {
+impl<B, T> Array<B, T> {
     pub(crate) fn iter(&self) -> impl Iterator<Item = (Small, &T)> {
-        self.0
+        self.inner
             .iter()
             .enumerate()
             .map(|(index, element)| (Small::new_internal(index as u8), element))
@@ -31,26 +42,35 @@ impl<T> Array<T> {
     }
 }
 
-impl<T> Default for Array<T>
+impl<B, T> Default for Array<B, T>
 where
     T: Default,
 {
     fn default() -> Self {
-        Self(array::from_fn(|_| T::default()))
+        Self {
+            inner: array::from_fn(|_| T::default()),
+            _bracket: PhantomData,
+        }
     }
 }
 
-impl<T> ops::Index<Small> for Array<T> {
+impl<B, T> ops::Index<B> for Array<B, T>
+where
+    B: Bracket,
+{
     type Output = T;
 
-    fn index(&self, class: Small) -> &Self::Output {
-        unsafe { self.0.get_unchecked(class._0() as usize) }
+    fn index(&self, class: B) -> &Self::Output {
+        unsafe { self.inner.get_unchecked(class.pack() as usize) }
     }
 }
 
-impl<T> ops::IndexMut<Small> for Array<T> {
-    fn index_mut(&mut self, class: Small) -> &mut Self::Output {
-        unsafe { self.0.get_unchecked_mut(class._0() as usize) }
+impl<B, T> ops::IndexMut<B> for Array<B, T>
+where
+    B: Bracket,
+{
+    fn index_mut(&mut self, class: B) -> &mut Self::Output {
+        unsafe { self.inner.get_unchecked_mut(class.pack() as usize) }
     }
 }
 
@@ -83,14 +103,24 @@ impl Small {
             _ => None,
         }
     }
+}
+
+impl Bracket for Small {
+    // TODO: get rid of crate::SIZE_SLAB
+    const SIZE_SLAB: usize = crate::SIZE_SLAB;
 
     #[inline]
-    pub(crate) fn is_zero(&self) -> bool {
+    fn is_min(&self) -> bool {
         self._0() == 0
     }
 
     #[inline]
-    pub(crate) fn size(&self) -> usize {
+    fn is_max(&self) -> bool {
+        *self == SLAB
+    }
+
+    #[inline]
+    fn size(&self) -> usize {
         match self._0().checked_sub(128) {
             None => self._0() as usize * 8,
             Some(p) => 1024 << p,
@@ -98,13 +128,13 @@ impl Small {
     }
 
     #[inline]
-    pub(crate) fn count(&self) -> usize {
-        static COUNTS: Array<u16> = counts();
+    fn count(&self) -> usize {
+        static COUNTS: Array<Small, u16> = counts();
         COUNTS[*self] as usize
     }
 }
 
-const fn counts() -> Array<u16> {
+const fn counts() -> Array<Small, u16> {
     let mut counts = [0u16; CLASS_COUNT + 1];
 
     // Special case: zero size class to defer branch
@@ -125,5 +155,8 @@ const fn counts() -> Array<u16> {
         i += 1;
     }
 
-    Array(counts)
+    Array {
+        inner: counts,
+        _bracket: PhantomData,
+    }
 }

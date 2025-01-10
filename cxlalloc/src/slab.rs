@@ -1,11 +1,9 @@
-pub(crate) mod owned;
-pub(crate) mod shared;
+pub(crate) mod local;
+pub(crate) mod remote;
 pub(crate) mod stack;
 
-pub(crate) use owned::Owned;
-pub(crate) use shared::Shared;
-pub(crate) use stack::GlobalStack;
-pub(crate) use stack::LocalStack;
+pub(crate) use local::Local;
+pub(crate) use remote::Remote;
 
 use core::alloc::Layout;
 use core::alloc::LayoutError;
@@ -25,6 +23,7 @@ use ribbit::private::u12;
 use crate::bitset::Bit;
 use crate::raw;
 use crate::size;
+use crate::size::Bracket as _;
 use crate::thread;
 use crate::view::heap::Length;
 use crate::SIZE_SLAB;
@@ -148,23 +147,23 @@ impl From<Offset> for usize {
 }
 
 #[repr(C, align(64))]
-pub(crate) struct Descriptor {
-    pub(crate) owned: Owned,
-    pub(crate) shared: Shared,
+pub(crate) struct Descriptor<B> {
+    pub(crate) local: Local,
+    pub(crate) remote: Remote<B>,
 }
 
-pub(crate) struct Slice<'raw, S> {
-    base: NonNull<S>,
+pub(crate) struct Slice<'raw, B> {
+    base: NonNull<Descriptor<B>>,
     _raw: PhantomData<&'raw raw::Region>,
 }
 
-impl<S: Slab> Slice<'_, S> {
+impl<B> Slice<'_, B> {
     pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
-        Layout::array::<S>(count)
+        Layout::array::<Descriptor<B>>(count)
     }
 
     // Implementation detail: store minus one
-    pub(crate) unsafe fn from_raw(base: NonNull<S>) -> Self {
+    pub(crate) unsafe fn from_raw(base: NonNull<Descriptor<B>>) -> Self {
         let base = base.as_ptr().wrapping_sub(1);
 
         Self {
@@ -172,24 +171,7 @@ impl<S: Slab> Slice<'_, S> {
             _raw: PhantomData,
         }
     }
-}
 
-pub(crate) trait Slab: private::Seal {}
-
-impl private::Seal for Owned {}
-impl Slab for Owned {}
-
-impl private::Seal for Shared {}
-impl Slab for Shared {}
-
-impl private::Seal for Descriptor {}
-impl Slab for Descriptor {}
-
-mod private {
-    pub trait Seal {}
-}
-
-impl Slice<'_, Owned> {
     pub(crate) unsafe fn link(&self, range: Range<Index>, head: Option<Index>) {
         let range = (range.start._0().get()..range.end._0().get())
             .map(NonZeroU32::new)
@@ -204,46 +186,49 @@ impl Slice<'_, Owned> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            let meta = &self[i].next;
-            meta.store(j);
-            crate::flush(meta, false);
+            let next = &self[i].local.next;
+            next.store(j);
+            crate::flush(next, false);
         }
     }
 
     pub(crate) fn trace(&self, mut head: Option<Index>) -> impl Iterator<Item = Index> + '_ {
         iter::from_fn(move || {
             let next = head?;
-            head = self[next].next.load();
+            head = self[next].local.next.load();
             Some(next)
         })
     }
 }
 
-impl<S> core::ops::Index<Index> for Slice<'_, S> {
-    type Output = S;
+impl<B> core::ops::Index<Index> for Slice<'_, B> {
+    type Output = Descriptor<B>;
     fn index(&self, index: Index) -> &Self::Output {
         unsafe { self.base.add(index._0().get() as usize).as_ref() }
     }
 }
 
 #[inline]
-pub(crate) fn transfer(
-    shared: &Slice<Shared>,
-    owned: &Slice<Owned>,
+pub(crate) fn transfer<B>(
+    slabs: &Slice<B>,
     index: Index,
     old: Option<thread::Id>,
     new: Option<thread::Id>,
-) {
+) where
+    B: size::Bracket,
+{
     if !cfg!(feature = "validate") {
         return;
     }
 
-    let Err(actual) = owned[index].owner.transfer(old, new) else {
+    let slab = &slabs[index];
+
+    let Err(actual) = slab.local.owner.transfer(old, new) else {
         return;
     };
 
-    let meta = shared[index].meta.load();
-    let owner = shared[index].owner.load();
+    let meta = slab.remote.meta.load();
+    let owner = slab.remote.owner.load();
 
     panic!(
         "Slab {index} transfer failed: \
@@ -260,25 +245,26 @@ pub(crate) fn transfer(
         meta.claim(),
         owner.class(),
         owner.id(),
-        unsafe { &*owned[index].free.get() },
-        &shared[index].free,
+        unsafe { &*slab.local.free.get() },
+        &slab.remote.free,
     );
 }
 
 #[inline]
-pub(crate) fn transfer_all(
-    shared: &Slice<Shared>,
-    owned: &Slice<Owned>,
+pub(crate) fn transfer_all<B>(
+    slabs: &Slice<B>,
     index: Index,
     count: usize,
     old: Option<thread::Id>,
     new: Option<thread::Id>,
-) {
+) where
+    B: size::Bracket,
+{
     if !cfg!(feature = "validate") {
         return;
     }
 
     for i in 0..count {
-        transfer(shared, owned, unsafe { index.add(i as u32) }, old, new);
+        transfer(slabs, unsafe { index.add(i as u32) }, old, new);
     }
 }
