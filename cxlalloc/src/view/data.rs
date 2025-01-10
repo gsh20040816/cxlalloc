@@ -73,7 +73,7 @@ where
 #[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""))]
 #[repr(transparent)]
 #[derive(PartialEq, Eq)]
-pub struct Offset<B> {
+pub(crate) struct Offset<B> {
     value: NonZeroU64,
     #[ribbit(size = 0)]
     _bracket: PhantomData<B>,
