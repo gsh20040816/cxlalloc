@@ -18,23 +18,16 @@ impl<'raw> Data<'raw, size::Small>
 where
     size::Small: size::Bracket,
 {
-    pub(crate) fn layout(slab_count: usize) -> Layout {
-        Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count).unwrap()
-    }
-
-    pub(crate) unsafe fn from_raw(region: &'raw raw::heap::Heap) -> Self {
+    pub(crate) fn new(base: NonNull<u64>) -> Self {
         Self {
-            base: NonNull::new(
-                region
-                    .data
-                    .base()
-                    .as_ptr()
-                    .wrapping_byte_sub(size::Small::SIZE_SLAB),
-            )
-            .unwrap(),
+            base,
             _raw: PhantomData,
             _bracket: PhantomData,
         }
+    }
+
+    pub(crate) fn layout(slab_count: usize) -> Layout {
+        Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count).unwrap()
     }
 }
 

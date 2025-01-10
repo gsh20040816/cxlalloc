@@ -3,16 +3,22 @@ use std::io;
 use crate::raw::backend;
 use crate::raw::Backend;
 use crate::raw::Region;
-use crate::Allocator;
 use crate::SIZE_SLAB;
 
 /// This type represents sole ownership of an initialized backing store
 /// for the heap.
-pub struct Heap {
+pub struct Raw {
     pub(crate) backend: Backend,
-    pub(crate) shared: Region,
-    pub(crate) owned: Region,
-    pub(crate) data: Region,
+
+    pub(crate) hwcc: Region,
+    pub(crate) swcc: Region,
+
+    // Slab metadata regions
+    pub(crate) small_slab: Region,
+
+    // Data regions, must be contiguous
+    pub(crate) small_data: Region,
+    pub(crate) huge_data: Region,
 
     /// Initial capacity
     pub(crate) capacity: u32,
@@ -31,16 +37,16 @@ pub struct Heap {
 ///
 /// The memory regions are mapped for the entire process, so
 /// the pointers remain valid when transferred to a different thread.
-unsafe impl Send for Heap {}
+unsafe impl Send for Raw {}
 
 /// # Safety
 ///
 /// The only (public) way to interact with a [`Raw`] is through
 /// a [`crate::Heap`] or [`crate::Allocator`], which expose
 /// thread-safe methods.
-unsafe impl Sync for Heap {}
+unsafe impl Sync for Raw {}
 
-impl Heap {
+impl Raw {
     fn new(
         id: &str,
         Builder {
@@ -51,7 +57,7 @@ impl Heap {
             process_count,
             free,
         }: Builder,
-    ) -> io::Result<Heap> {
+    ) -> io::Result<Raw> {
         log::info!(
             "Requesting heap with \
             backend = {}, \
@@ -66,6 +72,15 @@ impl Heap {
             process_count,
         );
 
+        // memory layout
+        //
+        // HWcc
+        // +------------------+------------+-------------------+-----------+------------+
+        // | persistent root  | help array | small global free | huge next | huge slots |
+        // +------------------+------------+-------------------+-----------+------------+
+        //
+        // SWcc
+        //
         todo!()
     }
 
@@ -83,7 +98,7 @@ impl Heap {
     }
 }
 
-impl Drop for Heap {
+impl Drop for Raw {
     fn drop(&mut self) {
         if let Err(error) = self.backend.unmap(&self.shared) {
             log::error!("Failed to unmap shared region: {:?}", error);
@@ -125,8 +140,8 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub fn build(self, id: &str) -> io::Result<Heap> {
-        Heap::new(id, self)
+    pub fn build(self, id: &str) -> io::Result<Raw> {
+        Raw::new(id, self)
     }
 
     pub fn backend<B: Into<Backend>>(mut self, backend: B) -> Self {

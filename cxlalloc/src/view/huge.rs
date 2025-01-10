@@ -7,6 +7,12 @@ pub(crate) struct Huge<'raw> {
     owned: &'raw thread::Array<Owned>,
 }
 
+impl<'raw> Huge<'raw> {
+    pub(crate) fn new(shared: &'raw Shared, owned: &'raw thread::Array<Owned>) -> Self {
+        Self { shared, owned }
+    }
+}
+
 pub(crate) struct Shared {
     slots: [Atomic<Option<thread::Id>>; 1024],
     next: Atomic<u64>,

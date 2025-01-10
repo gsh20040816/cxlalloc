@@ -167,13 +167,8 @@ impl<S: Slab> Slice<'_, S> {
     }
 
     // Implementation detail: store minus one
-    pub(crate) unsafe fn from_raw(region: &raw::Region, offset: usize) -> Self {
-        let base = region
-            .base()
-            .byte_add(offset)
-            .as_ptr()
-            .cast::<S>()
-            .wrapping_sub(1);
+    pub(crate) unsafe fn from_raw(base: NonNull<S>) -> Self {
+        let base = base.as_ptr().wrapping_sub(1);
 
         Self {
             base: NonNull::new(base).unwrap(),
@@ -189,6 +184,9 @@ impl Slab for Owned {}
 
 impl private::Seal for Shared {}
 impl Slab for Shared {}
+
+impl private::Seal for Descriptor {}
+impl Slab for Descriptor {}
 
 mod private {
     pub trait Seal {}

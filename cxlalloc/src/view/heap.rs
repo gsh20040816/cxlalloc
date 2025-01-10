@@ -23,101 +23,19 @@ pub struct Heap<'raw, B> {
     pub(crate) data: view::Data<'raw, B>,
 }
 
-pub(crate) struct Owned {
-    pub(crate) r#unsized: slab::LocalStack,
-    pub(crate) r#sized: size::Array<slab::LocalStack>,
-}
-
-impl Owned {
-    // #[inline]
-    // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
-    //     if !cfg!(feature = "recover-log") {
-    //         return;
-    //     }
-    //
-    //     crate::fence();
-    //     self.log_unsync(State::new(state));
-    //     crate::fence();
-    // }
-    //
-    // #[inline]
-    // pub(crate) fn log_unsync(&mut self, state: State) {
-    //     if !cfg!(feature = "recover-log") {
-    //         return;
-    //     }
-    //
-    //     self.state.store(Some(state));
-    //     crate::flush(&self.state, false);
-    // }
-
-    pub(crate) fn unsized_to_sized(
-        &mut self,
-        owned: &slab::Slice<slab::Owned>,
-        shared: &slab::Slice<slab::Shared>,
-        id: thread::Id,
-        class: size::Small,
-    ) -> bool {
-        let Some(index) = self.r#unsized.peek() else {
-            return false;
-        };
-
-        crash::define!(unsized_to_sized_pre_log);
-
-        let slab = &owned[index];
-        let next = slab.next.load();
-
-        // self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
-        //     next, class,
-        // )));
-
-        self.r#sized[class].push(owned, index);
-        unsafe {
-            (*slab.free.get()).fill(class.count());
+impl<'raw, B> Heap<'raw, B> {
+    pub(crate) fn new(
+        shared: &'raw Shared,
+        owned: &'raw thread::Array<UnsafeCell<Owned>>,
+        slabs: view::Slab<'raw, B>,
+        data: view::Data<'raw, B>,
+    ) -> Self {
+        Self {
+            shared,
+            owned,
+            slabs,
+            data,
         }
-
-        shared[index]
-            .owner
-            .store(slab::shared::Owner::new(class, Some(id)));
-        crate::flush(&shared[index].owner, false);
-
-        let count = self.r#unsized.len();
-        self.r#unsized.set(next, count - 1);
-        true
-    }
-
-    #[cold]
-    pub(crate) fn sized_to_unsized(
-        &mut self,
-        slabs: &slab::Slice<slab::Owned>,
-        class: size::Small,
-        index: slab::Index,
-    ) {
-        // Special case: not in sized list
-        if class == size::SLAB {
-            return self.r#unsized.push(slabs, index);
-        }
-
-        let next = slabs[index].next.load();
-
-        let mut walk = self.r#sized[class].peek().unwrap();
-
-        if walk == index {
-            let count = self.r#sized[class].len();
-            self.r#sized[class].set(next, count - 1);
-        } else {
-            let prev = loop {
-                match slabs[walk].next.load() {
-                    None => panic!("removing non-existent slab {} {}", index, class),
-                    Some(next) if next == index => break walk,
-                    Some(next) => walk = next,
-                }
-            };
-
-            slabs[prev].next.store(next);
-            crate::flush(&slabs[prev], false);
-        };
-
-        self.r#unsized.push(slabs, index);
     }
 }
 
@@ -241,5 +159,103 @@ impl Add<u32> for Length {
 impl Display for Length {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         Display::fmt(&u32::from(*self), f)
+    }
+}
+
+pub(crate) struct Owned {
+    pub(crate) r#unsized: slab::LocalStack,
+    pub(crate) r#sized: size::Array<slab::LocalStack>,
+}
+
+impl Owned {
+    // #[inline]
+    // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
+    //     if !cfg!(feature = "recover-log") {
+    //         return;
+    //     }
+    //
+    //     crate::fence();
+    //     self.log_unsync(State::new(state));
+    //     crate::fence();
+    // }
+    //
+    // #[inline]
+    // pub(crate) fn log_unsync(&mut self, state: State) {
+    //     if !cfg!(feature = "recover-log") {
+    //         return;
+    //     }
+    //
+    //     self.state.store(Some(state));
+    //     crate::flush(&self.state, false);
+    // }
+
+    pub(crate) fn unsized_to_sized(
+        &mut self,
+        owned: &slab::Slice<slab::Owned>,
+        shared: &slab::Slice<slab::Shared>,
+        id: thread::Id,
+        class: size::Small,
+    ) -> bool {
+        let Some(index) = self.r#unsized.peek() else {
+            return false;
+        };
+
+        crash::define!(unsized_to_sized_pre_log);
+
+        let slab = &owned[index];
+        let next = slab.next.load();
+
+        // self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
+        //     next, class,
+        // )));
+
+        self.r#sized[class].push(owned, index);
+        unsafe {
+            (*slab.free.get()).fill(class.count());
+        }
+
+        shared[index]
+            .owner
+            .store(slab::shared::Owner::new(class, Some(id)));
+        crate::flush(&shared[index].owner, false);
+
+        let count = self.r#unsized.len();
+        self.r#unsized.set(next, count - 1);
+        true
+    }
+
+    #[cold]
+    pub(crate) fn sized_to_unsized(
+        &mut self,
+        slabs: &slab::Slice<slab::Owned>,
+        class: size::Small,
+        index: slab::Index,
+    ) {
+        // Special case: not in sized list
+        if class == size::SLAB {
+            return self.r#unsized.push(slabs, index);
+        }
+
+        let next = slabs[index].next.load();
+
+        let mut walk = self.r#sized[class].peek().unwrap();
+
+        if walk == index {
+            let count = self.r#sized[class].len();
+            self.r#sized[class].set(next, count - 1);
+        } else {
+            let prev = loop {
+                match slabs[walk].next.load() {
+                    None => panic!("removing non-existent slab {} {}", index, class),
+                    Some(next) if next == index => break walk,
+                    Some(next) => walk = next,
+                }
+            };
+
+            slabs[prev].next.store(next);
+            crate::flush(&slabs[prev], false);
+        };
+
+        self.r#unsized.push(slabs, index);
     }
 }

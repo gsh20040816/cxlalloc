@@ -2,7 +2,7 @@ pub(crate) mod heap;
 pub(crate) mod region;
 
 pub use heap::Builder;
-pub use heap::Heap;
+pub use heap::Raw;
 pub(crate) use region::Region;
 
 use core::ffi;
