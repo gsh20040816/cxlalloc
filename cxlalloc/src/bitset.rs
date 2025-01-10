@@ -24,9 +24,9 @@ impl Bit {
     }
 }
 
-impl From<Bit> for usize {
+impl From<Bit> for u64 {
     fn from(bit: Bit) -> Self {
-        bit._0().value() as usize
+        bit._0().value() as u64
     }
 }
 

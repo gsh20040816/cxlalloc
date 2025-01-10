@@ -21,6 +21,8 @@ use crate::raw;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::thread;
+use crate::view;
+use crate::view::data;
 use crate::view::heap::Length;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]
@@ -45,12 +47,6 @@ impl<B> Index<B> {
         NonZeroU32::new(u32::from(length) + 1)
             .map(Self::new)
             .unwrap()
-    }
-
-    #[inline]
-    pub(crate) unsafe fn offset(&self, class: size::Small, index: Bit) -> usize {
-        debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
-        todo!()
     }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {

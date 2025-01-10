@@ -20,9 +20,9 @@ pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Display + Default + Eq {
 
     fn is_max(&self) -> bool;
 
-    fn size(&self) -> usize;
+    fn size(&self) -> u64;
 
-    fn count(&self) -> usize;
+    fn count(&self) -> u64;
 }
 
 #[repr(transparent)]
@@ -120,17 +120,17 @@ impl Bracket for Small {
     }
 
     #[inline]
-    fn size(&self) -> usize {
+    fn size(&self) -> u64 {
         match self._0().checked_sub(128) {
-            None => self._0() as usize * 8,
+            None => self._0() as u64 * 8,
             Some(p) => 1024 << p,
         }
     }
 
     #[inline]
-    fn count(&self) -> usize {
+    fn count(&self) -> u64 {
         static COUNTS: Array<Small, u16> = counts();
-        COUNTS[*self] as usize
+        COUNTS[*self] as u64
     }
 }
 

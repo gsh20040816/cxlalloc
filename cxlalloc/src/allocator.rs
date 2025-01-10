@@ -280,6 +280,6 @@ impl Allocator<'_> {
     }
 
     pub fn epoch(&self) -> crate::extend::Epoch {
-        self.heap.shared.epoch()
+        todo!()
     }
 }

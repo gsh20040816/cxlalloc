@@ -19,5 +19,5 @@ pub(crate) struct Shared {
 }
 
 pub(crate) struct Owned {
-    head: Atomic<Option<data::Offset>>,
+    // head: Atomic<Option<data::Offset>>,
 }

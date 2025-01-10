@@ -103,7 +103,7 @@ pub(crate) struct Descriptor {
 
 pub(crate) struct Array {
     owners: [Atomic<Option<thread::Id>>; 1024],
-    pub(crate) descriptors: thread::Array<Atomic<Option<slab::Offset>>>,
+    // pub(crate) descriptors: thread::Array<Atomic<Option<data::Offset>>>,
     hint: Atomic<u64>,
 }
 

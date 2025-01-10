@@ -7,6 +7,7 @@ use crate::slab;
 use crate::stat;
 use crate::thread;
 use crate::view;
+use crate::view::data;
 use crate::view::Heap;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
@@ -35,10 +36,8 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
             self.detach(id, class);
         }
 
-        todo!()
-
-        // let offset = unsafe { index.offset(class, block) };
-        // self.data.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
+        let offset = data::Offset::from_block(index, class, block);
+        self.data.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
     }
 
     #[inline]

@@ -12,8 +12,8 @@ pub(crate) struct HiBitSet<const SIZE: usize> {
 impl<const SIZE: usize> HiBitSet<SIZE> {
     const INVARIANT: () = assert!(SIZE <= 64);
 
-    pub(crate) fn fill(&mut self, count: usize) {
-        let rows = count / 64;
+    pub(crate) fn fill(&mut self, count: u64) {
+        let rows = count as usize / 64;
 
         // Full rows of 1s
         self.dense

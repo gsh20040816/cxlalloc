@@ -56,11 +56,11 @@ impl From<Index> for usize {
     }
 }
 
-pub(crate) struct Array([Atomic<Option<slab::Offset>>; COUNT_ROOT]);
-
-impl core::ops::Index<Index> for Array {
-    type Output = Atomic<Option<slab::Offset>>;
-    fn index(&self, index: Index) -> &Self::Output {
-        &self.0[index.0]
-    }
-}
+// pub(crate) struct Array([Atomic<Option<slab::Offset>>; COUNT_ROOT]);
+//
+// impl core::ops::Index<Index> for Array {
+//     type Output = Atomic<Option<slab::Offset>>;
+//     fn index(&self, index: Index) -> &Self::Output {
+//         &self.0[index.0]
+//     }
+// }
