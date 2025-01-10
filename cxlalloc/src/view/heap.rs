@@ -1,4 +1,3 @@
-use core::cell::UnsafeCell;
 use core::fmt::Display;
 use core::ops::Add;
 
@@ -12,21 +11,21 @@ use crate::thread;
 use crate::view;
 use crate::Epoch;
 
-pub struct Heap<'raw, B> {
+pub struct Heap<'raw, L: view::Lens, B> {
     /// Multiple-reader, multiple-writer metadata
     pub(crate) shared: &'raw Shared<B>,
 
     /// Single-reader, single-writer metadata
-    pub(crate) owned: &'raw thread::Array<UnsafeCell<Owned<B>>>,
+    pub(crate) owned: L::Scope<'raw, Owned<B>>,
 
     pub(crate) slabs: view::Slab<'raw, B>,
     pub(crate) data: view::Data<'raw, B>,
 }
 
-impl<'raw, B> Heap<'raw, B> {
+impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
     pub(crate) fn new(
         shared: &'raw Shared<B>,
-        owned: &'raw thread::Array<UnsafeCell<Owned<B>>>,
+        owned: L::Scope<'raw, Owned<B>>,
         slabs: view::Slab<'raw, B>,
         data: view::Data<'raw, B>,
     ) -> Self {
@@ -35,6 +34,15 @@ impl<'raw, B> Heap<'raw, B> {
             owned,
             slabs,
             data,
+        }
+    }
+
+    pub(crate) unsafe fn focus(self, id: thread::Id) -> Heap<'raw, view::Focus, B> {
+        Heap {
+            shared: self.shared,
+            owned: L::focus(self.owned, id),
+            slabs: self.slabs,
+            data: self.data,
         }
     }
 }

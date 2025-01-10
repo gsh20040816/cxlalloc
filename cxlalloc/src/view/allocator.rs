@@ -1,5 +1,3 @@
-use core::cell::UnsafeCell;
-
 use crate::cas;
 use crate::log;
 use crate::size;
@@ -8,26 +6,40 @@ use crate::view;
 use crate::view::data;
 use crate::Atomic;
 
-pub struct Allocator<'raw> {
-    shared: &'raw Shared,
-    owned: &'raw thread::Array<UnsafeCell<Owned>>,
+pub struct Allocator<'raw, L: view::Lens> {
+    id: thread::Id,
 
-    small: view::Heap<'raw, size::Small>,
+    shared: &'raw Shared,
+    owned: L::Scope<'raw, Owned>,
+
+    small: view::Heap<'raw, L, size::Small>,
     huge: view::Huge<'raw>,
 }
 
-impl<'raw> Allocator<'raw> {
+impl<'raw, L: view::Lens> Allocator<'raw, L> {
     pub(crate) fn new(
+        id: thread::Id,
         shared: &'raw Shared,
-        owned: &'raw thread::Array<UnsafeCell<Owned>>,
-        small: view::Heap<'raw, size::Small>,
+        owned: L::Scope<'raw, Owned>,
+        small: view::Heap<'raw, L, size::Small>,
         huge: view::Huge<'raw>,
     ) -> Self {
         Self {
+            id,
             shared,
             owned,
             small,
             huge,
+        }
+    }
+
+    pub(crate) unsafe fn focus(self, id: thread::Id) -> Allocator<'raw, view::Focus> {
+        Allocator {
+            id,
+            shared: self.shared,
+            owned: L::focus(self.owned, id),
+            small: self.small.focus(id),
+            huge: self.huge,
         }
     }
 }

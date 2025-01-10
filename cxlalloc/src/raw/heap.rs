@@ -173,7 +173,7 @@ impl Raw {
         })
     }
 
-    pub fn allocator(&self) -> view::Allocator {
+    pub fn allocator(&self, id: thread::Id) -> view::Allocator<view::Focus> {
         let (_, shared_offsets) = Self::shared();
         let (_, owned_offsets) = Self::owned();
         let shared = self.shared.base().as_ptr();
@@ -187,6 +187,7 @@ impl Raw {
             // - Indexes into offset arrays aren't statically checked to match their struct type.
             // - This module maybe shouldn't need to know about `thread::Array<UnsafeCell<...>>`?
             view::Allocator::new(
+                id,
                 shared
                     .wrapping_byte_add(shared_offsets[0])
                     .cast::<view::allocator::Shared>()
@@ -197,7 +198,7 @@ impl Raw {
                     .cast::<thread::Array<UnsafeCell<view::allocator::Owned>>>()
                     .as_ref()
                     .unwrap(),
-                view::Heap::new(
+                view::Heap::<view::Unfocus, size::Small>::new(
                     shared
                         .wrapping_byte_add(shared_offsets[1])
                         .cast::<view::heap::Shared<size::Small>>()
@@ -224,6 +225,7 @@ impl Raw {
                         .unwrap(),
                 ),
             )
+            .focus(id)
         }
     }
 
