@@ -9,7 +9,7 @@ use crate::SIZE_SLAB;
 
 pub(crate) const MIN: usize = 8;
 
-pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Display {
+pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Display + Default {
     const SIZE_SLAB: usize;
 
     fn pack(self) -> u8 {
