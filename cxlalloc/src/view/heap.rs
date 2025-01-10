@@ -190,7 +190,7 @@ pub(crate) struct Owned<B> {
 
 impl<B> Owned<B>
 where
-    B: size::Bracket,
+    B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
 {
     // #[inline]
     // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {

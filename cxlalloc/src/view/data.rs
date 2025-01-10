@@ -1,5 +1,6 @@
 use core::alloc::Layout;
 use core::alloc::LayoutError;
+use core::fmt::Display;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
 use core::num::NonZeroU64;
@@ -79,7 +80,7 @@ pub(crate) struct Offset<B> {
     _bracket: PhantomData<B>,
 }
 
-impl<B: size::Bracket> Offset<B> {
+impl<B: size::Bracket + Display> Offset<B> {
     pub(crate) fn from_block(slab: slab::Index<B>, class: B, block: Bit) -> Self {
         debug_assert!(u64::from(block) <= class.count(), "{} {:?}", class, block);
         NonZeroU64::new(

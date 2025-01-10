@@ -9,12 +9,10 @@ use crate::SIZE_SLAB;
 
 pub(crate) const MIN: usize = 8;
 
-pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Display + Default + Eq {
+pub(crate) trait Bracket {
     const SIZE_SLAB: usize;
 
-    fn pack(self) -> u8 {
-        ribbit::private::pack(self)
-    }
+    fn pack(self) -> u8;
 
     fn is_min(&self) -> bool;
 
@@ -23,6 +21,44 @@ pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Display + Default + Eq {
     fn size(&self) -> u64;
 
     fn count(&self) -> u64;
+}
+
+#[ribbit::pack(size = 0)]
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
+pub struct Huge;
+
+impl Display for Huge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Huge")
+    }
+}
+
+impl Bracket for Huge {
+    const SIZE_SLAB: usize = crate::SIZE_PAGE;
+
+    fn pack(self) -> u8 {
+        0
+    }
+
+    #[inline]
+    fn is_min(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn is_max(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn size(&self) -> u64 {
+        unreachable!()
+    }
+
+    #[inline]
+    fn count(&self) -> u64 {
+        unreachable!()
+    }
 }
 
 #[repr(transparent)]
@@ -108,6 +144,10 @@ impl Small {
 impl Bracket for Small {
     // TODO: get rid of crate::SIZE_SLAB
     const SIZE_SLAB: usize = crate::SIZE_SLAB;
+
+    fn pack(self) -> u8 {
+        self._0()
+    }
 
     #[inline]
     fn is_min(&self) -> bool {

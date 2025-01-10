@@ -1,10 +1,12 @@
 use crate::thread;
 use crate::view::data;
+use crate::view::Data;
 use crate::Atomic;
 
 pub(crate) struct Huge<'raw> {
     shared: &'raw Shared,
     owned: &'raw thread::Array<Owned>,
+    data: &'raw Data,
 }
 
 impl<'raw> Huge<'raw> {

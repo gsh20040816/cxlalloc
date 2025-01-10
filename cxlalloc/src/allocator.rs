@@ -2,6 +2,7 @@ use core::ffi;
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::ptr;
+use core::ptr::NonNull;
 
 use crate::cas;
 use crate::root;
@@ -195,82 +196,72 @@ impl Allocator<'_> {
 
         small.pop(id, class, index)
     }
-    //
 
-    // #[inline]
-    // pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
-    //     stat::inc(&stat::FREE);
-    //
-    //     if pointer.as_ptr() >= self.heap.data.huge().as_ptr().cast::<ffi::c_void>()
-    //         && pointer.as_ptr()
-    //             < self
-    //                 .heap
-    //                 .data
-    //                 .huge()
-    //                 .as_ptr()
-    //                 .cast::<ffi::c_void>()
-    //                 .wrapping_byte_add(1 << 40)
-    //     {
-    //         stat::inc(&stat::FREE_LARGE);
-    //         let offset = pointer.as_ptr() as usize - self.heap.data.huge().as_ptr() as usize;
-    //         let slot = huge::Slot::from_offset(offset);
-    //         let owner = self.heap.shared.meta.huge[slot].load().unwrap();
-    //
-    //         let desc_offset = self.heap.shared.meta.huge.descriptors[owner]
-    //             .load()
-    //             .unwrap();
-    //
-    //         let mut walk = self
-    //             .heap
-    //             .offset_to_pointer::<huge::Descriptor>(desc_offset)
-    //             .as_ref();
-    //
-    //         while usize::from(walk.offset) != offset {
-    //             walk = walk.next.as_ref().unwrap();
-    //         }
-    //
-    //         walk.free.store(true, atomic::Ordering::Relaxed);
-    //         return;
-    //     }
-    //
-    //     let offset = self.heap.pointer_to_offset(pointer);
-    //     let index = slab::Index::from(offset);
-    //
-    //     let shared = &self.heap.shared.slabs[index];
-    //     let owner = shared.owner.load();
-    //     let class = owner.class();
-    //
-    //     if owner.id() != Some(self.id) {
-    //         return self.free_remote(offset, index, class);
-    //     }
-    //
-    //     stat::inc(&stat::FREE_FAST);
-    //     let slab = &self.owned.slabs[index];
-    //     let block = offset.index_block(class);
-    //     let free = &mut *slab.free.get();
-    //
-    //     self.owned
-    //         .meta
-    //         .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
-    //             index, block,
-    //         )));
-    //
-    //     let count = free.len();
-    //     free.set(block);
-    //
-    //     match count {
-    //         count if count + 1 == class.count() => {
-    //             stat::inc(&stat::FREE_FAST_UNSIZED);
-    //             self.owned
-    //                 .meta
-    //                 .sized_to_unsized(&self.owned.slabs, class, index);
-    //
-    //             self.unsized_to_global();
-    //         }
-    //         0 => self.attach(class, index),
-    //         _ => (),
-    //     }
-    // }
+    #[inline]
+    pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
+        stat::inc(&stat::FREE);
+
+        if pointer.as_ptr() >= self.huge.as_ptr().cast::<ffi::c_void>() {
+            stat::inc(&stat::FREE_LARGE);
+            let offset = pointer.as_ptr() as usize - self.heap.data.huge().as_ptr() as usize;
+            let slot = huge::Slot::from_offset(offset);
+            let owner = self.heap.shared.meta.huge[slot].load().unwrap();
+
+            let desc_offset = self.heap.shared.meta.huge.descriptors[owner]
+                .load()
+                .unwrap();
+
+            let mut walk = self
+                .heap
+                .offset_to_pointer::<huge::Descriptor>(desc_offset)
+                .as_ref();
+
+            while usize::from(walk.offset) != offset {
+                walk = walk.next.as_ref().unwrap();
+            }
+
+            walk.free.store(true, atomic::Ordering::Relaxed);
+            return;
+        }
+
+        let offset = self.heap.pointer_to_offset(pointer);
+        let index = slab::Index::from(offset);
+
+        let shared = &self.heap.shared.slabs[index];
+        let owner = shared.owner.load();
+        let class = owner.class();
+
+        if owner.id() != Some(self.id) {
+            return self.free_remote(offset, index, class);
+        }
+
+        stat::inc(&stat::FREE_FAST);
+        let slab = &self.owned.slabs[index];
+        let block = offset.index_block(class);
+        let free = &mut *slab.free.get();
+
+        self.owned
+            .meta
+            .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
+                index, block,
+            )));
+
+        let count = free.len();
+        free.set(block);
+
+        match count {
+            count if count + 1 == class.count() => {
+                stat::inc(&stat::FREE_FAST_UNSIZED);
+                self.owned
+                    .meta
+                    .sized_to_unsized(&self.owned.slabs, class, index);
+
+                self.unsized_to_global();
+            }
+            0 => self.attach(class, index),
+            _ => (),
+        }
+    }
 }
 
 #[cfg(feature = "extend")]

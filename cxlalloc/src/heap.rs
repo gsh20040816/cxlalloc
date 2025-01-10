@@ -1,4 +1,5 @@
 use core::ffi;
+use core::fmt::Display;
 
 use crate::atomic::Version;
 use crate::cas::help;
@@ -13,7 +14,10 @@ use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
 
-impl<B: size::Bracket> Heap<'_, view::Focus, B> {
+impl<B> Heap<'_, view::Focus, B>
+where
+    B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
+{
     #[inline]
     pub(crate) fn pop(
         &mut self,

@@ -16,18 +16,12 @@ use core::num::NonZeroU32;
 use core::ops::Range;
 use core::ptr::NonNull;
 
-use crate::bitset::Bit;
 use crate::raw;
-use crate::size;
-use crate::size::Bracket as _;
 use crate::thread;
-use crate::view;
-use crate::view::data;
 use crate::view::heap::Length;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]
 #[repr(transparent)]
-#[derive(PartialEq, Eq)]
 pub(crate) struct Index<B> {
     value: NonZeroU32,
     #[ribbit(size = 0)]
@@ -41,6 +35,14 @@ impl<B> Clone for Index<B> {
 }
 
 impl<B> Copy for Index<B> {}
+
+impl<B> Eq for Index<B> {}
+
+impl<B> PartialEq for Index<B> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value() == other.value()
+    }
+}
 
 impl<B> Index<B> {
     pub(crate) fn from_length(length: Length) -> Self {
@@ -147,7 +149,7 @@ pub(crate) fn transfer<B>(
     old: Option<thread::Id>,
     new: Option<thread::Id>,
 ) where
-    B: size::Bracket,
+    B: Display + ribbit::Pack<Loose = u8>,
 {
     if !cfg!(feature = "validate") {
         return;
@@ -190,7 +192,7 @@ pub(crate) fn transfer_all<B>(
     old: Option<thread::Id>,
     new: Option<thread::Id>,
 ) where
-    B: size::Bracket,
+    B: Display + ribbit::Pack<Loose = u8>,
 {
     if !cfg!(feature = "validate") {
         return;
