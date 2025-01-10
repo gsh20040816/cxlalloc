@@ -1,4 +1,5 @@
 use core::ffi;
+use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use std::io;
 use std::os::fd::AsRawFd;
@@ -24,7 +25,7 @@ impl Backend for Shm {
         id: String,
         address: Option<NonNull<ffi::c_void>>,
         size: usize,
-        reserved: usize,
+        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
         let size = size.next_multiple_of(SIZE_PAGE);
 

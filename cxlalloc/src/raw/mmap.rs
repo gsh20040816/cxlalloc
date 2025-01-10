@@ -1,4 +1,5 @@
 use core::ffi;
+use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use std::io;
 
@@ -19,7 +20,7 @@ impl Backend for Mmap {
         id: String,
         address: Option<NonNull<ffi::c_void>>,
         size: usize,
-        reserved: usize,
+        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
         Region::new(id, address, size, reserved, None)
     }

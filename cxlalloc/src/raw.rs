@@ -6,6 +6,7 @@ pub use heap::Raw;
 pub(crate) use region::Region;
 
 use core::ffi;
+use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use std::io;
 
@@ -28,7 +29,7 @@ impl Backend {
         id: String,
         address: Option<NonNull<ffi::c_void>>,
         size: usize,
-        reserved: usize,
+        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
         let backend = self.as_backend();
         backend
@@ -88,6 +89,7 @@ pub mod backend {
     pub use shm::Shm;
 
     use core::ffi;
+    use core::num::NonZeroUsize;
     use core::ptr::NonNull;
     use std::io;
 
@@ -103,7 +105,7 @@ pub mod backend {
             id: String,
             address: Option<NonNull<ffi::c_void>>,
             size: usize,
-            reserved: usize,
+            reserved: Option<NonZeroUsize>,
         ) -> io::Result<Region>;
 
         fn extend(&self, region: &Region) -> io::Result<()>;

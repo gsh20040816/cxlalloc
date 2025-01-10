@@ -1,5 +1,6 @@
 use core::cmp;
 use core::ffi;
+use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
 use std::ffi::CString;
@@ -40,31 +41,35 @@ impl Region {
         id: String,
         address: Option<NonNull<ffi::c_void>>,
         size: usize,
-        reserved: usize,
+        reserved: Option<NonZeroUsize>,
         file: Option<(RawFd, i64, bool)>,
     ) -> io::Result<Self> {
         // In order to keep heap regions contiguous when extending, we need
         // to reserve an unbacked region of virtual address space via `mmap` with
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
-        let reservation = match unsafe {
-            libc::mmap64(
-                address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut),
-                cmp::max(size, reserved),
-                libc::PROT_NONE,
-                libc::MAP_PRIVATE
-                    | libc::MAP_ANONYMOUS
-                    | if address.is_some() {
-                        libc::MAP_FIXED_NOREPLACE
-                    } else {
-                        0
-                    },
-                -1,
-                0,
-            )
-        } {
-            libc::MAP_FAILED => return Err(io::Error::last_os_error()),
-            address => address,
+        let reservation = match reserved {
+            None => ptr::null_mut(),
+            Some(size) => match unsafe {
+                libc::mmap64(
+                    address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut),
+                    size.get(),
+                    libc::PROT_NONE,
+                    libc::MAP_PRIVATE
+                        | libc::MAP_ANONYMOUS
+                        | if address.is_some() {
+                            libc::MAP_FIXED_NOREPLACE
+                        } else {
+                            0
+                        },
+                    -1,
+                    0,
+                )
+            } {
+                libc::MAP_FAILED => return Err(io::Error::last_os_error()),
+                address => address,
+            },
         };
+        let reserved = reserved.map(NonZeroUsize::get).unwrap_or(size);
 
         let (fd, offset, flags, clean) = match file {
             Some((fd, offset, clean)) => (fd, offset, libc::MAP_SHARED_VALIDATE, clean),
