@@ -61,8 +61,8 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
         self.0.iter().all(|row| row.load(Ordering::Acquire) == 0)
     }
 
-    pub(crate) fn is_full(&self, count: usize) -> bool {
-        let rows = count / 64;
+    pub(crate) fn is_full(&self, count: u64) -> bool {
+        let rows = count as usize / 64;
 
         // Full rows of 1s
         self.0
@@ -74,7 +74,7 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
         match count % 64 {
             0 => true,
             remainder => {
-                self.0[rows].load(Ordering::Acquire).count_ones() as usize == remainder
+                self.0[rows].load(Ordering::Acquire).count_ones() as u64 == remainder
             }
         }
     }

@@ -13,7 +13,7 @@ use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
 
-impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
+impl<B: size::Bracket> Heap<'_, view::Focus, B> {
     #[inline]
     pub(crate) fn pop(
         &mut self,
@@ -144,25 +144,29 @@ impl<'raw, B: size::Bracket> Heap<'raw, view::Focus, B> {
         stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
-    // FIXME: offset
     #[cold]
-    unsafe fn free_remote(&mut self, offset: (), index: slab::Index<B>, class: B) {
+    unsafe fn free_remote(
+        &mut self,
+        id: thread::Id,
+        help: &help::Array,
+        offset: data::Offset<B>,
+        index: slab::Index<B>,
+        class: B,
+    ) {
         stat::inc(&stat::FREE_REMOTE);
-        todo!()
 
-        // let slab = &self.slabs[index];
-        // let block = offset.index_block(class);
-        // let version = slab.meta.load().version();
-        //
+        let slab = &self.slabs[index].remote;
+        let block = offset.into_block(class);
+        let version = slab.meta.load().version();
+
         // self.owned
-        //     .meta
         //     .log_sync(StateUnpacked::Remote(Remote::new(index, block, version)));
-        //
-        // slab.free.set(block);
-        //
-        // if slab.free.is_full(class.count()) {
-        //     self.claim(index, version);
-        // }
+
+        slab.free.set(block);
+
+        if slab.free.is_full(class.count()) {
+            self.claim(id, help, index, version);
+        }
     }
 
     #[cold]
