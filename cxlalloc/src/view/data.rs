@@ -43,7 +43,7 @@ where
     pub(crate) fn checked_offset_to_offset(&self, offset: usize) -> Option<slab::Offset> {
         let offset = offset + B::SIZE_SLAB;
         // FIXME: check epoch
-        if offset > crate::raw::region::RESERVATION * 2 {
+        if offset > crate::raw::region::RESERVATION.get() * 2 {
             None
         } else {
             unsafe { NonZeroUsize::new(offset).map(|offset| slab::Offset::new(offset)) }

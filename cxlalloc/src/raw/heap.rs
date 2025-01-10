@@ -1,4 +1,5 @@
 use core::alloc::Layout;
+use core::cell::UnsafeCell;
 use core::ptr;
 use core::ptr::NonNull;
 use std::io;
@@ -8,6 +9,8 @@ use crate::raw::region::RESERVATION;
 use crate::raw::Backend;
 use crate::raw::Region;
 use crate::size;
+use crate::slab;
+use crate::thread;
 use crate::view;
 use crate::SIZE_SLAB;
 
@@ -67,6 +70,22 @@ unsafe impl Send for Raw {}
 /// thread-safe methods.
 unsafe impl Sync for Raw {}
 
+/// Compute size and offsets for a sequence of types in memory.
+macro_rules! layout {
+    ($head:ty $(, $tail:ty)* $(,)?) => {
+        {
+            let mut offsets = vec![0];
+            let mut layout = Layout::new::<$head>();
+            for field in [$(Layout::new::<$tail>()),*] {
+                let (next, offset) = layout.extend(field).unwrap();
+                layout = next;
+                offsets.push(offset);
+            }
+            (layout.pad_to_align().size(), offsets)
+        }
+    };
+}
+
 impl Raw {
     fn new(
         id: &str,
@@ -95,43 +114,18 @@ impl Raw {
 
         let slab_count = size.next_multiple_of(crate::SIZE_SLAB) / crate::SIZE_SLAB;
 
-        macro_rules! layout {
-            ($head:ty $(, $tail:ty)* $(,)?) => {
-                {
-                    let mut offsets = vec![0];
-                    let mut layout = Layout::new::<$head>();
-                    for field in [$(Layout::new::<$tail>()),*] {
-                        let (next, offset) = layout.extend(field).unwrap();
-                        layout = next;
-                        offsets.push(offset);
-                    }
-                    (layout.pad_to_align().size(), offsets)
-                }
-            };
-        }
-
-        let (shared_size, _) = layout!(
-            view::allocator::Shared,
-            view::heap::Shared<size::Small>,
-            view::huge::Shared,
-        );
-
+        let (shared_size, _) = Self::shared();
         // FIXME: support extension for huge allocation region?
-        let shared = backend.allocate(String::from("shared"), None, shared_size, None)?;
+        let shared = backend.allocate(format!("{id}-shared"), None, shared_size, None)?;
 
-        let (owned_size, _) = layout!(
-            view::allocator::Owned,
-            view::heap::Owned<size::Small>,
-            view::huge::Owned,
-        );
-
-        let owned = backend.allocate(String::from("owned"), None, owned_size, None)?;
+        let (owned_size, _) = Self::owned();
+        let owned = backend.allocate(format!("{id}-owned"), None, owned_size, None)?;
 
         let slab_small_size = view::Slab::<size::Small>::layout(slab_count)
             .unwrap()
             .size();
         let slab_small =
-            backend.allocate(String::from("ss"), None, slab_small_size, Some(RESERVATION))?;
+            backend.allocate(format!("{id}-ss"), None, slab_small_size, Some(RESERVATION))?;
 
         // This is hacky, but data regions must be contiguous to support
         // applications that rely on offset pointers.
@@ -151,14 +145,14 @@ impl Raw {
 
         let data_small_size = view::Data::layout(slab_count).unwrap().size();
         let data_small = backend.allocate(
-            String::from("ds"),
+            format!("{id}-ds"),
             NonNull::new(address),
             data_small_size,
             None,
         )?;
 
         let data_huge = backend.allocate(
-            String::from("dh"),
+            format!("{id}-dh"),
             NonNull::new(address.wrapping_byte_add(RESERVATION.get())),
             // FIXME: struct for this?
             RESERVATION.get(),
@@ -179,8 +173,78 @@ impl Raw {
         })
     }
 
+    pub fn allocator(&self) -> view::Allocator {
+        let (_, shared_offsets) = Self::shared();
+        let (_, owned_offsets) = Self::owned();
+        let shared = self.shared.base().as_ptr();
+        let owned = self.owned.base().as_ptr();
+        unsafe {
+            // Several issues here:
+            // - Calls layout code at runtime. Ideally the layout information could be
+            //   a const, but some APIs (Layout::extend, Layout::pad_to_align) aren't
+            //   const yet.
+            // - Offsets aren't statically checked to match their memory regions.
+            // - Indexes into offset arrays aren't statically checked to match their struct type.
+            // - This module maybe shouldn't need to know about `thread::Array<UnsafeCell<...>>`?
+            view::Allocator::new(
+                shared
+                    .wrapping_byte_add(shared_offsets[0])
+                    .cast::<view::allocator::Shared>()
+                    .as_ref()
+                    .unwrap(),
+                owned
+                    .wrapping_byte_add(owned_offsets[0])
+                    .cast::<thread::Array<UnsafeCell<view::allocator::Owned>>>()
+                    .as_ref()
+                    .unwrap(),
+                view::Heap::new(
+                    shared
+                        .wrapping_byte_add(shared_offsets[1])
+                        .cast::<view::heap::Shared<size::Small>>()
+                        .as_ref()
+                        .unwrap(),
+                    owned
+                        .wrapping_byte_add(owned_offsets[1])
+                        .cast::<thread::Array<UnsafeCell<view::heap::Owned<size::Small>>>>()
+                        .as_ref()
+                        .unwrap(),
+                    view::Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
+                    view::Data::new(self.data_small.base()),
+                ),
+                view::Huge::new(
+                    shared
+                        .wrapping_byte_add(shared_offsets[2])
+                        .cast::<view::huge::Shared>()
+                        .as_ref()
+                        .unwrap(),
+                    owned
+                        .wrapping_byte_add(owned_offsets[2])
+                        .cast::<thread::Array<view::huge::Owned>>()
+                        .as_ref()
+                        .unwrap(),
+                ),
+            )
+        }
+    }
+
     pub fn is_clean(&self) -> bool {
         self.regions().any(Region::is_clean)
+    }
+
+    fn shared() -> (usize, Vec<usize>) {
+        layout!(
+            view::allocator::Shared,
+            view::heap::Shared<size::Small>,
+            view::huge::Shared,
+        )
+    }
+
+    fn owned() -> (usize, Vec<usize>) {
+        layout!(
+            thread::Array<UnsafeCell<view::allocator::Owned>>,
+            thread::Array<UnsafeCell<view::heap::Owned<size::Small>>>,
+            thread::Array<view::huge::Owned>,
+        )
     }
 
     fn regions(&self) -> impl Iterator<Item = &Region> {
