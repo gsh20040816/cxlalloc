@@ -4,13 +4,13 @@ use core::ptr::NonNull;
 use std::io;
 
 use crate::raw;
-use crate::raw::backend::Backend;
+use crate::raw::backend;
 use crate::raw::Region;
 
 #[derive(Clone, Debug, Default)]
 pub struct Mmap;
 
-impl Backend for Mmap {
+impl backend::Impl for Mmap {
     fn name(&self) -> &'static str {
         "mmap"
     }

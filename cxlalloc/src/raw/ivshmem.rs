@@ -6,7 +6,7 @@ use std::io;
 use std::os::fd::AsRawFd as _;
 
 use crate::raw;
-use crate::raw::backend::Backend;
+use crate::raw::backend;
 use crate::raw::Region;
 use crate::Epoch;
 use crate::SIZE_PAGE;
@@ -28,7 +28,7 @@ impl Ivshmem {
     }
 }
 
-impl Backend for Ivshmem {
+impl backend::Impl for Ivshmem {
     fn name(&self) -> &'static str {
         "ivshmem"
     }

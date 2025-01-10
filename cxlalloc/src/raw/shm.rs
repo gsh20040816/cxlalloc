@@ -8,14 +8,14 @@ use std::os::fd::OwnedFd;
 
 use crate::extend::Epoch;
 use crate::raw;
-use crate::raw::backend::Backend;
+use crate::raw::backend;
 use crate::raw::Region;
 use crate::SIZE_PAGE;
 
 #[derive(Debug)]
 pub struct Shm;
 
-impl Backend for Shm {
+impl backend::Impl for Shm {
     fn name(&self) -> &'static str {
         "shm"
     }
