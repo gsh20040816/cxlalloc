@@ -9,7 +9,7 @@ use std::os::fd::RawFd;
 use crate::extend::Epoch;
 use crate::Atomic;
 
-pub(crate) const RESERVATION: usize = 2usize.pow(40);
+pub(crate) const RESERVATION: NonZeroUsize = NonZeroUsize::new(1usize.pow(40)).unwrap();
 
 pub(crate) struct Region {
     /// Unique identifier of this memory region
@@ -54,20 +54,21 @@ impl Region {
             reserved.get().next_multiple_of(crate::SIZE_PAGE)
         });
         let size = size.next_multiple_of(crate::SIZE_PAGE);
+        let address = address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut);
 
         // In order to keep heap regions contiguous when extending, we need
         // to reserve an unbacked region of virtual address space via `mmap` with
         // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
         let reservation = match reserved {
-            None => ptr::null_mut(),
+            None => address,
             Some(size) => match unsafe {
                 libc::mmap64(
-                    address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut),
+                    address,
                     size,
                     libc::PROT_NONE,
                     libc::MAP_PRIVATE
                         | libc::MAP_ANONYMOUS
-                        | if address.is_some() {
+                        | if !address.is_null() {
                             libc::MAP_FIXED_NOREPLACE
                         } else {
                             0
@@ -133,6 +134,10 @@ impl Region {
             base,
             clean: false,
         }
+    }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
     }
 
     pub(crate) fn base(&self) -> NonNull<u64> {

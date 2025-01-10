@@ -1,4 +1,5 @@
 use core::alloc::Layout;
+use core::alloc::LayoutError;
 use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
@@ -26,8 +27,8 @@ where
         }
     }
 
-    pub(crate) fn layout(slab_count: usize) -> Layout {
-        Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count).unwrap()
+    pub(crate) fn layout(slab_count: usize) -> Result<Layout, LayoutError> {
+        Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count)
     }
 }
 

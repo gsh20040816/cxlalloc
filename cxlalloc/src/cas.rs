@@ -121,6 +121,7 @@ impl Help {
 pub(crate) mod help {
     use core::ops::Index;
 
+    #[repr(transparent)]
     pub(crate) struct Array(crate::thread::Array<super::Help>);
 
     impl Index<crate::thread::Id> for Array {

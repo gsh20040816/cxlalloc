@@ -32,11 +32,13 @@ impl<'raw> Allocator<'raw> {
     }
 }
 
+#[repr(C)]
 pub(crate) struct Shared {
     root: Atomic<Option<data::Offset>>,
     help: cas::help::Array,
 }
 
+#[repr(C)]
 pub(crate) struct Owned {
     root: Option<data::Offset>,
     state: log::State,
