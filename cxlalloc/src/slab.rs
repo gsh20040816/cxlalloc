@@ -13,20 +13,13 @@ use core::fmt::Display;
 use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
-use core::num::NonZeroU64;
-use core::num::NonZeroUsize;
 use core::ops::Range;
 use core::ptr::NonNull;
 
-use ribbit::private::u12;
-
-use crate::bitset::Bit;
 use crate::raw;
 use crate::size;
-use crate::size::Bracket as _;
 use crate::thread;
 use crate::view::heap::Length;
-use crate::SIZE_SLAB;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]
 #[repr(transparent)]
@@ -40,15 +33,15 @@ impl Index {
             .unwrap()
     }
 
-    #[inline]
-    pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
-        debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
-        let base = NonZeroUsize::from(Offset::from(*self));
-        let delta = class.size() * usize::from(index);
-        NonZeroU64::try_from(base.checked_add(delta).unwrap())
-            .map(Offset::new_internal)
-            .unwrap()
-    }
+    // #[inline]
+    // pub(crate) unsafe fn offset_block(&self, class: size::Small, index: Bit) -> Offset {
+    //     debug_assert!(usize::from(index) <= class.count(), "{} {:?}", class, index);
+    //     let base = NonZeroUsize::from(Offset::from(*self));
+    //     let delta = class.size() * usize::from(index);
+    //     NonZeroU64::try_from(base.checked_add(delta).unwrap())
+    //         .map(Offset::new_internal)
+    //         .unwrap()
+    // }
 
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
         self._0().checked_add(count).map(Self::new).unwrap()
@@ -67,17 +60,6 @@ impl Display for Index {
     }
 }
 
-impl From<Offset> for Index {
-    #[inline]
-    fn from(offset: Offset) -> Self {
-        unsafe {
-            Self::new(NonZeroU32::new_unchecked(
-                (offset._0().get() as usize / SIZE_SLAB) as u32,
-            ))
-        }
-    }
-}
-
 impl From<Index> for NonZeroU32 {
     fn from(index: Index) -> Self {
         index._0()
@@ -87,62 +69,6 @@ impl From<Index> for NonZeroU32 {
 impl From<Index> for u32 {
     fn from(index: Index) -> Self {
         index._0().get() - 1
-    }
-}
-
-#[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""))]
-#[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub struct Offset(NonZeroU64);
-
-impl Offset {
-    pub(crate) unsafe fn new(offset: NonZeroUsize) -> Self {
-        Self::new_internal(offset.try_into().unwrap())
-    }
-
-    pub(crate) fn get(&self) -> NonZeroUsize {
-        self._0().try_into().unwrap()
-    }
-
-    #[inline]
-    #[track_caller]
-    pub(crate) unsafe fn index_block(&self, class: size::Small) -> Bit {
-        Bit::new(u12::new(
-            ((self.get().get() % SIZE_SLAB) / class.size()) as u16,
-        ))
-    }
-}
-
-impl From<Index> for Offset {
-    #[inline]
-    fn from(index: Index) -> Self {
-        NonZeroUsize::new(index._0().get() as usize * SIZE_SLAB)
-            .map(|offset| unsafe { Self::new(offset) })
-            .unwrap()
-    }
-}
-
-impl From<Offset> for NonZeroUsize {
-    fn from(value: Offset) -> Self {
-        value.get()
-    }
-}
-
-impl Debug for Offset {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&usize::from(*self), f)
-    }
-}
-
-impl Display for Offset {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&usize::from(*self), f)
-    }
-}
-
-impl From<Offset> for usize {
-    fn from(value: Offset) -> Self {
-        value.get().get() - SIZE_SLAB
     }
 }
 

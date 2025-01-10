@@ -1,17 +1,26 @@
 use core::fmt::Display;
 use core::ops::Add;
+use core::ops::Range;
 
 use ribbit::private::u24;
 
 use crate::cas;
+use crate::cas::help;
 use crate::crash;
+use crate::log::BumpToLocal;
+use crate::log::StateUnpacked;
 use crate::size;
 use crate::slab;
+use crate::stat;
 use crate::thread;
 use crate::view;
 use crate::Epoch;
+use crate::BATCH_BUMP_POP;
 
 pub struct Heap<'raw, L: view::Lens, B> {
+    /// Capacity is in units of slabs
+    pub(crate) capacity: u32,
+
     /// Multiple-reader, multiple-writer metadata
     pub(crate) shared: &'raw Shared<B>,
 
@@ -24,12 +33,14 @@ pub struct Heap<'raw, L: view::Lens, B> {
 
 impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
     pub(crate) fn new(
+        capacity: u32,
         shared: &'raw Shared<B>,
         owned: L::Scope<'raw, Owned<B>>,
         slabs: view::Slab<'raw, B>,
         data: view::Data<'raw, B>,
     ) -> Self {
         Self {
+            capacity,
             shared,
             owned,
             slabs,
@@ -39,6 +50,7 @@ impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
 
     pub(crate) unsafe fn focus(self, id: thread::Id) -> Heap<'raw, view::Focus, B> {
         Heap {
+            capacity: self.capacity,
             shared: self.shared,
             owned: L::focus(self.owned, id),
             slabs: self.slabs,
@@ -81,61 +93,62 @@ impl<B> Shared<B> {
     //     }
     // }
     //
-    // pub(crate) fn bump(
-    //     &self,
-    //     id: thread::Id,
-    //     meta: &mut region::Owned,
-    // ) -> Option<Range<slab::Index>> {
-    //     let bump = self
-    //         .meta
-    //         .bump
-    //         .update(&self.meta.help, id, meta, |old, version| {
-    //             let old_len = old.length();
-    //             let new_len = old_len + BATCH_BUMP_POP;
-    //
-    //             if u32::from(new_len) >= old.epoch().total(self.capacity) {
-    //                 panic!(
-    //                     "Heap extension not yet enabled. Tried to expand from {:#x} to {:#x} but capacity is {:#x}.",
-    //                     u32::from(old_len),
-    //                     u32::from(new_len),
-    //                     self.capacity
-    //                 );
-    //             } else {
-    //                 Some((
-    //                     old.with_length(new_len),
-    //                     StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
-    //                 ))
-    //             }
-    //         })?;
-    //
-    //     let start = slab::Index::from_length(bump.length());
-    //     let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
-    //     Some(start..end)
-    // }
-    //
-    // pub(crate) fn push(
-    //     &self,
-    //     id: thread::Id,
-    //     // meta: &mut region::owned::Meta,
-    //     slabs: &slab::Slice<slab::Owned>,
-    //     head: slab::Index,
-    //     tail: slab::Index,
-    // ) {
-    //     self.free.push(id, meta, slabs, &self.meta.help, head, tail);
-    // }
-    //
-    // pub(crate) fn pop(
-    //     &self,
-    //     id: thread::Id,
-    //     meta: &mut region::owned::Meta,
-    //     slabs: &slab::Slice<slab::Owned>,
-    // ) -> Option<slab::Index> {
-    //     if self.free.is_empty(&self.meta.help) {
-    //         return None;
-    //     }
-    //
-    //     self.free.pop(id, meta, slabs, &self.meta.help)
-    // }
+
+    pub(crate) fn bump(
+        &self,
+        id: thread::Id,
+        capacity: u32,
+        help: &help::Array,
+    ) -> Option<Range<slab::Index>> {
+        let bump = self
+            .bump
+            .update(&help, id, |old, version| {
+                let old_len = old.length();
+                let new_len = old_len + BATCH_BUMP_POP;
+
+                if u32::from(new_len) >= old.epoch().total(capacity) {
+                    panic!(
+                        "Heap extension not yet enabled. Tried to expand from {:#x} to {:#x} but capacity is {:#x}.",
+                        u32::from(old_len),
+                        u32::from(new_len),
+                        capacity
+                    );
+                } else {
+                    Some((
+                        old.with_length(new_len),
+                        StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
+                    ))
+                }
+            })?;
+
+        let start = slab::Index::from_length(bump.length());
+        let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
+        Some(start..end)
+    }
+
+    pub(crate) fn push(
+        &self,
+        id: thread::Id,
+        slabs: &view::Slab<B>,
+        help: &help::Array,
+        head: slab::Index,
+        tail: slab::Index,
+    ) {
+        self.free.push(id, slabs, help, head, tail);
+    }
+
+    pub(crate) fn pop(
+        &self,
+        id: thread::Id,
+        slabs: &view::Slab<B>,
+        help: &help::Array,
+    ) -> Option<slab::Index> {
+        if self.free.is_empty(help) {
+            return None;
+        }
+
+        self.free.pop(id, slabs, help)
+    }
 }
 
 #[ribbit::pack(size = 32, debug, new(vis = ""))]
@@ -202,7 +215,7 @@ where
 
     pub(crate) fn unsized_to_sized(
         &mut self,
-        slabs: &slab::Slice<B>,
+        slabs: &view::Slab<B>,
         id: thread::Id,
         class: B,
     ) -> bool {
@@ -235,12 +248,7 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(
-        &mut self,
-        slabs: &slab::Slice<B>,
-        class: B,
-        index: slab::Index,
-    ) {
+    pub(crate) fn sized_to_unsized(&mut self, slabs: &view::Slab<B>, class: B, index: slab::Index) {
         // Special case: not in sized list
         if class.is_max() {
             return self.r#unsized.push(slabs, index);

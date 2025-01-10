@@ -7,13 +7,13 @@ use crate::view::data;
 use crate::Atomic;
 
 pub struct Allocator<'raw, L: view::Lens> {
-    id: thread::Id,
+    pub(crate) id: thread::Id,
 
-    shared: &'raw Shared,
-    owned: L::Scope<'raw, Owned>,
+    pub(crate) shared: &'raw Shared,
+    pub(crate) owned: L::Scope<'raw, Owned>,
 
-    small: view::Heap<'raw, L, size::Small>,
-    huge: view::Huge<'raw>,
+    pub(crate) small: view::Heap<'raw, L, size::Small>,
+    pub(crate) huge: view::Huge<'raw>,
 }
 
 impl<'raw, L: view::Lens> Allocator<'raw, L> {
@@ -46,12 +46,12 @@ impl<'raw, L: view::Lens> Allocator<'raw, L> {
 
 #[repr(C)]
 pub(crate) struct Shared {
-    root: Atomic<Option<data::Offset>>,
-    help: cas::help::Array,
+    pub(crate) root: Atomic<Option<data::Offset>>,
+    pub(crate) help: cas::help::Array,
 }
 
-#[repr(C)]
+#[repr(C, align(64))]
 pub(crate) struct Owned {
-    root: Option<data::Offset>,
-    state: log::State,
+    pub(crate) root: Option<data::Offset>,
+    pub(crate) state: log::State,
 }

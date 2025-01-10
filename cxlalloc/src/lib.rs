@@ -4,6 +4,7 @@ mod bitset;
 mod r#box;
 mod cas;
 mod extend;
+mod heap;
 mod huge;
 mod log;
 pub mod raw;
@@ -30,6 +31,7 @@ pub use allocator::Allocator;
 pub use atomic::Atomic;
 pub use extend::Epoch;
 pub use r#box::Box;
+pub use raw::Raw;
 pub use root::Root;
 
 pub(crate) const SIZE_CACHE_LINE: usize = 64;

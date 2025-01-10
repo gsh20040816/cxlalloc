@@ -203,6 +203,7 @@ impl Raw {
                     .as_ref()
                     .unwrap(),
                 view::Heap::<view::Unfocus, size::Small>::new(
+                    self.capacity,
                     shared
                         .wrapping_byte_add(shared_offsets[1])
                         .cast::<view::heap::Shared<size::Small>>()
