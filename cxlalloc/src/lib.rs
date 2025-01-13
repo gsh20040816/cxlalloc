@@ -7,7 +7,7 @@ mod data;
 mod extend;
 mod heap;
 mod huge;
-mod log;
+mod recover;
 pub mod raw;
 pub mod root;
 mod size;

@@ -4,7 +4,7 @@ use crate::allocator;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
-use crate::log;
+use crate::recover;
 use crate::slab::Index;
 use crate::slab::Slice;
 use crate::thread;
@@ -76,7 +76,10 @@ where
             crate::flush(&slabs[tail].local.next, false);
             Some((
                 Some(head),
-                log::StateUnpacked::LocalToGlobal(log::LocalToGlobal::new(head.into(), version)),
+                recover::StateUnpacked::LocalToGlobal(recover::LocalToGlobal::new(
+                    head.into(),
+                    version,
+                )),
             ))
         });
     }
@@ -93,7 +96,10 @@ where
 
                 Some((
                     new,
-                    log::StateUnpacked::GlobalToLocal(log::GlobalToLocal::new(old.into(), version)),
+                    recover::StateUnpacked::GlobalToLocal(recover::GlobalToLocal::new(
+                        old.into(),
+                        version,
+                    )),
                 ))
             })
             .flatten()

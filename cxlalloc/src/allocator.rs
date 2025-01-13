@@ -6,9 +6,9 @@ use core::ptr::NonNull;
 use crate::cas;
 use crate::data;
 use crate::huge;
-use crate::log;
-use crate::log::State;
-use crate::log::StateUnpacked;
+use crate::recover;
+use crate::recover::State;
+use crate::recover::StateUnpacked;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
@@ -59,7 +59,7 @@ impl<'raw, L: view::Lens> Allocator<'raw, L> {
 pub(crate) struct Context<'raw> {
     pub(crate) id: thread::Id,
     pub(crate) help: &'raw cas::help::Array,
-    log: &'raw mut Option<log::State>,
+    log: &'raw mut Option<recover::State>,
 }
 
 #[repr(C)]
@@ -71,7 +71,7 @@ pub(crate) struct Shared {
 #[repr(C, align(64))]
 pub(crate) struct Owned {
     // pub(crate) root: Option<data::Offset>,
-    pub(crate) state: Option<log::State>,
+    pub(crate) state: Option<recover::State>,
 }
 
 impl Context<'_> {

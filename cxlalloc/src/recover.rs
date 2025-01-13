@@ -3,8 +3,6 @@ use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::heap;
-use crate::size;
-use crate::slab;
 
 #[ribbit::pack(size = 64, nonzero)]
 #[derive(Copy, Clone)]
