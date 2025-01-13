@@ -5,11 +5,18 @@ use core::ops::Range;
 
 use ribbit::private::u24;
 
+use crate::allocator;
+use crate::allocator::Bracket;
+use crate::allocator::BracketUnpacked;
+use crate::allocator::Index;
+use crate::allocator::IndexUnpacked;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
 use crate::crash;
 use crate::data;
+use crate::log::StateUnpacked;
+use crate::log::UnsizedToSized;
 use crate::size;
 use crate::slab;
 use crate::stat;
@@ -167,9 +174,16 @@ pub(crate) struct Owned<B> {
 
 impl<B> Owned<B>
 where
-    B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
+    B: size::Bracket + Display + ribbit::Pack<Loose = u8> + Into<Bracket>,
+    slab::Index<B>: Into<Index>,
 {
-    pub(crate) fn unsized_to_sized(&mut self, slabs: &Slab<B>, id: thread::Id, class: B) -> bool {
+    pub(crate) fn unsized_to_sized(
+        &mut self,
+        id: thread::Id,
+        log: &mut allocator::Owned,
+        slabs: &Slab<B>,
+        class: B,
+    ) -> bool {
         let Some(index) = self.r#unsized.peek() else {
             return false;
         };
@@ -179,9 +193,10 @@ where
         let slab = &slabs[index];
         let next = slab.local.next.load();
 
-        // self.log_sync(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
-        //     next, class,
-        // )));
+        log.log(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
+            next.map(Into::into),
+            class.into(),
+        )));
 
         self.r#sized[class].push(slabs, index);
         unsafe {
@@ -232,6 +247,8 @@ where
 impl<B> Heap<'_, view::Focus, B>
 where
     B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
+    B: Into<Bracket>,
+    slab::Index<B>: Into<Index>,
 {
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
@@ -268,6 +285,7 @@ where
     pub(crate) fn peek(
         &mut self,
         id: thread::Id,
+        log: &mut allocator::Owned,
         help: &help::Array,
         class: B,
     ) -> Option<slab::Index<B>> {
@@ -276,11 +294,17 @@ where
             return Some(index);
         };
 
-        self.allocate(id, help, class)
+        self.allocate(id, log, help, class)
     }
 
     #[cold]
-    fn allocate(&mut self, id: thread::Id, help: &help::Array, class: B) -> Option<slab::Index<B>> {
+    fn allocate(
+        &mut self,
+        id: thread::Id,
+        log: &mut allocator::Owned,
+        help: &help::Array,
+        class: B,
+    ) -> Option<slab::Index<B>> {
         stat::inc(&stat::ALLOCATE_SMALL);
 
         if class.is_min() {
@@ -289,7 +313,7 @@ where
         }
 
         // Fast path: local unsized
-        if self.owned.unsized_to_sized(&self.slabs, id, class) {
+        if self.owned.unsized_to_sized(id, log, &self.slabs, class) {
             stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
             return self.owned.r#sized[class].peek();
         }
@@ -328,7 +352,7 @@ where
             }
         }
 
-        self.owned.unsized_to_sized(&self.slabs, id, class);
+        self.owned.unsized_to_sized(id, log, &self.slabs, class);
         self.owned.r#sized[class].peek()
     }
 

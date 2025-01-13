@@ -1,11 +1,10 @@
-use crate::allocator::Class;
+use crate::allocator::Bracket;
 use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::heap;
 use crate::size;
 use crate::slab;
-use crate::view;
 
 #[ribbit::pack(size = 64, nonzero)]
 #[derive(Copy, Clone)]
@@ -17,7 +16,7 @@ pub(crate) enum State {
         index: Option<Index>,
 
         #[ribbit(size = 8)]
-        class: Class,
+        class: Bracket,
     },
 
     #[ribbit(size = 48)]

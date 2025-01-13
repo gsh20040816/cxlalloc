@@ -7,6 +7,8 @@ use crate::cas;
 use crate::data;
 use crate::huge;
 use crate::log;
+use crate::log::State;
+use crate::log::StateUnpacked;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
@@ -63,7 +65,30 @@ pub(crate) struct Shared {
 #[repr(C, align(64))]
 pub(crate) struct Owned {
     // pub(crate) root: Option<data::Offset>,
-    pub(crate) state: log::State,
+    pub(crate) state: Option<log::State>,
+}
+
+impl Owned {
+    #[inline]
+    pub(crate) fn log(&mut self, state: StateUnpacked) {
+        if !cfg!(feature = "recover-log") {
+            return;
+        }
+
+        crate::fence();
+        self.log_unsync(state);
+        crate::fence();
+    }
+
+    #[inline]
+    pub(crate) fn log_unsync(&mut self, state: StateUnpacked) {
+        if !cfg!(feature = "recover-log") {
+            return;
+        }
+
+        self.state = Some(State::new(state));
+        crate::flush(&self.state, false);
+    }
 }
 
 impl Allocator<'_, view::Focus> {
@@ -124,6 +149,7 @@ impl Allocator<'_, view::Focus> {
         stat::inc(&stat::ALLOCATE);
 
         let id = self.id;
+        let log = &mut self.owned;
         let help = &self.shared.help;
         let class = size::Small::new(size);
 
@@ -133,7 +159,7 @@ impl Allocator<'_, view::Focus> {
                 let size = size.next_multiple_of(crate::SIZE_PAGE);
 
                 let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
-                let index = self.small.peek(id, help, class).unwrap();
+                let index = self.small.peek(id, log, help, class).unwrap();
                 let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
                 let block = free.peek();
 
@@ -157,7 +183,7 @@ impl Allocator<'_, view::Focus> {
 
         stat::record_small(class);
 
-        let Some(index) = self.small.peek(id, help, class) else {
+        let Some(index) = self.small.peek(id, log, help, class) else {
             return ptr::null_mut();
         };
 
@@ -198,9 +224,21 @@ pub(crate) enum Index {
     Small(slab::Index<size::Small>),
 }
 
+impl From<slab::Index<size::Small>> for Index {
+    fn from(index: slab::Index<size::Small>) -> Self {
+        Self::new(IndexUnpacked::Small(index))
+    }
+}
+
 #[derive(Copy, Clone)]
 #[ribbit::pack(size = 8)]
-pub(crate) enum Class {
+pub(crate) enum Bracket {
     #[ribbit(size = 8)]
     Small(size::Small),
+}
+
+impl From<size::Small> for Bracket {
+    fn from(class: size::Small) -> Self {
+        Self::new(BracketUnpacked::Small(class))
+    }
 }
