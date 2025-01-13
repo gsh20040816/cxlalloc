@@ -47,11 +47,12 @@ impl Backend {
     ) -> io::Result<Region> {
         let backend = self.as_backend();
         backend
-            .allocate(id, address, size, reserved)
+            .allocate(id.clone(), address, size, reserved)
             .inspect(|region| {
                 log::info!(
-                    "Allocated {} bytes ({:#x?} - {:#x?}) using {} backend",
+                    "Allocated {} bytes for {} ({:#x?} - {:#x?}) using {} backend",
                     region.size(),
+                    id,
                     region.base().as_ptr(),
                     region.base().as_ptr().wrapping_byte_add(region.size()),
                     backend.name(),

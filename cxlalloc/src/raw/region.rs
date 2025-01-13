@@ -9,7 +9,7 @@ use std::os::fd::RawFd;
 use crate::extend::Epoch;
 use crate::Atomic;
 
-pub(crate) const RESERVATION: NonZeroUsize = NonZeroUsize::new(1usize.pow(40)).unwrap();
+pub(crate) const RESERVATION: NonZeroUsize = NonZeroUsize::new(1 << 40).unwrap();
 
 pub(crate) struct Region {
     /// Unique identifier of this memory region
@@ -87,26 +87,36 @@ impl Region {
             None => (-1, 0, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, true),
         };
 
-        let reserved = reserved.unwrap_or(size);
-        let base = match unsafe {
-            libc::mmap64(
-                reservation,
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                flags | libc::MAP_FIXED,
-                fd,
-                offset,
-            )
-        } {
-            libc::MAP_FAILED => {
-                // Save `mmap64` error before calling `munmap`.
-                let error = io::Error::last_os_error();
-                if unsafe { libc::munmap(reservation, reserved) != 0 } {
-                    log::warn!("Failed to munmap reserved virtual address space");
+        let base = if size == 0 {
+            // FIXME: hack to support huge allocation region
+            assert!(!reservation.is_null());
+            NonNull::new(reservation).unwrap()
+        } else {
+            match unsafe {
+                libc::mmap64(
+                    reservation,
+                    size,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    flags
+                        | if !reservation.is_null() {
+                            libc::MAP_FIXED
+                        } else {
+                            0
+                        },
+                    fd,
+                    offset,
+                )
+            } {
+                libc::MAP_FAILED => {
+                    // Save `mmap64` error before calling `munmap`.
+                    let error = io::Error::last_os_error();
+                    if unsafe { libc::munmap(reservation, reserved.unwrap_or(size)) != 0 } {
+                        log::warn!("Failed to munmap reserved virtual address space");
+                    }
+                    return Err(error);
                 }
-                return Err(error);
+                address => NonNull::new(address).unwrap(),
             }
-            address => NonNull::new(address).unwrap(),
         };
 
         unsafe {
@@ -117,7 +127,7 @@ impl Region {
             id,
             offset,
             size,
-            reserved,
+            reserved: reserved.unwrap_or(size),
             epoch: Atomic::new(Epoch::default()),
             base: base.cast(),
             clean,
