@@ -1,3 +1,4 @@
+use core::ffi;
 use core::sync::atomic;
 
 use core::ptr::NonNull;
@@ -21,10 +22,10 @@ use crate::Atomic;
 use crate::Data;
 
 pub(crate) struct Huge<'raw> {
-    pub(crate) allocator: Allocator,
-    pub(crate) backend: &'raw Backend,
-    pub(crate) shared: &'raw Shared,
-    pub(crate) owned: &'raw thread::Array<Owned>,
+    allocator: Allocator,
+    backend: &'raw Backend,
+    shared: &'raw Shared,
+    owned: &'raw thread::Array<Owned>,
     pub(crate) data: Data<'raw, size::Huge>,
 }
 
@@ -43,6 +44,88 @@ impl<'raw> Huge<'raw> {
             owned,
             data,
         }
+    }
+
+    pub(crate) fn allocate(
+        &mut self,
+        id: thread::Id,
+        data: &Data<'raw, size::Small>,
+        size: usize,
+        place: &mut Descriptor,
+    ) -> *mut ffi::c_void {
+        loop {
+            match self.next(size) {
+                None => self.claim(id),
+                Some(descriptor) => {
+                    // save record somewhere
+                    // will it conflict with link record?
+                    //
+                    // in order to link, we need to...
+                    // - log link site
+                    // - peek allocation
+                    // - write to site
+                    // - clear allocation
+                    //
+                    // what about allocation class?
+                    // - if crash before writing to site, abort
+                    // - if crash after writing to site, recover from site
+                    //
+                    // what about huge allocation?
+                    // - need to log what
+                    // - secondary link record
+                    // - hard-code dedicated spot for huge
+
+                    *place = descriptor;
+
+                    // point at previous head in data region
+                    if let Some(prev) = self.get(id, data) {
+                        unsafe {
+                            crate::Box::link(&mut place.next, prev);
+                            crate::fence();
+                        }
+                    }
+
+                    // update linked list of huge descriptors
+                    self.set(id, data, place);
+
+                    // FIXME: mark descriptor as allocated
+
+                    // mmap huge allocation
+                    let region = self
+                        .backend
+                        .allocate(
+                            format!("huge-{}-{}", id, place.id),
+                            Some(self.data.offset_to_pointer(place.offset)),
+                            place.size,
+                            None,
+                        )
+                        .unwrap();
+
+                    return region.base().cast().as_ptr();
+                }
+            }
+        }
+    }
+
+    fn next(&mut self, size: usize) -> Option<Descriptor> {
+        let descriptor = self
+            .allocator
+            .free
+            .iter()
+            .find(|interval| interval.size() >= size)
+            .map(|interval| interval.lower())
+            .inspect(|offset| {
+                self.allocator.allocate(*offset, size);
+            })
+            .map(|offset| Descriptor {
+                offset: self.data.checked_offset_to_offset(offset).unwrap(),
+                id: self.allocator.id,
+                size,
+                next: None,
+                free: AtomicBool::new(false),
+            })?;
+
+        Some(descriptor)
     }
 
     pub(crate) fn trace(
@@ -69,27 +152,6 @@ impl<'raw> Huge<'raw> {
             u32::from(slot) as usize * size::Huge::SIZE_SLAB,
             size::Huge::SIZE_SLAB,
         )
-    }
-
-    pub(crate) fn allocate(&mut self, size: usize) -> Option<Descriptor> {
-        let descriptor = self
-            .allocator
-            .free
-            .iter()
-            .find(|interval| interval.size() >= size)
-            .map(|interval| interval.lower())
-            .inspect(|offset| {
-                self.allocator.allocate(*offset, size);
-            })
-            .map(|offset| Descriptor {
-                offset: self.data.checked_offset_to_offset(offset).unwrap(),
-                id: self.allocator.id,
-                size,
-                next: None,
-                free: AtomicBool::new(false),
-            })?;
-
-        Some(descriptor)
     }
 
     pub(crate) fn get(

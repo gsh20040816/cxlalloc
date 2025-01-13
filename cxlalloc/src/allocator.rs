@@ -1,7 +1,5 @@
 use core::ffi;
 use core::mem;
-use core::ops::Deref;
-use core::ops::DerefMut;
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -134,78 +132,25 @@ impl Allocator<'_, view::Focus> {
                 stat::inc(&stat::ALLOCATE_LARGE);
                 let size = size.next_multiple_of(crate::SIZE_PAGE);
 
-                loop {
-                    match self.huge.allocate(size) {
-                        Some(descriptor) => {
-                            // save record somewhere
-                            // will it conflict with link record?
-                            //
-                            // in order to link, we need to...
-                            // - log link site
-                            // - peek allocation
-                            // - write to site
-                            // - clear allocation
-                            //
-                            // what about allocation class?
-                            // - if crash before writing to site, abort
-                            // - if crash after writing to site, recover from site
-                            //
-                            // what about huge allocation?
-                            // - need to log what
-                            // - secondary link record
-                            // - hard-code dedicated spot for huge
+                let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
+                let index = self.small.peek(id, help, class).unwrap();
+                let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
+                let block = free.peek();
 
-                            // allocate next free descriptor
-                            let class =
-                                size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
+                let offset = data::Offset::from_block(index, class, block);
+                let descriptor = unsafe {
+                    self.small
+                        .data
+                        .offset_to_pointer::<huge::Descriptor>(offset)
+                        .as_mut()
+                };
 
-                            let index = self.small.peek(id, help, class).unwrap();
-                            let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
-                            let block = free.peek();
-
-                            let offset = data::Offset::from_block(index, class, block);
-                            let mut pointer = self
-                                .small
-                                .data
-                                .offset_to_pointer::<huge::Descriptor>(offset);
-
-                            let descriptor = unsafe {
-                                pointer.write_volatile(descriptor);
-                                pointer.as_mut()
-                            };
-
-                            // point at previous head in data region
-                            if let Some(prev) = self.huge.get(self.id, &self.small.data) {
-                                unsafe {
-                                    crate::Box::link(&mut descriptor.next, prev);
-                                    crate::fence();
-                                }
-                            }
-
-                            // update linked list of huge descriptors
-                            self.huge.set(id, &self.small.data, descriptor);
-
-                            // pop block
-                            self.small.pop(id, class, index);
-
-                            // mmap huge allocation
-                            let region = self
-                                .huge
-                                .backend
-                                .allocate(
-                                    format!("huge-{}-{}", self.id, descriptor.id),
-                                    Some(self.huge.data.offset_to_pointer(descriptor.offset)),
-                                    descriptor.size,
-                                    None,
-                                )
-                                .unwrap();
-
-                            return region.base().cast().as_ptr();
-                        }
-                        // claim a virtual address space region
-                        None => self.huge.claim(id),
-                    }
-                }
+                let data = &self.small.data;
+                let allocation = self.huge.allocate(id, data, size, descriptor);
+                // FIXME: pop before mmap in `self.huge.allocate` or check if
+                // allocated on recovery
+                self.small.pop(id, class, index);
+                return allocation;
             }
             Some(class) => class,
         };
