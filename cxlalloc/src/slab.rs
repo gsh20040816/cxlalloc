@@ -14,6 +14,7 @@ use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
 use core::num::NonZeroU64;
+use core::ops::Deref;
 use core::ops::Range;
 use core::ptr::NonNull;
 
@@ -22,6 +23,31 @@ use crate::raw;
 use crate::size;
 use crate::thread;
 use crate::view::heap::Length;
+
+pub(crate) struct Slab<'raw, B> {
+    descriptors: Slice<'raw, B>,
+    _raw: PhantomData<&'raw raw::Region>,
+}
+
+impl<'raw, B> Slab<'raw, B> {
+    pub(crate) fn new(descriptors: Slice<'raw, B>) -> Self {
+        Self {
+            descriptors,
+            _raw: PhantomData,
+        }
+    }
+
+    pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
+        Slice::<B>::layout(count)
+    }
+}
+
+impl<'raw, B> Deref for Slab<'raw, B> {
+    type Target = Slice<'raw, B>;
+    fn deref(&self) -> &Self::Target {
+        &self.descriptors
+    }
+}
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]
 #[repr(transparent)]

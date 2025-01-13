@@ -35,6 +35,7 @@ pub use extend::Epoch;
 pub use r#box::Box;
 pub use raw::Raw;
 pub use root::Root;
+pub(crate) use slab::Slab;
 
 pub(crate) const SIZE_CACHE_LINE: usize = 64;
 pub(crate) const SIZE_PAGE: usize = 4096;

@@ -13,6 +13,7 @@ use crate::thread;
 use crate::view;
 use crate::Data;
 use crate::Epoch;
+use crate::Slab;
 use crate::BATCH_BUMP_POP;
 
 pub struct Heap<'raw, L: view::Lens, B> {
@@ -25,7 +26,7 @@ pub struct Heap<'raw, L: view::Lens, B> {
     /// Single-reader, single-writer metadata
     pub(crate) owned: L::Scope<'raw, Owned<B>>,
 
-    pub(crate) slabs: view::Slab<'raw, B>,
+    pub(crate) slabs: Slab<'raw, B>,
     pub(crate) data: Data<'raw, B>,
 }
 
@@ -34,7 +35,7 @@ impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
         capacity: u32,
         shared: &'raw Shared<B>,
         owned: L::Scope<'raw, Owned<B>>,
-        slabs: view::Slab<'raw, B>,
+        slabs: Slab<'raw, B>,
         data: Data<'raw, B>,
     ) -> Self {
         Self {
@@ -99,7 +100,7 @@ impl<B> Shared<B> {
     pub(crate) fn push(
         &self,
         id: thread::Id,
-        slabs: &view::Slab<B>,
+        slabs: &Slab<B>,
         help: &help::Array,
         head: slab::Index<B>,
         tail: slab::Index<B>,
@@ -110,7 +111,7 @@ impl<B> Shared<B> {
     pub(crate) fn pop(
         &self,
         id: thread::Id,
-        slabs: &view::Slab<B>,
+        slabs: &Slab<B>,
         help: &help::Array,
     ) -> Option<slab::Index<B>> {
         if self.free.is_empty(help) {
@@ -162,12 +163,7 @@ impl<B> Owned<B>
 where
     B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
 {
-    pub(crate) fn unsized_to_sized(
-        &mut self,
-        slabs: &view::Slab<B>,
-        id: thread::Id,
-        class: B,
-    ) -> bool {
+    pub(crate) fn unsized_to_sized(&mut self, slabs: &Slab<B>, id: thread::Id, class: B) -> bool {
         let Some(index) = self.r#unsized.peek() else {
             return false;
         };
@@ -197,12 +193,7 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(
-        &mut self,
-        slabs: &view::Slab<B>,
-        class: B,
-        index: slab::Index<B>,
-    ) {
+    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
         // Special case: not in sized list
         if class.is_max() {
             return self.r#unsized.push(slabs, index);

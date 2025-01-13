@@ -18,6 +18,7 @@ use crate::slab;
 use crate::thread;
 use crate::view;
 use crate::Data;
+use crate::Slab;
 
 /// This type represents sole ownership of an initialized backing store
 /// for the heap.
@@ -126,9 +127,7 @@ impl Raw {
         let (owned_size, _) = Self::owned();
         let owned = backend.allocate(format!("{id}-owned"), None, owned_size, None)?;
 
-        let slab_small_size = view::Slab::<size::Small>::layout(slab_count)
-            .unwrap()
-            .size();
+        let slab_small_size = Slab::<size::Small>::layout(slab_count).unwrap().size();
         let slab_small =
             backend.allocate(format!("{id}-ss"), None, slab_small_size, Some(RESERVATION))?;
 
@@ -214,7 +213,7 @@ impl Raw {
                         .cast::<thread::Array<UnsafeCell<view::heap::Owned<size::Small>>>>()
                         .as_ref()
                         .unwrap(),
-                    view::Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
+                    Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
                     Data::<size::Small>::new(self.data_small.base()),
                 ),
                 view::Huge::new(

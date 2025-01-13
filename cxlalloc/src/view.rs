@@ -1,14 +1,12 @@
 pub(crate) mod allocator;
 pub(crate) mod heap;
 pub(crate) mod huge;
-pub(crate) mod slab;
 
 use core::cell::UnsafeCell;
 
 pub(crate) use allocator::Allocator;
 pub(crate) use heap::Heap;
 pub(crate) use huge::Huge;
-pub(crate) use slab::Slab;
 
 use crate::thread;
 
