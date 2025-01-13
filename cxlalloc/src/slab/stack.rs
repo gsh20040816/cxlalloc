@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use crate::allocator;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
@@ -80,12 +81,11 @@ impl<B> Global<B> {
 
     pub(crate) fn pop(
         &self,
-        id: thread::Id,
+        context: &mut allocator::Context,
         slabs: &Slice<B>,
-        help: &help::Array,
     ) -> Option<Index<B>> {
         self.head
-            .update(help, id, |old, version| {
+            .update(context.help, context.id, |old, version| {
                 let old = old?;
                 let new = slabs[old].local.next.load();
 

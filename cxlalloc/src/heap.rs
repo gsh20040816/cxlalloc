@@ -7,9 +7,7 @@ use ribbit::private::u24;
 
 use crate::allocator;
 use crate::allocator::Bracket;
-use crate::allocator::BracketUnpacked;
 use crate::allocator::Index;
-use crate::allocator::IndexUnpacked;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
@@ -123,15 +121,14 @@ impl<B> Shared<B> {
 
     pub(crate) fn pop(
         &self,
-        id: thread::Id,
+        context: &mut allocator::Context,
         slabs: &Slab<B>,
-        help: &help::Array,
     ) -> Option<slab::Index<B>> {
-        if self.free.is_empty(help) {
+        if self.free.is_empty(&context.help) {
             return None;
         }
 
-        self.free.pop(id, slabs, help)
+        self.free.pop(context, slabs)
     }
 }
 
@@ -179,8 +176,7 @@ where
 {
     pub(crate) fn unsized_to_sized(
         &mut self,
-        id: thread::Id,
-        log: &mut allocator::Owned,
+        context: &mut allocator::Context,
         slabs: &Slab<B>,
         class: B,
     ) -> bool {
@@ -193,7 +189,7 @@ where
         let slab = &slabs[index];
         let next = slab.local.next.load();
 
-        log.log(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
+        context.log(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
             next.map(Into::into),
             class.into(),
         )));
@@ -205,7 +201,7 @@ where
 
         slab.remote
             .owner
-            .store(slab::remote::Owner::new(class, Some(id)));
+            .store(slab::remote::Owner::new(class, Some(context.id)));
         crate::flush(&slab.remote.owner, false);
 
         let count = self.r#unsized.len();
@@ -258,7 +254,7 @@ where
     #[inline]
     pub(crate) fn pop(
         &mut self,
-        id: thread::Id,
+        context: &mut allocator::Context,
         class: B,
         index: slab::Index<B>,
     ) -> *mut ffi::c_void {
@@ -274,7 +270,7 @@ where
         free.unset(block);
 
         if free.is_empty() {
-            self.detach(id, class);
+            self.detach(context, class);
         }
 
         let offset = data::Offset::from_block(index, class, block);
@@ -284,9 +280,7 @@ where
     #[inline]
     pub(crate) fn peek(
         &mut self,
-        id: thread::Id,
-        log: &mut allocator::Owned,
-        help: &help::Array,
+        context: &mut allocator::Context,
         class: B,
     ) -> Option<slab::Index<B>> {
         if let Some(index) = self.owned.r#sized[class].peek() {
@@ -294,17 +288,11 @@ where
             return Some(index);
         };
 
-        self.allocate(id, log, help, class)
+        self.allocate(context, class)
     }
 
     #[cold]
-    fn allocate(
-        &mut self,
-        id: thread::Id,
-        log: &mut allocator::Owned,
-        help: &help::Array,
-        class: B,
-    ) -> Option<slab::Index<B>> {
+    fn allocate(&mut self, context: &mut allocator::Context, class: B) -> Option<slab::Index<B>> {
         stat::inc(&stat::ALLOCATE_SMALL);
 
         if class.is_min() {
@@ -313,21 +301,21 @@ where
         }
 
         // Fast path: local unsized
-        if self.owned.unsized_to_sized(id, log, &self.slabs, class) {
+        if self.owned.unsized_to_sized(context, &self.slabs, class) {
             stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
             return self.owned.r#sized[class].peek();
         }
 
         loop {
-            if let Some(index) = self.shared.pop(id, &self.slabs, help) {
+            if let Some(index) = self.shared.pop(context, &self.slabs) {
                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
-                slab::transfer(&self.slabs, index, None, Some(id));
+                slab::transfer(&self.slabs, index, None, Some(context.id));
 
                 self.owned.r#unsized.push(&self.slabs, index);
                 break;
             }
 
-            match self.shared.bump(id, self.capacity, help) {
+            match self.shared.bump(context.id, self.capacity, context.help) {
                 Some(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
                     slab::transfer_all(
@@ -335,7 +323,7 @@ where
                         range.start,
                         BATCH_BUMP_POP as usize,
                         None,
-                        Some(id),
+                        Some(context.id),
                     );
 
                     unsafe {
@@ -352,12 +340,12 @@ where
             }
         }
 
-        self.owned.unsized_to_sized(id, log, &self.slabs, class);
+        self.owned.unsized_to_sized(context, &self.slabs, class);
         self.owned.r#sized[class].peek()
     }
 
     #[cold]
-    fn detach(&mut self, id: thread::Id, class: B) {
+    fn detach(&mut self, context: &mut allocator::Context, class: B) {
         let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
 
         let slab = &self.slabs[index];
@@ -368,7 +356,7 @@ where
                 .owner
                 .store(slab::remote::Owner::new(owner.class(), None));
             crate::flush(&slab.remote.owner, false);
-            self.transfer(index, Some(id), None);
+            self.transfer(index, Some(context.id), None);
         } else {
             stat::inc(&stat::ALLOCATE_FAST_DETACH);
         }

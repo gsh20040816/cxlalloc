@@ -56,6 +56,12 @@ impl<'raw, L: view::Lens> Allocator<'raw, L> {
     }
 }
 
+pub(crate) struct Context<'raw> {
+    pub(crate) id: thread::Id,
+    pub(crate) help: &'raw cas::help::Array,
+    log: &'raw mut Option<log::State>,
+}
+
 #[repr(C)]
 pub(crate) struct Shared {
     // pub(crate) root: Atomic<Option<data::Offset>>,
@@ -68,7 +74,7 @@ pub(crate) struct Owned {
     pub(crate) state: Option<log::State>,
 }
 
-impl Owned {
+impl Context<'_> {
     #[inline]
     pub(crate) fn log(&mut self, state: StateUnpacked) {
         if !cfg!(feature = "recover-log") {
@@ -86,8 +92,8 @@ impl Owned {
             return;
         }
 
-        self.state = Some(State::new(state));
-        crate::flush(&self.state, false);
+        *self.log = Some(State::new(state));
+        crate::flush(&self.log, false);
     }
 }
 
@@ -148,18 +154,20 @@ impl Allocator<'_, view::Focus> {
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
         stat::inc(&stat::ALLOCATE);
 
-        let id = self.id;
-        let log = &mut self.owned;
-        let help = &self.shared.help;
-        let class = size::Small::new(size);
+        let context = &mut Context {
+            id: self.id,
+            log: &mut self.owned.state,
+            help: &self.shared.help,
+        };
 
+        let class = size::Small::new(size);
         let class = match class {
             None => {
                 stat::inc(&stat::ALLOCATE_LARGE);
                 let size = size.next_multiple_of(crate::SIZE_PAGE);
 
                 let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
-                let index = self.small.peek(id, log, help, class).unwrap();
+                let index = self.small.peek(context, class).unwrap();
                 let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
                 let block = free.peek();
 
@@ -172,10 +180,10 @@ impl Allocator<'_, view::Focus> {
                 };
 
                 let data = &self.small.data;
-                let allocation = self.huge.allocate(id, data, size, descriptor);
+                let allocation = self.huge.allocate(context.id, data, size, descriptor);
                 // FIXME: pop before mmap in `self.huge.allocate` or check if
                 // allocated on recovery
-                self.small.pop(id, class, index);
+                self.small.pop(context, class, index);
                 return allocation;
             }
             Some(class) => class,
@@ -183,11 +191,11 @@ impl Allocator<'_, view::Focus> {
 
         stat::record_small(class);
 
-        let Some(index) = self.small.peek(id, log, help, class) else {
+        let Some(index) = self.small.peek(context, class) else {
             return ptr::null_mut();
         };
 
-        self.small.pop(id, class, index)
+        self.small.pop(context, class, index)
     }
 
     #[inline]
