@@ -2,6 +2,7 @@ use crate::allocator::Class;
 use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::bitset::Bit;
+use crate::heap;
 use crate::size;
 use crate::slab;
 use crate::view;
@@ -33,7 +34,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     BumpToLocal {
         #[ribbit(size = 32)]
-        bump: view::heap::Bump,
+        bump: heap::Bump,
 
         #[ribbit(size = 16)]
         version: Version,

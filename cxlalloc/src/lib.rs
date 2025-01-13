@@ -32,6 +32,7 @@ pub use allocator::Allocator;
 pub use atomic::Atomic;
 pub(crate) use data::Data;
 pub use extend::Epoch;
+pub(crate) use heap::Heap;
 pub(crate) use huge::Huge;
 pub use r#box::Box;
 pub use raw::Raw;

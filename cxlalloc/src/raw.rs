@@ -12,6 +12,7 @@ use core::ptr;
 use core::ptr::NonNull;
 use std::io;
 
+use crate::heap;
 use crate::huge;
 use crate::raw::region::RESERVATION;
 use crate::size;
@@ -19,6 +20,7 @@ use crate::slab;
 use crate::thread;
 use crate::view;
 use crate::Data;
+use crate::Heap;
 use crate::Huge;
 use crate::Slab;
 
@@ -203,16 +205,16 @@ impl Raw {
                     .cast::<thread::Array<UnsafeCell<view::allocator::Owned>>>()
                     .as_ref()
                     .unwrap(),
-                view::Heap::<view::Unfocus, size::Small>::new(
+                Heap::<view::Unfocus, size::Small>::new(
                     self.capacity,
                     shared
                         .wrapping_byte_add(shared_offsets[1])
-                        .cast::<view::heap::Shared<size::Small>>()
+                        .cast::<heap::Shared<size::Small>>()
                         .as_ref()
                         .unwrap(),
                     owned
                         .wrapping_byte_add(owned_offsets[1])
-                        .cast::<thread::Array<UnsafeCell<view::heap::Owned<size::Small>>>>()
+                        .cast::<thread::Array<UnsafeCell<heap::Owned<size::Small>>>>()
                         .as_ref()
                         .unwrap(),
                     Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
@@ -245,7 +247,7 @@ impl Raw {
     fn shared() -> (usize, Vec<usize>) {
         layout!(
             view::allocator::Shared,
-            view::heap::Shared<size::Small>,
+            heap::Shared<size::Small>,
             huge::Shared,
         )
     }
@@ -253,7 +255,7 @@ impl Raw {
     fn owned() -> (usize, Vec<usize>) {
         layout!(
             thread::Array<UnsafeCell<view::allocator::Owned>>,
-            thread::Array<UnsafeCell<view::heap::Owned<size::Small>>>,
+            thread::Array<UnsafeCell<heap::Owned<size::Small>>>,
             thread::Array<huge::Owned>,
         )
     }

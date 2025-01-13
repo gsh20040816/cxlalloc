@@ -19,10 +19,10 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::data;
+use crate::heap::Length;
 use crate::raw;
 use crate::size;
 use crate::thread;
-use crate::view::heap::Length;
 
 pub(crate) struct Slab<'raw, B> {
     descriptors: Slice<'raw, B>,

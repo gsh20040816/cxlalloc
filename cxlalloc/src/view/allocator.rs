@@ -3,6 +3,7 @@ use crate::log;
 use crate::size;
 use crate::thread;
 use crate::view;
+use crate::Heap;
 use crate::Huge;
 
 pub struct Allocator<'raw, L: view::Lens> {
@@ -11,7 +12,7 @@ pub struct Allocator<'raw, L: view::Lens> {
     pub(crate) shared: &'raw Shared,
     pub(crate) owned: L::Scope<'raw, Owned>,
 
-    pub(crate) small: view::Heap<'raw, L, size::Small>,
+    pub(crate) small: Heap<'raw, L, size::Small>,
     pub(crate) huge: Huge<'raw>,
 }
 
@@ -20,7 +21,7 @@ impl<'raw, L: view::Lens> Allocator<'raw, L> {
         id: thread::Id,
         shared: &'raw Shared,
         owned: L::Scope<'raw, Owned>,
-        small: view::Heap<'raw, L, size::Small>,
+        small: Heap<'raw, L, size::Small>,
         huge: Huge<'raw>,
     ) -> Self {
         Self {

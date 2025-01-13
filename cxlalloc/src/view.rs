@@ -1,10 +1,8 @@
 pub(crate) mod allocator;
-pub(crate) mod heap;
 
 use core::cell::UnsafeCell;
 
 pub(crate) use allocator::Allocator;
-pub(crate) use heap::Heap;
 
 use crate::thread;
 
