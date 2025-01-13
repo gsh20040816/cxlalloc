@@ -12,12 +12,14 @@ use core::ptr;
 use core::ptr::NonNull;
 use std::io;
 
+use crate::huge;
 use crate::raw::region::RESERVATION;
 use crate::size;
 use crate::slab;
 use crate::thread;
 use crate::view;
 use crate::Data;
+use crate::Huge;
 use crate::Slab;
 
 /// This type represents sole ownership of an initialized backing store
@@ -216,16 +218,16 @@ impl Raw {
                     Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
                     Data::<size::Small>::new(self.data_small.base()),
                 ),
-                view::Huge::new(
+                Huge::new(
                     &self.backend,
                     shared
                         .wrapping_byte_add(shared_offsets[2])
-                        .cast::<view::huge::Shared>()
+                        .cast::<huge::Shared>()
                         .as_ref()
                         .unwrap(),
                     owned
                         .wrapping_byte_add(owned_offsets[2])
-                        .cast::<thread::Array<view::huge::Owned>>()
+                        .cast::<thread::Array<huge::Owned>>()
                         .as_ref()
                         .unwrap(),
                     Data::<size::Huge>::new(self.data_huge.base()),
@@ -244,7 +246,7 @@ impl Raw {
         layout!(
             view::allocator::Shared,
             view::heap::Shared<size::Small>,
-            view::huge::Shared,
+            huge::Shared,
         )
     }
 
@@ -252,7 +254,7 @@ impl Raw {
         layout!(
             thread::Array<UnsafeCell<view::allocator::Owned>>,
             thread::Array<UnsafeCell<view::heap::Owned<size::Small>>>,
-            thread::Array<view::huge::Owned>,
+            thread::Array<huge::Owned>,
         )
     }
 

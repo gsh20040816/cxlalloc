@@ -6,6 +6,7 @@ use core::ptr;
 use core::ptr::NonNull;
 
 use crate::data;
+use crate::huge;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
@@ -128,7 +129,7 @@ impl Allocator<'_> {
 
                             // allocate next free descriptor
                             let class =
-                                size::Small::new(mem::size_of::<view::huge::Descriptor>()).unwrap();
+                                size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
 
                             let index = self.small.peek(id, help, class).unwrap();
                             let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
@@ -138,7 +139,7 @@ impl Allocator<'_> {
                             let mut pointer = self
                                 .small
                                 .data
-                                .offset_to_pointer::<view::huge::Descriptor>(offset);
+                                .offset_to_pointer::<huge::Descriptor>(offset);
 
                             let descriptor = unsafe {
                                 pointer.write_volatile(descriptor);
