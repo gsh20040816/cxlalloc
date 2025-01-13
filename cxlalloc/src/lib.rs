@@ -3,6 +3,7 @@ pub mod atomic;
 mod bitset;
 mod r#box;
 mod cas;
+pub(crate) mod data;
 mod extend;
 mod heap;
 mod huge;
@@ -29,6 +30,7 @@ mod crash {
 
 pub use allocator::Allocator;
 pub use atomic::Atomic;
+pub(crate) use data::Data;
 pub use extend::Epoch;
 pub use r#box::Box;
 pub use raw::Raw;

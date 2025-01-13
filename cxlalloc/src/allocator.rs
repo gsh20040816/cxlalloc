@@ -5,12 +5,12 @@ use core::ops::DerefMut;
 use core::ptr;
 use core::ptr::NonNull;
 
+use crate::data;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
 use crate::stat;
 use crate::view;
-use crate::view::data;
 
 pub struct Allocator<'raw>(view::Allocator<'raw, view::Focus>);
 

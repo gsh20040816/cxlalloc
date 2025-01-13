@@ -7,13 +7,11 @@ use ribbit::private::u24;
 use crate::cas;
 use crate::cas::help;
 use crate::crash;
-use crate::log::BumpToLocal;
-use crate::log::StateUnpacked;
 use crate::size;
 use crate::slab;
-use crate::stat;
 use crate::thread;
 use crate::view;
+use crate::Data;
 use crate::Epoch;
 use crate::BATCH_BUMP_POP;
 
@@ -28,7 +26,7 @@ pub struct Heap<'raw, L: view::Lens, B> {
     pub(crate) owned: L::Scope<'raw, Owned<B>>,
 
     pub(crate) slabs: view::Slab<'raw, B>,
-    pub(crate) data: view::Data<'raw, B>,
+    pub(crate) data: Data<'raw, B>,
 }
 
 impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
@@ -37,7 +35,7 @@ impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
         shared: &'raw Shared<B>,
         owned: L::Scope<'raw, Owned<B>>,
         slabs: view::Slab<'raw, B>,
-        data: view::Data<'raw, B>,
+        data: Data<'raw, B>,
     ) -> Self {
         Self {
             capacity,
@@ -66,34 +64,6 @@ pub(crate) struct Shared<B> {
 }
 
 impl<B> Shared<B> {
-    // pub(crate) fn layout(slab_count: usize) -> Layout {
-    //     Layout::new::<Meta>()
-    //         .extend(slab::Slice::<slab::Shared>::layout(slab_count).unwrap())
-    //         .unwrap()
-    //         .0
-    //         .align_to(SIZE_PAGE)
-    //         .unwrap()
-    //         .pad_to_align()
-    // }
-    //
-    // pub(crate) unsafe fn from_raw(raw: &'raw raw::heap::Heap) -> Self {
-    //     // FIXME: deduplicate with `layout`
-    //     let offset = Layout::new::<Meta>()
-    //         .extend(Layout::array::<slab::Shared>(1).unwrap())
-    //         .unwrap()
-    //         .1;
-    //
-    //     Self {
-    //         capacity: raw.capacity,
-    //         process_count: raw.process_count,
-    //         process_id: raw.process_id,
-    //         backend: &raw.backend,
-    //         meta: raw.shared.base().cast::<Meta>().as_ref(),
-    //         slabs: slab::Slice::from_raw(&raw.shared, offset),
-    //     }
-    // }
-    //
-
     pub(crate) fn bump(
         &self,
         id: thread::Id,
@@ -192,27 +162,6 @@ impl<B> Owned<B>
 where
     B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
 {
-    // #[inline]
-    // pub(crate) fn log_sync(&mut self, state: StateUnpacked) {
-    //     if !cfg!(feature = "recover-log") {
-    //         return;
-    //     }
-    //
-    //     crate::fence();
-    //     self.log_unsync(State::new(state));
-    //     crate::fence();
-    // }
-    //
-    // #[inline]
-    // pub(crate) fn log_unsync(&mut self, state: State) {
-    //     if !cfg!(feature = "recover-log") {
-    //         return;
-    //     }
-    //
-    //     self.state.store(Some(state));
-    //     crate::flush(&self.state, false);
-    // }
-
     pub(crate) fn unsized_to_sized(
         &mut self,
         slabs: &view::Slab<B>,

@@ -17,10 +17,10 @@ use core::num::NonZeroU64;
 use core::ops::Range;
 use core::ptr::NonNull;
 
+use crate::data;
 use crate::raw;
 use crate::size;
 use crate::thread;
-use crate::view::data;
 use crate::view::heap::Length;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]

@@ -1,13 +1,14 @@
 use core::sync::atomic;
 
+use crate::data;
 use crate::size;
 use crate::view;
-use crate::view::data;
+use crate::Data;
 
 impl<'raw> view::Huge<'raw> {
     pub(crate) fn free(
         &self,
-        data: &view::Data<'raw, size::Small>,
+        data: &Data<'raw, size::Small>,
         offset_allocation: data::Offset<size::Huge>,
     ) {
         let slot = offset_allocation.into_index();

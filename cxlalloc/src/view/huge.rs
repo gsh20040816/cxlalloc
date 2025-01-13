@@ -9,21 +9,21 @@ use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
+use crate::data;
 use crate::raw::Backend;
 use crate::size;
 use crate::size::Bracket;
 use crate::slab;
 use crate::thread;
-use crate::view;
-use crate::view::data;
 use crate::Atomic;
+use crate::Data;
 
 pub(crate) struct Huge<'raw> {
     pub(crate) allocator: Allocator,
     pub(crate) backend: &'raw Backend,
     pub(crate) shared: &'raw Shared,
     pub(crate) owned: &'raw thread::Array<Owned>,
-    pub(crate) data: view::Data<'raw, size::Huge>,
+    pub(crate) data: Data<'raw, size::Huge>,
 }
 
 impl<'raw> Huge<'raw> {
@@ -31,7 +31,7 @@ impl<'raw> Huge<'raw> {
         backend: &'raw Backend,
         shared: &'raw Shared,
         owned: &'raw thread::Array<Owned>,
-        data: view::Data<'raw, size::Huge>,
+        data: Data<'raw, size::Huge>,
     ) -> Self {
         Self {
             // FIXME: recover state
@@ -46,7 +46,7 @@ impl<'raw> Huge<'raw> {
     pub(crate) fn trace(
         &self,
         id: thread::Id,
-        data: &view::Data<'raw, size::Small>,
+        data: &Data<'raw, size::Small>,
     ) -> impl Iterator<Item = &Descriptor> {
         let mut walk = self.get(id, data);
         std::iter::from_fn(move || {
@@ -56,12 +56,7 @@ impl<'raw> Huge<'raw> {
         })
     }
 
-    pub(crate) fn set(
-        &self,
-        id: thread::Id,
-        data: &view::Data<'raw, size::Small>,
-        head: &Descriptor,
-    ) {
+    pub(crate) fn set(&self, id: thread::Id, data: &Data<'raw, size::Small>, head: &Descriptor) {
         let offset = data.pointer_to_offset(NonNull::from(head));
         self.owned[id].head.store(Some(offset))
     }
@@ -98,7 +93,7 @@ impl<'raw> Huge<'raw> {
     pub(crate) fn get(
         &self,
         id: thread::Id,
-        data: &view::Data<'raw, size::Small>,
+        data: &Data<'raw, size::Small>,
     ) -> Option<&Descriptor> {
         self.owned[id]
             .head
@@ -181,7 +176,7 @@ impl Allocator {
 #[repr(C, align(64))]
 pub(crate) struct Descriptor {
     pub(crate) id: usize,
-    pub(crate) offset: view::data::Offset<size::Huge>,
+    pub(crate) offset: data::Offset<size::Huge>,
     pub(crate) size: usize,
     pub(crate) next: Option<crate::Box<Descriptor>>,
     pub(crate) free: AtomicBool,

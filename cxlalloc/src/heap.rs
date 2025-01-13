@@ -3,12 +3,12 @@ use core::fmt::Display;
 
 use crate::atomic::Version;
 use crate::cas::help;
+use crate::data;
 use crate::size;
 use crate::slab;
 use crate::stat;
 use crate::thread;
 use crate::view;
-use crate::view::data;
 use crate::view::Heap;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
