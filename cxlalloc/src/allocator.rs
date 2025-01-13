@@ -206,43 +206,10 @@ impl Allocator<'_> {
             todo!();
         }
 
-        let offset = self.heap.pointer_to_offset(pointer);
-        let index = slab::Index::from(offset);
-
-        let shared = &self.heap.shared.slabs[index];
-        let owner = shared.owner.load();
-        let class = owner.class();
-
-        if owner.id() != Some(self.id) {
-            return self.free_remote(offset, index, class);
-        }
-
-        stat::inc(&stat::FREE_FAST);
-        let slab = &self.owned.slabs[index];
-        let block = offset.index_block(class);
-        let free = &mut *slab.free.get();
-
-        self.owned
-            .meta
-            .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
-                index, block,
-            )));
-
-        let count = free.len();
-        free.set(block);
-
-        match count {
-            count if count + 1 == class.count() => {
-                stat::inc(&stat::FREE_FAST_UNSIZED);
-                self.owned
-                    .meta
-                    .sized_to_unsized(&self.owned.slabs, class, index);
-
-                self.unsized_to_global();
-            }
-            0 => self.attach(class, index),
-            _ => (),
-        }
+        let offset = self.small.data.pointer_to_offset(pointer);
+        let id = self.id;
+        let help = &self.shared.help;
+        self.small.free(id, help, offset)
     }
 }
 

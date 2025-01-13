@@ -89,8 +89,8 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         self.count == 0
     }
 
-    pub(crate) fn len(&self) -> usize {
-        self.count as usize
+    pub(crate) fn len(&self) -> u64 {
+        self.count
     }
 
     #[track_caller]

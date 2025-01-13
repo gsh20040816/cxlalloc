@@ -148,8 +148,43 @@ where
         stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
+    pub(crate) fn free(&mut self, id: thread::Id, help: &help::Array, offset: data::Offset<B>) {
+        let index = slab::Index::from(offset);
+        let slab = &self.slabs[index];
+        let owner = slab.remote.owner.load();
+        let class = owner.class();
+
+        if owner.id() != Some(id) {
+            return unsafe { self.free_remote(id, help, offset, index, class) };
+        }
+
+        stat::inc(&stat::FREE_FAST);
+        let slab = &self.slabs[index];
+        let block = offset.into_block(class);
+        let free = unsafe { &mut *slab.local.free.get() };
+
+        // self.owned
+        //     .meta
+        //     .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
+        //         index, block,
+        //     )));
+
+        let count = free.len();
+        free.set(block);
+
+        match count {
+            count if count + 1 == class.count() => {
+                stat::inc(&stat::FREE_FAST_UNSIZED);
+                self.owned.sized_to_unsized(&self.slabs, class, index);
+                self.unsized_to_global(id, help);
+            }
+            0 => self.attach(class, index),
+            _ => (),
+        }
+    }
+
     #[cold]
-    unsafe fn free_remote(
+    pub(crate) unsafe fn free_remote(
         &mut self,
         id: thread::Id,
         help: &help::Array,
