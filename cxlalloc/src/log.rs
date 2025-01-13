@@ -63,7 +63,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     ApplicationToSized {
         #[ribbit(size = 32)]
-        index: slab::Index<size::Small>,
+        index: Index,
 
         #[ribbit(size = 12)]
         block: Bit,

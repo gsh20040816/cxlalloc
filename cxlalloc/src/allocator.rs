@@ -208,9 +208,13 @@ impl Allocator<'_, view::Focus> {
         }
 
         let offset = self.small.data.pointer_to_offset(pointer);
-        let id = self.id;
-        let help = &self.shared.help;
-        self.small.free(id, help, offset)
+        let context = &mut Context {
+            id: self.id,
+            help: &self.shared.help,
+            log: &mut self.owned.state,
+        };
+
+        self.small.free(context, offset)
     }
 }
 

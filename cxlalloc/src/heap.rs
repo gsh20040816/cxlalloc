@@ -10,9 +10,13 @@ use crate::allocator::Bracket;
 use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::cas;
-use crate::cas::help;
 use crate::crash;
 use crate::data;
+use crate::log::ApplicationToSized;
+use crate::log::BumpToLocal;
+use crate::log::LocalToGlobalSave;
+use crate::log::Remote;
+use crate::log::SizedToApplication;
 use crate::log::StateUnpacked;
 use crate::log::UnsizedToSized;
 use crate::size;
@@ -75,16 +79,18 @@ pub(crate) struct Shared<B> {
     bump: cas::Detectable<Bump>,
 }
 
-impl<B> Shared<B> {
+impl<B> Shared<B>
+where
+    slab::Index<B>: Into<allocator::Index>,
+{
     pub(crate) fn bump(
         &self,
-        id: thread::Id,
+        context: &mut allocator::Context,
         capacity: u32,
-        help: &help::Array,
     ) -> Option<Range<slab::Index<B>>> {
         let bump = self
             .bump
-            .update(&help, id, |old, version| {
+            .update(context, |old, version| {
                 let old_len = old.length();
                 let new_len = old_len + BATCH_BUMP_POP;
 
@@ -96,10 +102,10 @@ impl<B> Shared<B> {
                         capacity
                     );
                 } else {
-                    Some(
+                    Some((
                         old.with_length(new_len),
-                        // StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
-                    )
+                        StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
+                    ))
                 }
             })?;
 
@@ -110,13 +116,12 @@ impl<B> Shared<B> {
 
     pub(crate) fn push(
         &self,
-        id: thread::Id,
+        context: &mut allocator::Context,
         slabs: &Slab<B>,
-        help: &help::Array,
         head: slab::Index<B>,
         tail: slab::Index<B>,
     ) {
-        self.free.push(id, slabs, help, head, tail);
+        self.free.push(context, slabs, head, tail);
     }
 
     pub(crate) fn pop(
@@ -124,7 +129,7 @@ impl<B> Shared<B> {
         context: &mut allocator::Context,
         slabs: &Slab<B>,
     ) -> Option<slab::Index<B>> {
-        if self.free.is_empty(&context.help) {
+        if self.free.is_empty(context.help) {
             return None;
         }
 
@@ -261,11 +266,10 @@ where
         let free = unsafe { &mut *self.slabs[index].local.free.get() };
         let block = free.peek();
 
-        // FIXME: log
-        // self.owned
-        //     .log_sync(StateUnpacked::SizedToApplication(SizedToApplication::new(
-        //         index, block,
-        //     )));
+        context.log(StateUnpacked::SizedToApplication(SizedToApplication::new(
+            index.into(),
+            block,
+        )));
 
         free.unset(block);
 
@@ -315,7 +319,7 @@ where
                 break;
             }
 
-            match self.shared.bump(context.id, self.capacity, context.help) {
+            match self.shared.bump(context, self.capacity) {
                 Some(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
                     slab::transfer_all(
@@ -380,14 +384,14 @@ where
         stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
-    pub(crate) fn free(&mut self, id: thread::Id, help: &help::Array, offset: data::Offset<B>) {
+    pub(crate) fn free(&mut self, context: &mut allocator::Context, offset: data::Offset<B>) {
         let index = slab::Index::from(offset);
         let slab = &self.slabs[index];
         let owner = slab.remote.owner.load();
         let class = owner.class();
 
-        if owner.id() != Some(id) {
-            return unsafe { self.free_remote(id, help, offset, index, class) };
+        if owner.id() != Some(context.id) {
+            return unsafe { self.free_remote(context, offset, index, class) };
         }
 
         stat::inc(&stat::FREE_FAST);
@@ -395,11 +399,10 @@ where
         let block = offset.into_block(class);
         let free = unsafe { &mut *slab.local.free.get() };
 
-        // self.owned
-        //     .meta
-        //     .log_sync(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
-        //         index, block,
-        //     )));
+        context.log(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
+            index.into(),
+            block,
+        )));
 
         let count = free.len();
         free.set(block);
@@ -408,7 +411,7 @@ where
             count if count + 1 == class.count() => {
                 stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned.sized_to_unsized(&self.slabs, class, index);
-                self.unsized_to_global(id, help);
+                self.unsized_to_global(context);
             }
             0 => self.attach(class, index),
             _ => (),
@@ -418,8 +421,7 @@ where
     #[cold]
     pub(crate) unsafe fn free_remote(
         &mut self,
-        id: thread::Id,
-        help: &help::Array,
+        context: &mut allocator::Context,
         offset: data::Offset<B>,
         index: slab::Index<B>,
         class: B,
@@ -430,24 +432,21 @@ where
         let block = offset.into_block(class);
         let version = slab.meta.load().version();
 
-        // self.owned
-        //     .log_sync(StateUnpacked::Remote(Remote::new(index, block, version)));
+        context.log(StateUnpacked::Remote(Remote::new(
+            index.into(),
+            block,
+            version,
+        )));
 
         slab.free.set(block);
 
         if slab.free.is_full(class.count()) {
-            self.claim(id, help, index, version);
+            self.claim(context, index, version);
         }
     }
 
     #[cold]
-    fn claim(
-        &mut self,
-        id: thread::Id,
-        help: &help::Array,
-        index: slab::Index<B>,
-        version: Version,
-    ) {
+    fn claim(&mut self, context: &mut allocator::Context, index: slab::Index<B>, version: Version) {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
         let slab = &self.slabs[index].remote;
@@ -456,7 +455,7 @@ where
         // or else the full slab becomes globally visible and
         // some other thread can update the version.
         let old = slab::remote::Meta::new(version, slab.meta.load().claim());
-        let new = slab::remote::Meta::new(version.next(), Some(id));
+        let new = slab::remote::Meta::new(version.next(), Some(context.id));
 
         // FIXME: get rid of CAS
         match slab.meta.compare_exchange(old, new) {
@@ -487,20 +486,20 @@ where
 
         let victim = slab.owner.load().id();
 
-        self.transfer(index, victim, Some(id));
+        self.transfer(index, victim, Some(context.id));
 
         if victim.is_some() {
             stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
             slab.owner
-                .store(slab::remote::Owner::new(B::default(), Some(id)));
+                .store(slab::remote::Owner::new(B::default(), Some(context.id)));
             crate::flush(&slab.owner, false);
         }
 
         self.owned.r#unsized.push(&self.slabs, index);
-        self.unsized_to_global(id, help);
+        self.unsized_to_global(context);
     }
 
-    fn unsized_to_global(&mut self, id: thread::Id, help: &help::Array) {
+    fn unsized_to_global(&mut self, context: &mut allocator::Context) {
         let count = self.owned.r#unsized.len();
         if count < COUNT_CACHE_SLAB {
             return;
@@ -510,21 +509,19 @@ where
             .owned
             .r#unsized
             .trace(&self.slabs)
-            .inspect(|index| self.transfer(*index, Some(id), None))
+            .inspect(|index| self.transfer(*index, Some(context.id), None))
             .take(BATCH_GLOBAL_PUSH);
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap();
         let next = self.slabs[tail].local.next.load();
 
-        // FIXME: logging
-        // self.owned
-        //     .log_sync(StateUnpacked::LocalToGlobalSave(LocalToGlobalSave::new(
-        //         head,
-        //     )));
+        context.log(StateUnpacked::LocalToGlobalSave(LocalToGlobalSave::new(
+            head.into(),
+        )));
 
         self.owned.r#unsized.set(next, count - BATCH_GLOBAL_PUSH);
-        self.shared.push(id, &self.slabs, help, head, tail);
+        self.shared.push(context, &self.slabs, head, tail);
     }
 
     #[inline]

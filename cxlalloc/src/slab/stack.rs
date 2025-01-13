@@ -60,22 +60,24 @@ pub(crate) struct Global<B> {
     _bracket: PhantomData<B>,
 }
 
-impl<B> Global<B> {
+impl<B> Global<B>
+where
+    Index<B>: Into<allocator::Index>,
+{
     pub(crate) fn push(
         &self,
-        id: thread::Id,
+        context: &mut allocator::Context,
         slabs: &Slice<B>,
-        help: &help::Array,
         head: Index<B>,
         tail: Index<B>,
     ) {
-        self.head.update(help, id, |old, version| {
+        self.head.update(context, |old, version| {
             slabs[tail].local.next.store(old);
             crate::flush(&slabs[tail].local.next, false);
-            Some(
+            Some((
                 Some(head),
-                // log::StateUnpacked::LocalToGlobal(log::LocalToGlobal::new(head, version)),
-            )
+                log::StateUnpacked::LocalToGlobal(log::LocalToGlobal::new(head.into(), version)),
+            ))
         });
     }
 
@@ -85,14 +87,14 @@ impl<B> Global<B> {
         slabs: &Slice<B>,
     ) -> Option<Index<B>> {
         self.head
-            .update(context.help, context.id, |old, version| {
+            .update(context, |old, version| {
                 let old = old?;
                 let new = slabs[old].local.next.load();
 
-                Some(
+                Some((
                     new,
-                    // log::StateUnpacked::GlobalToLocal(log::GlobalToLocal::new(old, version)),
-                )
+                    log::StateUnpacked::GlobalToLocal(log::GlobalToLocal::new(old.into(), version)),
+                ))
             })
             .flatten()
     }

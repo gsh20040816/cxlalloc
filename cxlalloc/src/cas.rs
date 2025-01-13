@@ -1,5 +1,7 @@
+use crate::allocator;
 use crate::atomic::Version;
 use crate::log;
+use crate::log::StateUnpacked;
 use crate::thread;
 use crate::Atomic;
 
@@ -25,38 +27,32 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         old.inner()
     }
 
-    pub(crate) fn update<F>(
-        &self,
-        help: &help::Array,
-        id: thread::Id,
-        // meta: &mut region::Owned,
-        mut next: F,
-    ) -> Option<T>
+    pub(crate) fn update<F>(&self, context: &mut allocator::Context, mut next: F) -> Option<T>
     where
-        F: FnMut(T, Version) -> Option<T>,
+        F: FnMut(T, Version) -> Option<(T, StateUnpacked)>,
     {
         let mut old = self.0.load();
-        let version = help[id].peek().next();
+        let version = context.help[context.id].peek().next();
 
         if cfg!(feature = "recover-cas") {
-            help[id].prepare(version);
+            context.help[context.id].prepare(version);
 
             // Must wait for persistence
-            crate::flush(&help[id], false);
+            crate::flush(&context.help[context.id], false);
             crate::fence();
         }
 
         loop {
-            self.notify(help, old);
+            self.notify(context.help, old);
 
-            let new = next(old.inner(), version)?;
+            let (new, log) = next(old.inner(), version)?;
 
             // Unsync because following compare-exchange is serializing
-            // meta.log_unsync(region::owned::State::new(log));
+            context.log_unsync(log);
 
             match self
                 .0
-                .compare_exchange(old, State::new(Some(id), version, new))
+                .compare_exchange(old, State::new(Some(context.id), version, new))
             {
                 Ok(_) => break Some(old.inner()),
                 Err(next) => old = next,
