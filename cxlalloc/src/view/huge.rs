@@ -43,16 +43,17 @@ impl<'raw> Huge<'raw> {
         }
     }
 
-    pub(crate) fn get(
+    pub(crate) fn trace(
         &self,
         id: thread::Id,
         data: &view::Data<'raw, size::Small>,
-    ) -> Option<&Descriptor> {
-        self.owned[id]
-            .head
-            .load()
-            .map(|offset| data.offset_to_pointer::<Descriptor>(offset))
-            .map(|pointer| unsafe { pointer.as_ref() })
+    ) -> impl Iterator<Item = &Descriptor> {
+        let mut walk = self.get(id, data);
+        std::iter::from_fn(move || {
+            let next = walk?;
+            walk = next.next.as_deref();
+            Some(next)
+        })
     }
 
     pub(crate) fn set(
@@ -92,6 +93,18 @@ impl<'raw> Huge<'raw> {
             })?;
 
         Some(descriptor)
+    }
+
+    pub(crate) fn get(
+        &self,
+        id: thread::Id,
+        data: &view::Data<'raw, size::Small>,
+    ) -> Option<&Descriptor> {
+        self.owned[id]
+            .head
+            .load()
+            .map(|offset| data.offset_to_pointer::<Descriptor>(offset))
+            .map(|pointer| unsafe { pointer.as_ref() })
     }
 }
 
