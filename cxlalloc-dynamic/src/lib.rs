@@ -49,7 +49,7 @@ static DESTRUCTOR: Key = unsafe { Key(MaybeUninit::zeroed().assume_init()) };
 //
 // Instead, we add some runtime overhead for now to lazily
 // initialize both thread-local and global state upon first access.
-static RAW: LazyLock<cxlalloc::raw::Heap> = LazyLock::new(|| {
+static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
     log::set_max_level(log::LevelFilter::Info);
     log::set_logger(&Logger).unwrap();
 
@@ -218,7 +218,7 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
         return 0;
     };
 
-    with(|allocator| allocator.heap().class(pointer))
+    with(|allocator| allocator.class(pointer))
 }
 
 #[no_mangle]

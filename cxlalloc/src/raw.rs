@@ -178,7 +178,7 @@ impl Raw {
         })
     }
 
-    pub fn allocator(&self, id: thread::Id) -> view::Allocator<view::Focus> {
+    pub fn allocator(&self, id: thread::Id) -> crate::Allocator {
         let (_, shared_offsets) = Self::shared();
         let (_, owned_offsets) = Self::owned();
         let shared = self.shared.base().as_ptr();
@@ -233,6 +233,7 @@ impl Raw {
                 ),
             )
             .focus(id)
+            .into()
         }
     }
 

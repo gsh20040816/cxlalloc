@@ -4,17 +4,10 @@ use core::ops::DerefMut;
 use core::ptr;
 use core::ptr::NonNull;
 
-use crate::cas;
-use crate::root;
 use crate::size;
 use crate::size::Bracket as _;
-use crate::slab;
 use crate::stat;
-use crate::thread;
 use crate::view;
-use crate::Atomic;
-use crate::Root;
-use crate::BATCH_BUMP_POP;
 
 pub struct Allocator<'raw>(view::Allocator<'raw, view::Focus>);
 
@@ -37,7 +30,22 @@ impl<'raw> Allocator<'raw> {
     }
 }
 
+impl<'raw> From<view::Allocator<'raw, view::Focus>> for Allocator<'raw> {
+    fn from(inner: view::Allocator<'raw, view::Focus>) -> Self {
+        Self(inner)
+    }
+}
+
 impl Allocator<'_> {
+    pub fn class(&self, pointer: NonNull<ffi::c_void>) -> usize {
+        if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
+            todo!();
+        }
+
+        let offset = self.small.data.pointer_to_offset(pointer);
+        self.small.class(offset).size() as usize
+    }
+
     // pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
     //     let offset = self.heap.shared[root].load()?;
     //     // HACK: support flag-guarded initialization of large allocations
@@ -54,28 +62,33 @@ impl Allocator<'_> {
     //     self.heap.shared[root].store(offset);
     // }
     //
-    // pub unsafe fn realloc_untyped(
-    //     &mut self,
-    //     old_pointer: NonNull<ffi::c_void>,
-    //     new_size: usize,
-    // ) -> *mut ffi::c_void {
-    //     let old_size = self.heap.class(old_pointer);
-    //
-    //     if old_size >= new_size {
-    //         return old_pointer.as_ptr();
-    //     }
-    //
-    //     let new_pointer = self.allocate_untyped(new_size);
-    //     core::ptr::copy_nonoverlapping::<u8>(
-    //         old_pointer.as_ptr().cast(),
-    //         new_pointer.cast(),
-    //         old_size,
-    //     );
-    //
-    //     self.free_untyped(old_pointer);
-    //     new_pointer
-    // }
-    //
+    pub unsafe fn realloc_untyped(
+        &mut self,
+        old_pointer: NonNull<ffi::c_void>,
+        new_size: usize,
+    ) -> *mut ffi::c_void {
+        if let Some(offset) = self.huge.data.checked_pointer_to_offset(old_pointer) {
+            todo!();
+        }
+
+        let old_offset = self.small.data.pointer_to_offset(old_pointer);
+        let old_size = self.small.class(old_offset).size() as usize;
+
+        if old_size >= new_size {
+            return old_pointer.as_ptr();
+        }
+
+        let new_pointer = self.allocate_untyped(new_size);
+        core::ptr::copy_nonoverlapping::<u8>(
+            old_pointer.as_ptr().cast(),
+            new_pointer.cast(),
+            old_size,
+        );
+
+        self.free_untyped(old_pointer);
+        new_pointer
+    }
+
     #[inline]
     pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
         stat::inc(&stat::ALLOCATE);

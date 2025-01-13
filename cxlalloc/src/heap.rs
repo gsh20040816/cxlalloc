@@ -18,6 +18,11 @@ impl<B> Heap<'_, view::Focus, B>
 where
     B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
 {
+    pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
+        let index = offset.into_index();
+        self.slabs[index].remote.owner.load().class()
+    }
+
     #[inline]
     pub(crate) fn pop(
         &mut self,
