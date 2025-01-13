@@ -5,42 +5,70 @@ use core::ops::DerefMut;
 use core::ptr;
 use core::ptr::NonNull;
 
+use crate::cas;
 use crate::data;
 use crate::huge;
+use crate::log;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
 use crate::stat;
+use crate::thread;
 use crate::view;
+use crate::Heap;
+use crate::Huge;
 
-pub struct Allocator<'raw>(view::Allocator<'raw, view::Focus>);
+pub struct Allocator<'raw, L: view::Lens> {
+    pub(crate) id: thread::Id,
 
-impl<'raw> Deref for Allocator<'raw> {
-    type Target = view::Allocator<'raw, view::Focus>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub(crate) shared: &'raw Shared,
+    pub(crate) owned: L::Scope<'raw, Owned>,
+
+    pub(crate) small: Heap<'raw, L, size::Small>,
+    pub(crate) huge: Huge<'raw>,
+}
+
+impl<'raw, L: view::Lens> Allocator<'raw, L> {
+    pub(crate) fn new(
+        id: thread::Id,
+        shared: &'raw Shared,
+        owned: L::Scope<'raw, Owned>,
+        small: Heap<'raw, L, size::Small>,
+        huge: Huge<'raw>,
+    ) -> Self {
+        Self {
+            id,
+            shared,
+            owned,
+            small,
+            huge,
+        }
+    }
+
+    pub(crate) unsafe fn focus(self, id: thread::Id) -> Allocator<'raw, view::Focus> {
+        Allocator {
+            id,
+            shared: self.shared,
+            owned: L::focus(self.owned, id),
+            small: self.small.focus(id),
+            huge: self.huge,
+        }
     }
 }
 
-impl DerefMut for Allocator<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+#[repr(C)]
+pub(crate) struct Shared {
+    // pub(crate) root: Atomic<Option<data::Offset>>,
+    pub(crate) help: cas::help::Array,
 }
 
-impl<'raw> Allocator<'raw> {
-    pub(crate) fn new(inner: view::Allocator<'raw, view::Focus>) -> Self {
-        Self(inner)
-    }
+#[repr(C, align(64))]
+pub(crate) struct Owned {
+    // pub(crate) root: Option<data::Offset>,
+    pub(crate) state: log::State,
 }
 
-impl<'raw> From<view::Allocator<'raw, view::Focus>> for Allocator<'raw> {
-    fn from(inner: view::Allocator<'raw, view::Focus>) -> Self {
-        Self(inner)
-    }
-}
-
-impl Allocator<'_> {
+impl Allocator<'_, view::Focus> {
     pub fn class(&self, pointer: NonNull<ffi::c_void>) -> usize {
         if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
             todo!();
@@ -208,7 +236,7 @@ impl Allocator<'_> {
 }
 
 #[cfg(feature = "extend")]
-impl Allocator<'_> {
+impl Allocator<'_, view::Focus> {
     pub fn extend(&mut self) {
         todo!()
     }

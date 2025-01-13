@@ -28,7 +28,9 @@ mod crash {
     pub(crate) use define;
 }
 
-pub use allocator::Allocator;
+use core::ops::Deref;
+use core::ops::DerefMut;
+
 pub use atomic::Atomic;
 pub(crate) use data::Data;
 pub use extend::Epoch;
@@ -56,6 +58,28 @@ pub(crate) const COUNT_ROOT: usize = 1024;
 pub(crate) const COUNT_CACHE_SLAB: usize = 32;
 pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
 pub(crate) const BATCH_BUMP_POP: u32 = 16;
+
+pub struct Allocator<'raw>(allocator::Allocator<'raw, view::Focus>);
+
+impl<'raw> Allocator<'raw> {
+    pub(crate) fn new(inner: allocator::Allocator<'raw, view::Focus>) -> Self {
+        Self(inner)
+    }
+}
+
+impl<'raw> Deref for Allocator<'raw> {
+    type Target = allocator::Allocator<'raw, view::Focus>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Allocator<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 #[inline]
 pub(crate) fn flush<T>(address: &T, invalidate: bool) {

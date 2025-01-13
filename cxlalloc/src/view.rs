@@ -1,8 +1,4 @@
-pub(crate) mod allocator;
-
 use core::cell::UnsafeCell;
-
-pub(crate) use allocator::Allocator;
 
 use crate::thread;
 

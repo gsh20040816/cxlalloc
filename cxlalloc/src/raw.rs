@@ -12,6 +12,7 @@ use core::ptr;
 use core::ptr::NonNull;
 use std::io;
 
+use crate::allocator;
 use crate::heap;
 use crate::huge;
 use crate::raw::region::RESERVATION;
@@ -19,6 +20,7 @@ use crate::size;
 use crate::slab;
 use crate::thread;
 use crate::view;
+use crate::Allocator;
 use crate::Data;
 use crate::Heap;
 use crate::Huge;
@@ -193,50 +195,51 @@ impl Raw {
             // - Offsets aren't statically checked to match their memory regions.
             // - Indexes into offset arrays aren't statically checked to match their struct type.
             // - This module maybe shouldn't need to know about `thread::Array<UnsafeCell<...>>`?
-            view::Allocator::new(
-                id,
-                shared
-                    .wrapping_byte_add(shared_offsets[0])
-                    .cast::<view::allocator::Shared>()
-                    .as_ref()
-                    .unwrap(),
-                owned
-                    .wrapping_byte_add(owned_offsets[0])
-                    .cast::<thread::Array<UnsafeCell<view::allocator::Owned>>>()
-                    .as_ref()
-                    .unwrap(),
-                Heap::<view::Unfocus, size::Small>::new(
-                    self.capacity,
+            Allocator::new(
+                allocator::Allocator::new(
+                    id,
                     shared
-                        .wrapping_byte_add(shared_offsets[1])
-                        .cast::<heap::Shared<size::Small>>()
+                        .wrapping_byte_add(shared_offsets[0])
+                        .cast::<allocator::Shared>()
                         .as_ref()
                         .unwrap(),
                     owned
-                        .wrapping_byte_add(owned_offsets[1])
-                        .cast::<thread::Array<UnsafeCell<heap::Owned<size::Small>>>>()
+                        .wrapping_byte_add(owned_offsets[0])
+                        .cast::<thread::Array<UnsafeCell<allocator::Owned>>>()
                         .as_ref()
                         .unwrap(),
-                    Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
-                    Data::<size::Small>::new(self.data_small.base()),
-                ),
-                Huge::new(
-                    &self.backend,
-                    shared
-                        .wrapping_byte_add(shared_offsets[2])
-                        .cast::<huge::Shared>()
-                        .as_ref()
-                        .unwrap(),
-                    owned
-                        .wrapping_byte_add(owned_offsets[2])
-                        .cast::<thread::Array<huge::Owned>>()
-                        .as_ref()
-                        .unwrap(),
-                    Data::<size::Huge>::new(self.data_huge.base()),
-                ),
+                    Heap::<view::Unfocus, size::Small>::new(
+                        self.capacity,
+                        shared
+                            .wrapping_byte_add(shared_offsets[1])
+                            .cast::<heap::Shared<size::Small>>()
+                            .as_ref()
+                            .unwrap(),
+                        owned
+                            .wrapping_byte_add(owned_offsets[1])
+                            .cast::<thread::Array<UnsafeCell<heap::Owned<size::Small>>>>()
+                            .as_ref()
+                            .unwrap(),
+                        Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
+                        Data::<size::Small>::new(self.data_small.base()),
+                    ),
+                    Huge::new(
+                        &self.backend,
+                        shared
+                            .wrapping_byte_add(shared_offsets[2])
+                            .cast::<huge::Shared>()
+                            .as_ref()
+                            .unwrap(),
+                        owned
+                            .wrapping_byte_add(owned_offsets[2])
+                            .cast::<thread::Array<huge::Owned>>()
+                            .as_ref()
+                            .unwrap(),
+                        Data::<size::Huge>::new(self.data_huge.base()),
+                    ),
+                )
+                .focus(id),
             )
-            .focus(id)
-            .into()
         }
     }
 
@@ -245,16 +248,12 @@ impl Raw {
     }
 
     fn shared() -> (usize, Vec<usize>) {
-        layout!(
-            view::allocator::Shared,
-            heap::Shared<size::Small>,
-            huge::Shared,
-        )
+        layout!(allocator::Shared, heap::Shared<size::Small>, huge::Shared,)
     }
 
     fn owned() -> (usize, Vec<usize>) {
         layout!(
-            thread::Array<UnsafeCell<view::allocator::Owned>>,
+            thread::Array<UnsafeCell<allocator::Owned>>,
             thread::Array<UnsafeCell<heap::Owned<size::Small>>>,
             thread::Array<huge::Owned>,
         )
