@@ -217,6 +217,16 @@ impl Allocator<'_> {
     }
 }
 
-pub enum Index {
+#[derive(Copy, Clone)]
+#[ribbit::pack(size = 32, nonzero)]
+pub(crate) enum Index {
+    #[ribbit(size = 32, nonzero)]
     Small(slab::Index<size::Small>),
+}
+
+#[derive(Copy, Clone)]
+#[ribbit::pack(size = 8)]
+pub(crate) enum Class {
+    #[ribbit(size = 8)]
+    Small(size::Small),
 }

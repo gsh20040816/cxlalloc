@@ -1,3 +1,5 @@
+use crate::allocator::Class;
+use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::bitset::Bit;
 use crate::size;
@@ -11,17 +13,17 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     UnsizedToSized {
         #[ribbit(size = 32)]
-        index: Option<slab::Index<size::Small>>,
+        index: Option<Index>,
 
         #[ribbit(size = 8)]
-        class: size::Small,
+        class: Class,
     },
 
     #[ribbit(size = 48)]
     #[derive(Copy, Clone)]
     GlobalToLocal {
         #[ribbit(size = 32)]
-        index: slab::Index<size::Small>,
+        index: Index,
 
         #[ribbit(size = 16)]
         version: Version,
@@ -41,7 +43,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     LocalToGlobal {
         #[ribbit(size = 32)]
-        index: slab::Index<size::Small>,
+        index: Index,
 
         #[ribbit(size = 16)]
         version: Version,
@@ -51,7 +53,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     SizedToApplication {
         #[ribbit(size = 32)]
-        index: slab::Index<size::Small>,
+        index: Index,
 
         #[ribbit(size = 12)]
         block: Bit,
@@ -71,14 +73,14 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     LocalToGlobalSave {
         #[ribbit(size = 32)]
-        index: slab::Index<size::Small>,
+        index: Index,
     },
 
     #[ribbit(size = 60)]
     #[derive(Copy, Clone)]
     Remote {
         #[ribbit(size = 32)]
-        index: slab::Index<size::Small>,
+        index: Index,
 
         #[ribbit(size = 12)]
         block: Bit,
