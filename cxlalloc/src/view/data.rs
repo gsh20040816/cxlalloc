@@ -20,9 +20,9 @@ pub(crate) struct Data<'raw, B> {
     _bracket: PhantomData<B>,
 }
 
-impl<'raw> Data<'raw, size::Small>
+impl<B> Data<'_, B>
 where
-    size::Small: size::Bracket,
+    B: size::Bracket,
 {
     pub(crate) fn new(base: NonNull<u64>) -> Self {
         Self {
@@ -35,12 +35,7 @@ where
     pub(crate) fn layout(slab_count: usize) -> Result<Layout, LayoutError> {
         Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count)
     }
-}
 
-impl<B> Data<'_, B>
-where
-    B: size::Bracket,
-{
     pub(crate) fn offset_to_pointer<T>(&self, offset: Offset<B>) -> NonNull<T> {
         unsafe { self.base.byte_add(NonZeroU64::from(offset).get() as usize) }.cast()
     }
@@ -95,6 +90,10 @@ impl<B: size::Bracket + Display> Offset<B> {
         Bit::new(u12::new(
             (self.value().get() % B::SIZE_SLAB as u64 / class.size()) as u16,
         ))
+    }
+
+    pub(crate) fn into_index(self) -> slab::Index<B> {
+        slab::Index::from(self)
     }
 }
 

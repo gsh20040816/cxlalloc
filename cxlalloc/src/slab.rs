@@ -13,11 +13,14 @@ use core::fmt::Display;
 use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
+use core::num::NonZeroU64;
 use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::raw;
+use crate::size;
 use crate::thread;
+use crate::view::data;
 use crate::view::heap::Length;
 
 #[ribbit::pack(size = 32, nonzero, new(vis = ""))]
@@ -77,6 +80,14 @@ impl<B> From<Index<B>> for NonZeroU32 {
 impl<B> From<Index<B>> for u32 {
     fn from(index: Index<B>) -> Self {
         index.value().get() - 1
+    }
+}
+
+impl<B: size::Bracket> From<data::Offset<B>> for Index<B> {
+    fn from(offset: data::Offset<B>) -> Self {
+        let offset = NonZeroU64::from(offset);
+        let index = offset.get() / B::SIZE_SLAB as u64;
+        NonZeroU32::new(index as u32).map(Self::new).unwrap()
     }
 }
 

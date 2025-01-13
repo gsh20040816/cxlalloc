@@ -147,7 +147,9 @@ impl Raw {
             address => address,
         };
 
-        let data_small_size = view::Data::layout(slab_count).unwrap().size();
+        let data_small_size = view::Data::<size::Small>::layout(slab_count)
+            .unwrap()
+            .size();
         let data_small = backend.allocate(
             format!("{id}-ds"),
             NonNull::new(address),
@@ -158,8 +160,7 @@ impl Raw {
         let data_huge = backend.allocate(
             format!("{id}-dh"),
             NonNull::new(address.wrapping_byte_add(RESERVATION.get())),
-            // FIXME: struct for this?
-            RESERVATION.get(),
+            0,
             None,
         )?;
 
@@ -215,7 +216,7 @@ impl Raw {
                         .as_ref()
                         .unwrap(),
                     view::Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
-                    view::Data::new(self.data_small.base()),
+                    view::Data::<size::Small>::new(self.data_small.base()),
                 ),
                 view::Huge::new(
                     shared
@@ -228,6 +229,7 @@ impl Raw {
                         .cast::<thread::Array<view::huge::Owned>>()
                         .as_ref()
                         .unwrap(),
+                    view::Data::<size::Huge>::new(self.data_huge.base()),
                 ),
             )
             .focus(id)

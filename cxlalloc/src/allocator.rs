@@ -201,27 +201,9 @@ impl Allocator<'_> {
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
 
-        if pointer.as_ptr() >= self.huge.as_ptr().cast::<ffi::c_void>() {
+        if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
             stat::inc(&stat::FREE_LARGE);
-            let offset = pointer.as_ptr() as usize - self.heap.data.huge().as_ptr() as usize;
-            let slot = huge::Slot::from_offset(offset);
-            let owner = self.heap.shared.meta.huge[slot].load().unwrap();
-
-            let desc_offset = self.heap.shared.meta.huge.descriptors[owner]
-                .load()
-                .unwrap();
-
-            let mut walk = self
-                .heap
-                .offset_to_pointer::<huge::Descriptor>(desc_offset)
-                .as_ref();
-
-            while usize::from(walk.offset) != offset {
-                walk = walk.next.as_ref().unwrap();
-            }
-
-            walk.free.store(true, atomic::Ordering::Relaxed);
-            return;
+            todo!();
         }
 
         let offset = self.heap.pointer_to_offset(pointer);
