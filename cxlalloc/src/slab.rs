@@ -31,6 +31,12 @@ pub(crate) struct Index<B> {
     _bracket: B,
 }
 
+impl Index<size::Huge> {
+    pub(crate) fn new_huge(slot: usize) -> Self {
+        Self::new(NonZeroU32::MIN.checked_add(slot as u32).unwrap())
+    }
+}
+
 impl<B> Clone for Index<B> {
     fn clone(&self) -> Self {
         *self

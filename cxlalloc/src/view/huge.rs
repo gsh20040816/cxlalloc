@@ -1,3 +1,4 @@
+use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
 
 use gcollections::ops::Bounded as _;
@@ -8,7 +9,9 @@ use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
+use crate::raw::Backend;
 use crate::size;
+use crate::size::Bracket;
 use crate::slab;
 use crate::thread;
 use crate::view;
@@ -17,6 +20,7 @@ use crate::Atomic;
 
 pub(crate) struct Huge<'raw> {
     pub(crate) allocator: Allocator,
+    pub(crate) backend: &'raw Backend,
     pub(crate) shared: &'raw Shared,
     pub(crate) owned: &'raw thread::Array<Owned>,
     pub(crate) data: view::Data<'raw, size::Huge>,
@@ -24,6 +28,7 @@ pub(crate) struct Huge<'raw> {
 
 impl<'raw> Huge<'raw> {
     pub(crate) fn new(
+        backend: &'raw Backend,
         shared: &'raw Shared,
         owned: &'raw thread::Array<Owned>,
         data: view::Data<'raw, size::Huge>,
@@ -31,27 +36,62 @@ impl<'raw> Huge<'raw> {
         Self {
             // FIXME: recover state
             allocator: Allocator::default(),
+            backend,
             shared,
             owned,
             data,
         }
     }
-}
 
-impl<'raw> Huge<'raw> {
-    pub(crate) fn peek(&self, size: usize) -> Option<Descriptor> {
-        self.allocator
+    pub(crate) fn get(
+        &self,
+        id: thread::Id,
+        data: &view::Data<'raw, size::Small>,
+    ) -> Option<&Descriptor> {
+        self.owned[id]
+            .head
+            .load()
+            .map(|offset| data.offset_to_pointer::<Descriptor>(offset))
+            .map(|pointer| unsafe { pointer.as_ref() })
+    }
+
+    pub(crate) fn set(
+        &self,
+        id: thread::Id,
+        data: &view::Data<'raw, size::Small>,
+        head: &Descriptor,
+    ) {
+        let offset = data.pointer_to_offset(NonNull::from(head));
+        self.owned[id].head.store(Some(offset))
+    }
+
+    pub(crate) fn claim(&mut self, id: thread::Id) {
+        let slot = self.shared.claim(id);
+        self.allocator.free(
+            u32::from(slot) as usize * size::Huge::SIZE_SLAB,
+            size::Huge::SIZE_SLAB,
+        )
+    }
+
+    pub(crate) fn allocate(&mut self, size: usize) -> Option<Descriptor> {
+        let descriptor = self
+            .allocator
             .free
             .iter()
             .find(|interval| interval.size() >= size)
             .map(|interval| interval.lower())
+            .inspect(|offset| {
+                self.allocator.allocate(*offset, size);
+            })
             .map(|offset| Descriptor {
                 offset: self.data.checked_offset_to_offset(offset).unwrap(),
                 id: self.allocator.id,
                 size,
                 next: None,
                 free: AtomicBool::new(false),
-            })
+            })?;
+
+        Some(descriptor)
     }
 }
 
@@ -61,7 +101,7 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    pub(crate) fn claim(&self, id: thread::Id) -> slab::Index<size::Huge> {
+    fn claim(&self, id: thread::Id) -> slab::Index<size::Huge> {
         let next = self.next.load() as usize;
 
         for i in next..self.slots.len() {
@@ -69,7 +109,7 @@ impl Shared {
                 Ok(None) => {
                     log::info!("{} claimed slot {}", id, i);
                     self.next.store(i as u64 + 1);
-                    todo!()
+                    return slab::Index::new_huge(i);
                 }
                 Ok(Some(_)) => unreachable!(),
                 Err(_) => (),
@@ -88,18 +128,7 @@ impl core::ops::Index<slab::Index<size::Huge>> for Huge<'_> {
 }
 
 pub(crate) struct Owned {
-    pub(crate) head: Atomic<Option<data::Offset<size::Huge>>>,
-}
-
-impl core::ops::Index<thread::Id> for Huge<'_> {
-    type Output = Descriptor;
-    fn index(&self, id: thread::Id) -> &Self::Output {
-        unsafe {
-            self.data
-                .offset_to_pointer::<Descriptor>(self.owned[id].head.load().unwrap())
-                .as_ref()
-        }
-    }
+    pub(crate) head: Atomic<Option<data::Offset<size::Small>>>,
 }
 
 pub(crate) struct Allocator {
@@ -117,7 +146,8 @@ impl Default for Allocator {
 }
 
 impl Allocator {
-    pub(crate) fn allocate(&mut self, offset: usize, size: usize) {
+    fn allocate(&mut self, offset: usize, size: usize) {
+        self.id += 1;
         let allocation = (offset, offset + size - 1).to_interval_set();
         assert_eq!(
             self.free.intersection(&allocation).size(),
@@ -126,7 +156,7 @@ impl Allocator {
         self.free = self.free.difference(&allocation);
     }
 
-    pub(crate) fn free(&mut self, offset: usize, size: usize) {
+    fn free(&mut self, offset: usize, size: usize) {
         let allocation = (offset, offset + size - 1).to_interval_set();
         if self.free.intersection(&allocation).size() > 0 {
             log::info!("Skipped freed allocation {offset:#x} ({size:#x})");

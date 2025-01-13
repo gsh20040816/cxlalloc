@@ -219,6 +219,7 @@ impl Raw {
                     view::Data::<size::Small>::new(self.data_small.base()),
                 ),
                 view::Huge::new(
+                    &self.backend,
                     shared
                         .wrapping_byte_add(shared_offsets[2])
                         .cast::<view::huge::Shared>()

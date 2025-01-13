@@ -26,7 +26,7 @@ where
 {
     pub(crate) fn new(base: NonNull<u64>) -> Self {
         Self {
-            base,
+            base: unsafe { base.byte_sub(B::SIZE_SLAB) },
             _raw: PhantomData,
             _bracket: PhantomData,
         }
@@ -43,11 +43,7 @@ where
     pub(crate) fn checked_offset_to_offset(&self, offset: usize) -> Option<Offset<B>> {
         let offset = offset + B::SIZE_SLAB;
         // FIXME: check epoch
-        if offset > crate::raw::region::RESERVATION.get() * 2 {
-            None
-        } else {
-            NonZeroU64::new(offset as u64).map(|offset| Offset::new_internal(offset))
-        }
+        NonZeroU64::new(offset as u64).map(|offset| Offset::new_internal(offset))
     }
 
     pub(crate) fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<Offset<B>> {
@@ -66,10 +62,11 @@ where
     }
 }
 
-#[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""))]
+#[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""), debug)]
 #[repr(transparent)]
 #[derive(PartialEq, Eq)]
 pub(crate) struct Offset<B> {
+    #[ribbit(debug(format = "{:#x?}"))]
     value: NonZeroU64,
     #[ribbit(size = 0)]
     _bracket: PhantomData<B>,
@@ -113,7 +110,7 @@ impl<B> From<Offset<B>> for NonZeroU64 {
 
 impl<B: size::Bracket> From<Offset<B>> for u64 {
     fn from(offset: Offset<B>) -> Self {
-        offset.value.get() + B::SIZE_SLAB as u64
+        offset.value.get() - B::SIZE_SLAB as u64
     }
 }
 

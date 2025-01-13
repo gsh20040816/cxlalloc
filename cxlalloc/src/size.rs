@@ -34,7 +34,7 @@ impl Display for Huge {
 }
 
 impl Bracket for Huge {
-    const SIZE_SLAB: usize = crate::SIZE_PAGE;
+    const SIZE_SLAB: usize = 1 << 30;
 
     fn pack(self) -> u8 {
         0
