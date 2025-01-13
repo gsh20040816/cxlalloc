@@ -71,11 +71,10 @@ impl<B> Global<B> {
         self.head.update(help, id, |old, version| {
             slabs[tail].local.next.store(old);
             crate::flush(&slabs[tail].local.next, false);
-            todo!()
-            // Some((
-            //     Some(head),
-            //     log::StateUnpacked::LocalToGlobal(log::LocalToGlobal::new(head, version)),
-            // ))
+            Some(
+                Some(head),
+                // log::StateUnpacked::LocalToGlobal(log::LocalToGlobal::new(head, version)),
+            )
         });
     }
 
@@ -90,11 +89,10 @@ impl<B> Global<B> {
                 let old = old?;
                 let new = slabs[old].local.next.load();
 
-                todo!()
-                // Some((
-                //     new,
-                //     log::StateUnpacked::GlobalToLocal(log::GlobalToLocal::new(old, version)),
-                // ))
+                Some(
+                    new,
+                    // log::StateUnpacked::GlobalToLocal(log::GlobalToLocal::new(old, version)),
+                )
             })
             .flatten()
     }

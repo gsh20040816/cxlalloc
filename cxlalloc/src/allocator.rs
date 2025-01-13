@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 
 use crate::size;
 use crate::size::Bracket as _;
+use crate::slab;
 use crate::stat;
 use crate::view;
 use crate::view::data;
@@ -214,4 +215,8 @@ impl Allocator<'_> {
     pub fn epoch(&self) -> crate::extend::Epoch {
         todo!()
     }
+}
+
+pub enum Index {
+    Small(slab::Index<size::Small>),
 }

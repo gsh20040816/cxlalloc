@@ -33,7 +33,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         mut next: F,
     ) -> Option<T>
     where
-        F: FnMut(T, Version) -> Option<(T, log::StateUnpacked)>,
+        F: FnMut(T, Version) -> Option<T>,
     {
         let mut old = self.0.load();
         let version = help[id].peek().next();
@@ -49,7 +49,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         loop {
             self.notify(help, old);
 
-            let (new, log) = next(old.inner(), version)?;
+            let new = next(old.inner(), version)?;
 
             // Unsync because following compare-exchange is serializing
             // meta.log_unsync(region::owned::State::new(log));

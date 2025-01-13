@@ -114,10 +114,10 @@ impl<B> Shared<B> {
                         capacity
                     );
                 } else {
-                    Some((
+                    Some(
                         old.with_length(new_len),
-                        StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
-                    ))
+                        // StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
+                    )
                 }
             })?;
 
