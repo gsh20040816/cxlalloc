@@ -40,3 +40,4 @@ ribbit.workspace = true
 crash = { path = "../crash" }
 env_logger.workspace = true
 proptest.workspace = true
+proptest-state-machine.workspace = true

@@ -159,7 +159,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 
     #[inline]
-    pub unsafe fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
+    pub fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
         stat::inc(&stat::ALLOCATE);
 
         let context = &mut Context {

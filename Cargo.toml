@@ -33,7 +33,15 @@ log = { version = "0.4", features = ["release_max_level_off"] }
 # log = { version = "0.4" }
 mimalloc = "0.1"
 proptest = "1.0"
+proptest-state-machine = "0.3"
 ribbit = { git = "https://github.com/nwtnni/ribbit.git" }
+
+# https://proptest-rs.github.io/proptest/proptest/tips-and-best-practices.html
+[profile.test.package.proptest]
+opt-level = 3
+
+[profile.test.package.rand_chacha]
+opt-level = 3
 
 [profile.release]
 codegen-units = 1
