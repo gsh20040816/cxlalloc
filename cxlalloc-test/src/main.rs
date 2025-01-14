@@ -31,6 +31,8 @@ struct Child {
 }
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
     let cli = Cli::parse();
     let mut children = HashMap::new();
 
@@ -57,6 +59,7 @@ fn main() -> anyhow::Result<()> {
         let tx = IpcSender::connect(socket)?;
         tx.send(Request::Handshake)?;
 
+        log::info!("[C]: connected to {}", id);
         children.insert(id, Child { handle, tx, rx });
     }
 
