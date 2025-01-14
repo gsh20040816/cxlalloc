@@ -40,6 +40,10 @@ impl<B> Local<B> {
     }
 
     pub(crate) fn push(&mut self, slabs: &Slice<B>, index: Index<B>) {
+        if self.head == Some(index) {
+            return;
+        }
+
         let slab = &slabs[index].local;
         slab.next.store(self.head);
         crate::flush(&slab.next, false);

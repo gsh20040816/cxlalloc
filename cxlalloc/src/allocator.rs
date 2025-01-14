@@ -59,7 +59,7 @@ impl<'raw, L: view::Lens> Allocator<'raw, L> {
 pub(crate) struct Context<'raw> {
     pub(crate) id: thread::Id,
     pub(crate) help: &'raw cas::help::Array,
-    log: &'raw mut Option<recover::State>,
+    pub(crate) log: &'raw mut Option<recover::State>,
 }
 
 #[repr(C)]
