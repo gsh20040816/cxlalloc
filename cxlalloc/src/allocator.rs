@@ -125,6 +125,14 @@ where
         let offset = self.owned.root?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_mut()) }
     }
+
+    pub fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> usize {
+        pointer.as_ptr() as usize - self.small.data.base.as_ptr() as usize
+    }
+
+    pub fn offset_to_pointer(&self, offset: usize) -> NonNull<ffi::c_void> {
+        unsafe { self.small.data.base.byte_add(offset).cast() }
+    }
 }
 
 impl<S, O> Allocator<'_, view::Focus, S, O> {
