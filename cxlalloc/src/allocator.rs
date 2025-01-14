@@ -1,4 +1,5 @@
 use core::ffi;
+use core::marker::PhantomData;
 use core::mem;
 use core::ptr;
 use core::ptr::NonNull;
@@ -15,24 +16,25 @@ use crate::slab;
 use crate::stat;
 use crate::thread;
 use crate::view;
+use crate::Atomic;
 use crate::Heap;
 use crate::Huge;
 
-pub struct Allocator<'raw, L: view::Lens> {
+pub struct Allocator<'raw, L: view::Lens, S: 'raw, O: 'raw> {
     pub(crate) id: thread::Id,
 
-    pub(crate) shared: &'raw Shared,
-    pub(crate) owned: L::Scope<'raw, Owned>,
+    pub(crate) shared: &'raw Shared<S>,
+    pub(crate) owned: L::Scope<'raw, Owned<O>>,
 
     pub(crate) small: Heap<'raw, L, size::Small>,
     pub(crate) huge: Huge<'raw>,
 }
 
-impl<'raw, L: view::Lens> Allocator<'raw, L> {
+impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
     pub(crate) fn new(
         id: thread::Id,
-        shared: &'raw Shared,
-        owned: L::Scope<'raw, Owned>,
+        shared: &'raw Shared<S>,
+        owned: L::Scope<'raw, Owned<O>>,
         small: Heap<'raw, L, size::Small>,
         huge: Huge<'raw>,
     ) -> Self {
@@ -45,7 +47,7 @@ impl<'raw, L: view::Lens> Allocator<'raw, L> {
         }
     }
 
-    pub(crate) unsafe fn focus(self, id: thread::Id) -> Allocator<'raw, view::Focus> {
+    pub(crate) unsafe fn focus(self, id: thread::Id) -> Allocator<'raw, view::Focus, S, O> {
         Allocator {
             id,
             shared: self.shared,
@@ -63,14 +65,16 @@ pub(crate) struct Context<'raw> {
 }
 
 #[repr(C)]
-pub(crate) struct Shared {
-    // pub(crate) root: Atomic<Option<data::Offset>>,
+pub(crate) struct Shared<R> {
+    root: Atomic<Option<data::Offset<size::Small>>>,
+    _type: PhantomData<R>,
     pub(crate) help: cas::help::Array,
 }
 
 #[repr(C, align(64))]
-pub(crate) struct Owned {
-    // pub(crate) root: Option<data::Offset>,
+pub(crate) struct Owned<R> {
+    root: Option<data::Offset<size::Small>>,
+    _type: PhantomData<R>,
     pub(crate) state: Option<recover::State>,
 }
 
@@ -97,7 +101,31 @@ impl Context<'_> {
     }
 }
 
-impl Allocator<'_, view::Focus> {
+impl<'raw, S, O> Allocator<'raw, view::Focus, S, O>
+where
+    S: 'raw,
+    O: 'raw,
+{
+    pub fn root_shared(&self) -> Option<&S> {
+        let offset = self.shared.root.load()?;
+        unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
+    }
+
+    pub fn set_root_shared(&self, root: &S) {
+        let offset = self.small.data.pointer_to_offset(NonNull::from(root));
+        self.shared.root.store(Some(offset));
+    }
+
+    pub fn root_owned(&self) -> Option<&O> {
+        let offset = self.owned.root?;
+        unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
+    }
+
+    pub fn root_owned_mut(&mut self) -> Option<&mut O> {
+        let offset = self.owned.root?;
+        unsafe { Some(self.small.data.offset_to_pointer(offset).as_mut()) }
+    }
+
     pub fn class(&self, pointer: NonNull<ffi::c_void>) -> usize {
         if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
             todo!();
@@ -107,22 +135,6 @@ impl Allocator<'_, view::Focus> {
         self.small.class(offset).size() as usize
     }
 
-    // pub unsafe fn root_untyped(&self, root: root::Index) -> Option<NonNull<ffi::c_void>> {
-    //     let offset = self.heap.shared[root].load()?;
-    //     // HACK: support flag-guarded initialization of large allocations
-    //     self.heap().replay_log(false);
-    //     Some(self.heap.offset_to_pointer(offset))
-    // }
-    //
-    // pub unsafe fn set_root_untyped(
-    //     &self,
-    //     root: root::Index,
-    //     pointer: Option<NonNull<ffi::c_void>>,
-    // ) {
-    //     let offset = pointer.map(|pointer| self.heap.pointer_to_offset(pointer));
-    //     self.heap.shared[root].store(offset);
-    // }
-    //
     pub unsafe fn realloc_untyped(
         &mut self,
         old_pointer: NonNull<ffi::c_void>,
@@ -219,7 +231,7 @@ impl Allocator<'_, view::Focus> {
 }
 
 #[cfg(feature = "extend")]
-impl Allocator<'_, view::Focus> {
+impl<'raw, S, O> Allocator<'_, view::Focus, S, O> {
     pub fn extend(&mut self) {
         todo!()
     }

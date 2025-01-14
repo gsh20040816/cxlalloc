@@ -9,7 +9,7 @@ use crate::bitset::Bit;
 use crate::heap;
 use crate::view;
 
-impl Allocator<'_, view::Focus> {
+impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub(crate) fn recover(&mut self) {
         let context = &mut Context {
             id: self.id,

@@ -182,7 +182,7 @@ impl Raw {
         })
     }
 
-    pub fn allocator(&self, id: thread::Id) -> crate::Allocator {
+    pub fn allocator<S, O>(&self, id: thread::Id) -> crate::Allocator<S, O> {
         let (_, shared_offsets) = Self::shared();
         let (_, owned_offsets) = Self::owned();
         let shared = self.shared.base().as_ptr();
@@ -200,12 +200,12 @@ impl Raw {
                     id,
                     shared
                         .wrapping_byte_add(shared_offsets[0])
-                        .cast::<allocator::Shared>()
+                        .cast::<allocator::Shared<S>>()
                         .as_ref()
                         .unwrap(),
                     owned
                         .wrapping_byte_add(owned_offsets[0])
-                        .cast::<thread::Array<UnsafeCell<allocator::Owned>>>()
+                        .cast::<thread::Array<UnsafeCell<allocator::Owned<O>>>>()
                         .as_ref()
                         .unwrap(),
                     Heap::<view::Unfocus, size::Small>::new(
@@ -248,12 +248,16 @@ impl Raw {
     }
 
     fn shared() -> (usize, Vec<usize>) {
-        layout!(allocator::Shared, heap::Shared<size::Small>, huge::Shared,)
+        layout!(
+            allocator::Shared<()>,
+            heap::Shared<size::Small>,
+            huge::Shared,
+        )
     }
 
     fn owned() -> (usize, Vec<usize>) {
         layout!(
-            thread::Array<UnsafeCell<allocator::Owned>>,
+            thread::Array<UnsafeCell<allocator::Owned<()>>>,
             thread::Array<UnsafeCell<heap::Owned<size::Small>>>,
             thread::Array<huge::Owned>,
         )

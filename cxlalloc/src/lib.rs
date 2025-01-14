@@ -7,9 +7,8 @@ mod data;
 mod extend;
 mod heap;
 mod huge;
-mod recover;
 pub mod raw;
-pub mod root;
+mod recover;
 mod size;
 mod slab;
 pub mod stat;
@@ -38,7 +37,6 @@ pub(crate) use heap::Heap;
 pub(crate) use huge::Huge;
 pub use r#box::Box;
 pub use raw::Raw;
-pub use root::Root;
 pub(crate) use slab::Slab;
 
 pub(crate) const SIZE_CACHE_LINE: usize = 64;
@@ -53,29 +51,28 @@ pub(crate) const SIZE_BIT_SET: usize = (SIZE_CACHE_LINE * 8) / 8 - SIZE_METADATA
 pub(crate) const SIZE_SLAB: usize = (SIZE_BIT_SET + SIZE_METADATA) * 64 * size::MIN;
 
 pub(crate) const COUNT_THREAD: usize = 96;
-pub(crate) const COUNT_ROOT: usize = 1024;
 
 pub(crate) const COUNT_CACHE_SLAB: usize = 32;
 pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
 pub(crate) const BATCH_BUMP_POP: u32 = 16;
 
-pub struct Allocator<'raw>(allocator::Allocator<'raw, view::Focus>);
+pub struct Allocator<'raw, S: 'raw, O: 'raw>(allocator::Allocator<'raw, view::Focus, S, O>);
 
-impl<'raw> Allocator<'raw> {
-    pub(crate) fn new(inner: allocator::Allocator<'raw, view::Focus>) -> Self {
+impl<'raw, S: 'raw, O: 'raw> Allocator<'raw, S, O> {
+    pub(crate) fn new(inner: allocator::Allocator<'raw, view::Focus, S, O>) -> Self {
         Self(inner)
     }
 }
 
-impl<'raw> Deref for Allocator<'raw> {
-    type Target = allocator::Allocator<'raw, view::Focus>;
+impl<'raw, S: 'raw, O: 'raw> Deref for Allocator<'raw, S, O> {
+    type Target = allocator::Allocator<'raw, view::Focus, S, O>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for Allocator<'_> {
+impl<S, O> DerefMut for Allocator<'_, S, O> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
