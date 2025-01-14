@@ -273,6 +273,18 @@ impl Drop for Raw {
             Err(error) => log::error!("Failed to unmap {} region: {:?}", region.id(), error),
         });
 
+        // HACK: need to unmap contiguous data region
+        if unsafe {
+            libc::munmap(
+                self.data_small.base().as_ptr().cast(),
+                RESERVATION.get() * 2,
+            )
+        } != 0
+        {
+            let error = io::Error::last_os_error();
+            log::error!("Failed to unmap data region: {:?}", error);
+        }
+
         if !self.free {
             return;
         }

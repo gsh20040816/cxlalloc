@@ -32,6 +32,7 @@ linkme = "0.3"
 log = { version = "0.4", features = ["release_max_level_off"] }
 # log = { version = "0.4" }
 mimalloc = "0.1"
+proptest = "1.0"
 ribbit = { git = "https://github.com/nwtnni/ribbit.git" }
 
 [profile.release]

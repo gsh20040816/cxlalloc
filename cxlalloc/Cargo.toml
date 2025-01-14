@@ -39,3 +39,4 @@ ribbit.workspace = true
 [dev-dependencies]
 crash = { path = "../crash" }
 env_logger.workspace = true
+proptest.workspace = true

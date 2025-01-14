@@ -1,5 +1,7 @@
 use core::ptr::NonNull;
 
+use proptest::prelude::*;
+
 use cxlalloc::raw;
 use cxlalloc::Allocator;
 
@@ -51,4 +53,14 @@ fn huge() {
 
         allocator.free_untyped(NonNull::from(huge).cast());
     })
+}
+
+proptest! {
+    #[test]
+    fn single(size in 1usize..(1 << 20usize)) {
+        with_allocator(|allocator| unsafe {
+            let allocation = allocator.allocate_untyped(size);
+            allocator.free_untyped(NonNull::new(allocation).unwrap());
+        })
+    }
 }
