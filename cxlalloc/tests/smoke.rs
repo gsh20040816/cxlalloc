@@ -1,7 +1,7 @@
+use core::ptr::NonNull;
+
 use cxlalloc::raw;
-use cxlalloc::root;
 use cxlalloc::Allocator;
-use cxlalloc::Root;
 
 fn with_allocator<F: FnOnce(&mut Allocator)>(apply: F) {
     let _ = env_logger::try_init();
@@ -13,17 +13,21 @@ fn with_allocator<F: FnOnce(&mut Allocator)>(apply: F) {
 
 #[test]
 fn create() {
-    let raw = raw::Builder::default().build("").unwrap();
-    let _heap = raw.heap();
-    let id = unsafe { cxlalloc::thread::Id::new(0) };
-    let _allocator = raw.allocator(id);
+    with_allocator(|_| ())
 }
 
 #[test]
 fn allocate_small() {
-    with_allocator(|allocator| {
-        let mut root: Root<u64> = unsafe { allocator.root(root::Index::new(0)) };
-        let root = allocator.allocate_at(&mut root);
-        assert_eq!(*root, 0);
+    with_allocator(|allocator| unsafe {
+        let small = allocator
+            .allocate_untyped(8)
+            .cast::<u64>()
+            .as_mut()
+            .unwrap();
+
+        *small = 5;
+        assert_eq!(*small, 5);
+
+        allocator.free_untyped(NonNull::from(small).cast());
     })
 }

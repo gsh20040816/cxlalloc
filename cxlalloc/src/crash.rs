@@ -1,7 +1,6 @@
 use core::ptr::NonNull;
 
 use crate::raw;
-use crate::root;
 use crate::thread;
 
 pub(crate) use ::crash::define;
@@ -19,29 +18,28 @@ fn allocate(crash: crash::Dynamic, reclaim: bool) {
 
     const SIZE: usize = 8;
     let id = unsafe { thread::Id::new(0) };
-    let index = root::Index::new(0);
 
     ::crash::run(crash, || unsafe {
-        let mut allocator = raw.allocator(id);
-        let pointer = allocator.allocate_untyped(SIZE);
-        pointer.cast::<u64>().write_volatile(SIZE as u64);
-        allocator.set_root_untyped(index, Some(NonNull::new(pointer).unwrap()));
+        let mut allocator = raw.allocator::<usize, ()>(id);
+        let size = allocator
+            .allocate_untyped(SIZE)
+            .cast::<usize>()
+            .as_mut()
+            .unwrap();
+        *size = SIZE;
+        allocator.set_root_shared(size);
     });
 
-    let mut allocator = raw.allocator(id);
+    let mut allocator = raw.allocator::<usize, ()>(id);
 
-    match unsafe { allocator.root_untyped(index) } {
+    match allocator.root_shared() {
         None if reclaim => (),
         None => panic!("Expected allocation to be present"),
 
         Some(_) if reclaim => panic!("Expected allocation to be reclaimed"),
-        Some(pointer) => {
-            assert_eq!(
-                unsafe { pointer.cast::<u64>().as_ptr().read_volatile() },
-                SIZE as u64,
-            );
-
-            unsafe { allocator.free_untyped(pointer) };
+        Some(root) => {
+            assert_eq!(*root, SIZE);
+            unsafe { allocator.free_untyped(NonNull::from(root).cast()) };
         }
     }
 }

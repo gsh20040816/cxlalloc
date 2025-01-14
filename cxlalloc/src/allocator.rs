@@ -106,7 +106,7 @@ where
     S: 'raw,
     O: 'raw,
 {
-    pub fn root_shared(&self) -> Option<&S> {
+    pub fn root_shared(&self) -> Option<&'raw S> {
         let offset = self.shared.root.load()?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
     }
@@ -116,12 +116,12 @@ where
         self.shared.root.store(Some(offset));
     }
 
-    pub fn root_owned(&self) -> Option<&O> {
+    pub fn root_owned(&self) -> Option<&'raw O> {
         let offset = self.owned.root?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
     }
 
-    pub fn root_owned_mut(&mut self) -> Option<&mut O> {
+    pub fn root_owned_mut(&mut self) -> Option<&'raw mut O> {
         let offset = self.owned.root?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_mut()) }
     }

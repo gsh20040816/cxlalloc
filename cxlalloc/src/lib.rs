@@ -56,7 +56,9 @@ pub(crate) const COUNT_CACHE_SLAB: usize = 32;
 pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
 pub(crate) const BATCH_BUMP_POP: u32 = 16;
 
-pub struct Allocator<'raw, S: 'raw, O: 'raw>(allocator::Allocator<'raw, view::Focus, S, O>);
+pub struct Allocator<'raw, S: 'raw = (), O: 'raw = ()>(
+    allocator::Allocator<'raw, view::Focus, S, O>,
+);
 
 impl<'raw, S: 'raw, O: 'raw> Allocator<'raw, S, O> {
     pub(crate) fn new(inner: allocator::Allocator<'raw, view::Focus, S, O>) -> Self {

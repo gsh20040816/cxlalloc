@@ -10,7 +10,7 @@ fn remote() {
     let raw = raw::Builder::default().build("").unwrap();
 
     let id = unsafe { cxlalloc::thread::Id::new(0) };
-    let mut allocator = raw.allocator(id);
+    let mut allocator = raw.allocator::<(), ()>(id);
 
     const ALLOCATIONS: usize = 4096;
     const THREADS: usize = 16;
@@ -30,7 +30,7 @@ fn remote() {
                 let raw = &raw;
                 let barrier = &barrier;
                 scope.spawn(move || {
-                    let mut allocator = raw.allocator(id);
+                    let mut allocator = raw.allocator::<(), ()>(id);
                     barrier.wait();
                     for i in (0..ALLOCATIONS / THREADS).step_by(THREADS) {
                         let j = i + (u16::from(id) as usize);
