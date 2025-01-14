@@ -84,6 +84,12 @@ fn main() -> anyhow::Result<()> {
 
                 tx.send(Response::Free)?;
             }
+            Request::Load { offset } => {
+                let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
+                tx.send(Response::Load {
+                    value: unsafe { pointer.read() },
+                })?;
+            }
         }
     }
 }

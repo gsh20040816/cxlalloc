@@ -13,6 +13,5 @@ clap.workspace = true
 cxlalloc = { path = "../cxlalloc", features = ["backend-shm", "validate"] }
 env_logger.workspace = true
 ipc-channel.workspace = true
-libc.workspace = true
 log.workspace = true
 serde.workspace = true
