@@ -32,8 +32,18 @@ struct Child {
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
-
     let cli = Cli::parse();
+
+    for entry in std::fs::read_dir("/dev/shm")?
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_type().unwrap().is_file())
+    {
+        let name = entry.file_name().into_string().unwrap();
+        if name.starts_with(&cli.name) {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+
     let mut children = HashMap::new();
 
     for id in 0..cli.count {
