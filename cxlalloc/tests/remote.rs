@@ -16,7 +16,7 @@ fn remote() {
     const THREADS: usize = 16;
 
     let barrier = Barrier::new(THREADS);
-    let allocations = iter::from_fn(|| unsafe { NonNull::new(allocator.allocate_untyped(8)) })
+    let allocations = iter::from_fn(|| NonNull::new(allocator.allocate_untyped(8)))
         .map(AssertSync)
         .take(ALLOCATIONS)
         .collect::<Vec<_>>();

@@ -75,80 +75,109 @@ prop_state_machine! {
         sequential
         1..1000
         =>
-        Concrete
+        Concrete<1>
+    );
+
+    #[test]
+    fn concurrent(
+        sequential
+        1..1000
+        =>
+        Concrete<2>
     );
 }
 
-struct Abstract;
+struct Abstract<const THREADS: usize>;
 
 #[derive(Copy, Clone, Debug)]
 enum Transition {
-    Allocate { id: usize, size: usize },
-    Free { id: usize },
+    Allocate {
+        thread: usize,
+        id: usize,
+        size: usize,
+    },
+    Free {
+        thread: usize,
+        id: usize,
+    },
 }
 
-impl ReferenceStateMachine for Abstract {
-    type State = HashMap<usize, usize>;
+impl<const THREADS: usize> ReferenceStateMachine for Abstract<THREADS> {
+    type State = [HashMap<usize, usize>; THREADS];
     type Transition = Transition;
 
     fn init_state() -> BoxedStrategy<Self::State> {
-        Just(HashMap::new()).boxed()
+        Just(std::array::from_fn(|_| HashMap::new())).boxed()
     }
 
     fn transitions(state: &Self::State) -> BoxedStrategy<Self::Transition> {
-        let id = state.len();
-        let allocate =
-            (1usize..1 << 10usize).prop_map(move |size| Transition::Allocate { id, size });
+        let state = state.clone();
 
-        if state.is_empty() {
-            return allocate.boxed();
-        }
+        (0..THREADS)
+            .prop_flat_map(move |thread| {
+                let id = state[thread].len();
+                let allocate = (1usize..1 << 10usize).prop_map(move |size| Transition::Allocate {
+                    thread,
+                    id,
+                    size,
+                });
 
-        let ids = state.keys().copied().collect::<Vec<_>>();
-        prop_oneof![
-            allocate,
-            proptest::sample::select(ids).prop_map(|id| Transition::Free { id }),
-        ]
-        .boxed()
+                if state[thread].is_empty() {
+                    return allocate.boxed();
+                }
+
+                let ids = state[thread].keys().copied().collect::<Vec<_>>();
+                prop_oneof![
+                    allocate,
+                    proptest::sample::select(ids)
+                        .prop_map(move |id| Transition::Free { thread, id }),
+                ]
+                .boxed()
+            })
+            .boxed()
     }
 
     fn preconditions(state: &Self::State, transition: &Self::Transition) -> bool {
         match transition {
-            Transition::Allocate { id, size: _ } => !state.contains_key(id),
-            Transition::Free { id } => state.contains_key(id),
+            Transition::Allocate {
+                thread,
+                id,
+                size: _,
+            } => !state[*thread].contains_key(id),
+            Transition::Free { thread, id } => state[*thread].contains_key(id),
         }
     }
 
     fn apply(mut state: Self::State, transition: &Self::Transition) -> Self::State {
         match transition {
-            Transition::Allocate { id, size } => {
-                state.insert(*id, *size);
+            Transition::Allocate { thread, id, size } => {
+                state[*thread].insert(*id, *size);
                 state
             }
-            Transition::Free { id } => {
-                state.remove(id);
+            Transition::Free { thread, id } => {
+                state[*thread].remove(id);
                 state
             }
         }
     }
 }
 
-struct Concrete {
+struct Concrete<const THREADS: usize> {
     raw: cxlalloc::Raw,
-    allocations: HashMap<usize, (NonNull<u8>, usize)>,
+    allocations: [HashMap<usize, (NonNull<u8>, usize)>; THREADS],
 }
 
-impl StateMachineTest for Concrete {
+impl<const THREADS: usize> StateMachineTest for Concrete<THREADS> {
     type SystemUnderTest = Self;
-    type Reference = Abstract;
+    type Reference = Abstract<THREADS>;
 
     fn init_test(
         ref_state: &<Self::Reference as ReferenceStateMachine>::State,
     ) -> Self::SystemUnderTest {
-        assert!(ref_state.is_empty());
+        assert!(ref_state.iter().all(|state| state.is_empty()));
         Self {
             raw: raw::Builder::default().build("").unwrap(),
-            allocations: HashMap::new(),
+            allocations: std::array::from_fn(|_| HashMap::new()),
         }
     }
 
@@ -157,21 +186,28 @@ impl StateMachineTest for Concrete {
         _: &<Self::Reference as ReferenceStateMachine>::State,
         transition: <Self::Reference as ReferenceStateMachine>::Transition,
     ) -> Self::SystemUnderTest {
-        let mut allocator = state
-            .raw
-            .allocator::<(), ()>(unsafe { cxlalloc::thread::Id::new(0) });
-
         match transition {
-            Transition::Allocate { id, size } => {
+            Transition::Allocate { thread, id, size } => {
+                let mut allocator = state
+                    .raw
+                    .allocator::<(), ()>(unsafe { cxlalloc::thread::Id::new(thread as u16) });
+
                 let pointer = allocator.allocate_untyped(size);
 
                 unsafe { libc::memset(pointer, (id ^ size) as _, size) };
 
                 let pointer = NonNull::new(pointer).unwrap().cast::<u8>();
-                assert!(state.allocations.insert(id, (pointer, size)).is_none());
+
+                assert!(state.allocations[thread]
+                    .insert(id, (pointer, size))
+                    .is_none());
             }
-            Transition::Free { id } => {
-                let (address, size) = state.allocations.remove(&id).unwrap();
+            Transition::Free { thread, id } => {
+                let mut allocator = state
+                    .raw
+                    .allocator::<(), ()>(unsafe { cxlalloc::thread::Id::new(thread as u16) });
+
+                let (address, size) = state.allocations[thread].remove(&id).unwrap();
                 assert!(allocator.class_untyped(address.cast()) >= size);
 
                 for i in 0..size {
