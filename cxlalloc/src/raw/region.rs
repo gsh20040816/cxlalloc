@@ -240,6 +240,10 @@ impl Region {
 
     /// Remove all virtual address space mappings for this region.
     pub(super) fn unmap(&self) -> io::Result<()> {
+        if self.reserved == 0 {
+            return Ok(());
+        }
+
         match unsafe { libc::munmap(self.base.as_ptr().cast(), self.reserved) } {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
