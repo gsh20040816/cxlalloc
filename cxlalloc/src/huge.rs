@@ -3,6 +3,7 @@ use core::sync::atomic;
 
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -51,7 +52,7 @@ impl<'raw> Huge<'raw> {
         id: thread::Id,
         data: &Data<'raw, size::Small>,
         size: usize,
-        place: &mut Descriptor,
+        out: &mut Descriptor,
     ) -> *mut ffi::c_void {
         loop {
             match self.next(size) {
@@ -75,18 +76,18 @@ impl<'raw> Huge<'raw> {
                     // - secondary link record
                     // - hard-code dedicated spot for huge
 
-                    *place = descriptor;
+                    *out = descriptor;
 
                     // point at previous head in data region
-                    if let Some(prev) = self.get(id, data) {
+                    if let Some(prev) = self.peek(id, data) {
                         unsafe {
-                            crate::Box::link(&mut place.next, prev);
+                            crate::Box::link(&mut out.next, prev);
                             crate::fence();
                         }
                     }
 
                     // update linked list of huge descriptors
-                    self.set(id, data, place);
+                    self.set(id, data, out);
 
                     // FIXME: mark descriptor as allocated
 
@@ -94,9 +95,9 @@ impl<'raw> Huge<'raw> {
                     let region = self
                         .backend
                         .allocate(
-                            format!("huge-{}-{}", id, place.id),
-                            Some(self.data.offset_to_pointer(place.offset)),
-                            place.size,
+                            format!("huge-{}-{}", id, out.id),
+                            Some(self.data.offset_to_pointer(out.offset)),
+                            out.size,
                             None,
                         )
                         .unwrap();
@@ -105,6 +106,24 @@ impl<'raw> Huge<'raw> {
                 }
             }
         }
+    }
+
+    pub(crate) fn free(&self, data: &Data<'raw, size::Small>, offset: data::Offset<size::Huge>) {
+        let slot = offset.into_index();
+        let owner = self[slot].load().unwrap();
+        let descriptor = self.find(owner, data, offset);
+        descriptor.free.store(true, Ordering::Relaxed);
+        crate::flush(&descriptor.free, true);
+    }
+
+    pub(crate) fn class(
+        &self,
+        data: &Data<'raw, size::Small>,
+        offset: data::Offset<size::Huge>,
+    ) -> usize {
+        let slot = offset.into_index();
+        let owner = self[slot].load().unwrap();
+        self.find(owner, data, offset).size
     }
 
     fn next(&mut self, size: usize) -> Option<Descriptor> {
@@ -128,12 +147,28 @@ impl<'raw> Huge<'raw> {
         Some(descriptor)
     }
 
-    pub(crate) fn trace(
+    fn find(
+        &self,
+        id: thread::Id,
+        data: &Data<'raw, size::Small>,
+        offset: data::Offset<size::Huge>,
+    ) -> &Descriptor {
+        self.trace(id, data)
+            .find(|descriptor| descriptor.offset == offset)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Failed to find descriptor for allocation at offset {:#x?}",
+                    offset,
+                )
+            })
+    }
+
+    fn trace(
         &self,
         id: thread::Id,
         data: &Data<'raw, size::Small>,
     ) -> impl Iterator<Item = &Descriptor> {
-        let mut walk = self.get(id, data);
+        let mut walk = self.peek(id, data);
         std::iter::from_fn(move || {
             let next = walk?;
             walk = next.next.as_deref();
@@ -141,12 +176,12 @@ impl<'raw> Huge<'raw> {
         })
     }
 
-    pub(crate) fn set(&self, id: thread::Id, data: &Data<'raw, size::Small>, head: &Descriptor) {
+    fn set(&self, id: thread::Id, data: &Data<'raw, size::Small>, head: &Descriptor) {
         let offset = data.pointer_to_offset(NonNull::from(head));
         self.owned[id].head.store(Some(offset))
     }
 
-    pub(crate) fn claim(&mut self, id: thread::Id) {
+    fn claim(&mut self, id: thread::Id) {
         let slot = self.shared.claim(id);
         self.allocator.free(
             u32::from(slot) as usize * size::Huge::SIZE_SLAB,
@@ -154,11 +189,7 @@ impl<'raw> Huge<'raw> {
         )
     }
 
-    pub(crate) fn get(
-        &self,
-        id: thread::Id,
-        data: &Data<'raw, size::Small>,
-    ) -> Option<&Descriptor> {
+    fn peek(&self, id: thread::Id, data: &Data<'raw, size::Small>) -> Option<&Descriptor> {
         self.owned[id]
             .head
             .load()
@@ -239,27 +270,9 @@ impl Allocator {
 
 #[repr(C, align(64))]
 pub(crate) struct Descriptor {
-    pub(crate) id: usize,
-    pub(crate) offset: data::Offset<size::Huge>,
-    pub(crate) size: usize,
-    pub(crate) next: Option<crate::Box<Descriptor>>,
-    pub(crate) free: AtomicBool,
-}
-
-impl<'raw> Huge<'raw> {
-    pub(crate) fn free(
-        &self,
-        data: &Data<'raw, size::Small>,
-        offset_allocation: data::Offset<size::Huge>,
-    ) {
-        let slot = offset_allocation.into_index();
-        let owner = self[slot].load().unwrap();
-        let mut walk = self.get(owner, data).unwrap();
-
-        while walk.offset != offset_allocation {
-            walk = walk.next.as_ref().unwrap();
-        }
-
-        walk.free.store(true, atomic::Ordering::Relaxed);
-    }
+    id: usize,
+    offset: data::Offset<size::Huge>,
+    size: usize,
+    next: Option<crate::Box<Descriptor>>,
+    free: AtomicBool,
 }

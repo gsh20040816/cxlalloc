@@ -111,7 +111,7 @@ where
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
     }
 
-    pub fn set_root_shared(&self, root: &S) {
+    pub fn set_root_shared(&self, root: &'raw S) {
         let offset = self.small.data.pointer_to_offset(NonNull::from(root));
         self.shared.root.store(Some(offset));
     }
@@ -125,10 +125,12 @@ where
         let offset = self.owned.root?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_mut()) }
     }
+}
 
-    pub fn class(&self, pointer: NonNull<ffi::c_void>) -> usize {
+impl<S, O> Allocator<'_, view::Focus, S, O> {
+    pub fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
         if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
-            todo!();
+            return self.huge.class(&self.small.data, offset);
         }
 
         let offset = self.small.data.pointer_to_offset(pointer);
@@ -140,13 +142,7 @@ where
         old_pointer: NonNull<ffi::c_void>,
         new_size: usize,
     ) -> *mut ffi::c_void {
-        if let Some(offset) = self.huge.data.checked_pointer_to_offset(old_pointer) {
-            todo!();
-        }
-
-        let old_offset = self.small.data.pointer_to_offset(old_pointer);
-        let old_size = self.small.class(old_offset).size() as usize;
-
+        let old_size = self.class_untyped(old_pointer);
         if old_size >= new_size {
             return old_pointer.as_ptr();
         }
