@@ -9,8 +9,6 @@ pub struct Builder {
     pub(super) backend: Backend,
     pub(super) size: usize,
     pub(super) thread_count: usize,
-    pub(super) process_id: usize,
-    pub(super) process_count: usize,
     pub(super) free: bool,
 }
 
@@ -34,16 +32,6 @@ impl Builder {
         self
     }
 
-    pub fn process_id(mut self, process_id: usize) -> Self {
-        self.process_id = process_id;
-        self
-    }
-
-    pub fn process_count(mut self, process_count: usize) -> Self {
-        self.process_count = process_count;
-        self
-    }
-
     pub fn free(mut self, free: bool) -> Self {
         self.free = free;
         self
@@ -56,8 +44,6 @@ impl Default for Builder {
             backend: Backend::Mmap(backend::Mmap),
             size: 64 * SIZE_SLAB,
             thread_count: 1,
-            process_id: 0,
-            process_count: 1,
             free: false,
         }
     }

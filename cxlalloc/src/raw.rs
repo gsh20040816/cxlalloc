@@ -59,12 +59,6 @@ pub struct Raw {
     /// Initial capacity
     pub(crate) capacity: u32,
 
-    /// The process identifier and count are used to coordinate
-    /// between heap extension threads, which must mmap exactly
-    /// once per process as opposed to once per thread.
-    pub(crate) process_id: usize,
-    pub(crate) process_count: usize,
-
     /// Free on drop
     free: bool,
 }
@@ -105,8 +99,6 @@ impl Raw {
             backend,
             size,
             thread_count,
-            process_id,
-            process_count,
             free,
         }: Builder,
     ) -> io::Result<Raw> {
@@ -114,14 +106,10 @@ impl Raw {
             "Requesting heap with \
             backend = {}, \
             size = {}, \
-            thread_count = {}, \
-            process_id = {}, \
-            process_count = {}",
+            thread_count = {}",
             backend.name(),
             size,
             thread_count,
-            process_id,
-            process_count,
         );
 
         let slab_count = size.next_multiple_of(crate::SIZE_SLAB) / crate::SIZE_SLAB;
@@ -176,8 +164,6 @@ impl Raw {
             data_small,
             data_huge,
             capacity: slab_count as u32,
-            process_id,
-            process_count,
             free,
         })
     }
