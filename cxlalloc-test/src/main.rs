@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use anyhow::Context;
+use anyhow::anyhow;
 use clap::Parser;
 
 use cxlalloc_test::Request;
@@ -38,24 +40,9 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let mut coordinator = Coordinator::new(cli)?;
+    let coordinator = Coordinator::new(cli)?;
 
-    coordinator.send(0, Request::Allocate {
-        id: 0xdeadbeef,
-        size: 1 << 20,
-    })?;
-
-    let (_, huge) = coordinator.allocations.drain().next().unwrap();
-
-    coordinator.send(1, Request::Load {
-        offset: huge.offset,
-    })?;
-
-    coordinator.send(1, Request::Free {
-        id: 0xdeadbeef,
-        size: 1 << 20,
-        offset: huge.offset,
-    })?;
+    coordinator.run().context("Coordinator failure")?;
 
     Ok(())
 }
@@ -66,6 +53,27 @@ struct Coordinator {
 }
 
 impl Coordinator {
+    fn run(mut self) -> anyhow::Result<()> {
+        self.send(0, Request::Allocate {
+            id: 0xdeadbeef,
+            size: 1 << 20,
+        })?;
+
+        let (_, huge) = self.allocations.drain().next().unwrap();
+
+        self.send(1, Request::Load {
+            offset: huge.offset,
+        })?;
+
+        self.send(1, Request::Free {
+            id: 0xdeadbeef,
+            size: 1 << 20,
+            offset: huge.offset,
+        })?;
+
+        Ok(())
+    }
+
     fn new(cli: Cli) -> anyhow::Result<Self> {
         let mut children = HashMap::new();
 
@@ -103,9 +111,17 @@ impl Coordinator {
     }
 
     fn send(&mut self, thread: usize, request: Request) -> anyhow::Result<()> {
-        self.children[&thread].tx.send(request.clone())?;
+        self.children[&thread]
+            .tx
+            .send(request.clone())
+            .with_context(|| anyhow!("Failed to send request to {}: {:?}", thread, request))?;
 
-        match (request, self.children[&thread].rx.recv()?) {
+        let response = self.children[&thread]
+            .rx
+            .recv()
+            .with_context(|| anyhow!("Failed to receive response from {}", thread))?;
+
+        match (request, response) {
             (Request::Allocate { id, size }, Response::Allocate { offset }) => {
                 assert!(
                     self.allocations

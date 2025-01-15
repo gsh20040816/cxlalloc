@@ -1,11 +1,14 @@
 use core::ptr::NonNull;
 
+use anyhow::Context;
+use anyhow::anyhow;
 use clap::Parser;
 
 use cxlalloc::thread;
 use cxlalloc_test::Request;
 use cxlalloc_test::Response;
 use ipc_channel::ipc::IpcOneShotServer;
+use ipc_channel::ipc::IpcReceiver;
 use ipc_channel::ipc::IpcSender;
 
 #[derive(Parser)]
@@ -31,65 +34,97 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let cli = Cli::parse();
+    let id = cli.id;
+    let worker = Worker::new(cli)?;
 
-    let tx = IpcSender::<Response>::connect(cli.socket)?;
-    let (server, socket) = IpcOneShotServer::<Request>::new()?;
-    tx.send(Response::Handshake { socket })?;
+    worker
+        .run()
+        .with_context(|| anyhow!("Worker {} failure", id))
+}
 
-    let (rx, Request::Handshake) = server.accept()? else {
-        panic!("Expected handshake")
-    };
+struct Worker {
+    id: u16,
+    tx: IpcSender<Response>,
+    rx: IpcReceiver<Request>,
+    raw: cxlalloc::Raw,
+}
 
-    let raw = cxlalloc::raw::Builder::default()
-        .backend(cxlalloc::raw::backend::Shm)
-        .free(false)
-        .thread_count(cli.count)
-        .build(&cli.name)
-        .unwrap();
+impl Worker {
+    fn run(self) -> anyhow::Result<()> {
+        let mut allocator = self
+            .raw
+            .allocator::<(), ()>(unsafe { thread::Id::new(self.id) });
 
-    let mut allocator = raw.allocator::<(), ()>(unsafe { thread::Id::new(cli.id) });
+        loop {
+            let request = self
+                .rx
+                .recv()
+                .with_context(|| anyhow!("Failed to receive request from coordinator"))?;
 
-    loop {
-        let request = rx.recv()?;
-        log::info!("{}: receive {:?}", cli.id, request);
+            log::info!("[{}]: receive {:?}", self.id, request);
 
-        match request {
-            Request::Handshake => unreachable!("Protocol error"),
-            Request::Allocate { id, size } => {
-                let size = size as usize;
-                let pointer = allocator.allocate_untyped(size).cast::<u64>();
-                unsafe { std::slice::from_raw_parts_mut(pointer, size / size_of::<u64>()) }
-                    .fill(id);
+            match request {
+                Request::Handshake => unreachable!("Protocol error"),
+                Request::Allocate { id, size } => {
+                    let size = size as usize;
+                    let pointer = allocator.allocate_untyped(size).cast::<u64>();
+                    unsafe { std::slice::from_raw_parts_mut(pointer, size / size_of::<u64>()) }
+                        .fill(id);
 
-                let pointer = NonNull::new(pointer).unwrap();
-                let offset = allocator.pointer_to_offset(pointer.cast()) as u64;
+                    let pointer = NonNull::new(pointer).unwrap();
+                    let offset = allocator.pointer_to_offset(pointer.cast()) as u64;
 
-                tx.send(Response::Allocate { offset })?;
-            }
-            Request::Free { id, size, offset } => {
-                let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
+                    self.tx.send(Response::Allocate { offset })?;
+                }
+                Request::Free { id, size, offset } => {
+                    let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
 
-                assert!(
-                    unsafe {
-                        std::slice::from_raw_parts(
-                            pointer.as_ptr(),
-                            size as usize / size_of::<u64>(),
-                        )
-                    }
-                    .iter()
-                    .all(|word| *word == id)
-                );
+                    assert!(
+                        unsafe {
+                            std::slice::from_raw_parts(
+                                pointer.as_ptr(),
+                                size as usize / size_of::<u64>(),
+                            )
+                        }
+                        .iter()
+                        .all(|word| *word == id)
+                    );
 
-                unsafe { allocator.free_untyped(pointer.cast()) }
+                    unsafe { allocator.free_untyped(pointer.cast()) }
 
-                tx.send(Response::Free)?;
-            }
-            Request::Load { offset } => {
-                let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
-                tx.send(Response::Load {
-                    value: unsafe { pointer.read() },
-                })?;
+                    self.tx.send(Response::Free)?;
+                }
+                Request::Load { offset } => {
+                    let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
+                    self.tx.send(Response::Load {
+                        value: unsafe { pointer.read() },
+                    })?;
+                }
             }
         }
+    }
+
+    fn new(cli: Cli) -> anyhow::Result<Self> {
+        let tx = IpcSender::<Response>::connect(cli.socket)?;
+        let (server, socket) = IpcOneShotServer::<Request>::new()?;
+        tx.send(Response::Handshake { socket })?;
+
+        let (rx, Request::Handshake) = server.accept()? else {
+            panic!("Expected handshake")
+        };
+
+        let raw = cxlalloc::raw::Builder::default()
+            .backend(cxlalloc::raw::backend::Shm)
+            .free(false)
+            .thread_count(cli.count)
+            .build(&cli.name)
+            .unwrap();
+
+        Ok(Self {
+            id: cli.id,
+            tx,
+            rx,
+            raw,
+        })
     }
 }
