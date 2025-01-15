@@ -1,15 +1,26 @@
 use core::ptr::NonNull;
+use std::mem;
+use std::sync::OnceLock;
 
 use anyhow::Context;
 use anyhow::anyhow;
 use clap::Parser;
 
+use cxlalloc::Raw;
 use cxlalloc::thread;
 use cxlalloc_test::Request;
 use cxlalloc_test::Response;
 use ipc_channel::ipc::IpcOneShotServer;
 use ipc_channel::ipc::IpcReceiver;
 use ipc_channel::ipc::IpcSender;
+
+static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
+
+fn handle(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
+    let address = unsafe { info.read().si_addr() };
+    let raw = RAW.get().unwrap();
+    raw.map(address);
+}
 
 #[derive(Parser)]
 struct Cli {
@@ -31,6 +42,15 @@ struct Cli {
 }
 
 fn main() -> anyhow::Result<()> {
+    let mut new = unsafe { mem::zeroed::<libc::sigaction>() };
+    let mut old = unsafe { mem::zeroed::<libc::sigaction>() };
+    new.sa_sigaction = handle as usize;
+    new.sa_flags = libc::SA_SIGINFO | libc::SA_RESETHAND;
+
+    unsafe {
+        libc::sigaction(libc::SIGSEGV, &new, &mut old);
+    }
+
     env_logger::init();
 
     let cli = Cli::parse();
@@ -46,7 +66,7 @@ struct Worker {
     id: u16,
     tx: IpcSender<Response>,
     rx: IpcReceiver<Request>,
-    raw: cxlalloc::Raw,
+    raw: &'static Raw,
 }
 
 impl Worker {
@@ -113,12 +133,14 @@ impl Worker {
             panic!("Expected handshake")
         };
 
-        let raw = cxlalloc::raw::Builder::default()
-            .backend(cxlalloc::raw::backend::Shm)
-            .free(false)
-            .thread_count(cli.count)
-            .build(&cli.name)
-            .unwrap();
+        let raw = RAW.get_or_init(|| {
+            cxlalloc::raw::Builder::default()
+                .backend(cxlalloc::raw::backend::Shm)
+                .free(false)
+                .thread_count(cli.count)
+                .build(&cli.name)
+                .unwrap()
+        });
 
         Ok(Self {
             id: cli.id,

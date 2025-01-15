@@ -14,6 +14,7 @@ use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
 use crate::data;
+use crate::raw;
 use crate::raw::Backend;
 use crate::size;
 use crate::size::Bracket;
@@ -55,7 +56,7 @@ impl<'raw> Huge<'raw> {
         out: &mut Descriptor,
     ) -> *mut ffi::c_void {
         loop {
-            match self.next(size) {
+            match self.next(id, size) {
                 None => self.claim(id),
                 Some(descriptor) => {
                     // save record somewhere
@@ -92,15 +93,7 @@ impl<'raw> Huge<'raw> {
                     // FIXME: mark descriptor as allocated
 
                     // mmap huge allocation
-                    let region = self
-                        .backend
-                        .allocate(
-                            format!("huge-{}-{}", id, out.id),
-                            Some(self.data.offset_to_pointer(out.offset)),
-                            out.size,
-                            None,
-                        )
-                        .unwrap();
+                    let region = self.map("", out);
 
                     return region.base().cast().as_ptr();
                 }
@@ -109,9 +102,7 @@ impl<'raw> Huge<'raw> {
     }
 
     pub(crate) fn free(&self, data: &Data<'raw, size::Small>, offset: data::Offset<size::Huge>) {
-        let slot = offset.into_index();
-        let owner = self[slot].load().unwrap();
-        let descriptor = self.find(owner, data, offset);
+        let descriptor = self.find(data, offset).unwrap();
         descriptor.free.store(true, Ordering::Relaxed);
         crate::flush(&descriptor.free, true);
     }
@@ -121,12 +112,35 @@ impl<'raw> Huge<'raw> {
         data: &Data<'raw, size::Small>,
         offset: data::Offset<size::Huge>,
     ) -> usize {
-        let slot = offset.into_index();
-        let owner = self[slot].load().unwrap();
-        self.find(owner, data, offset).size
+        self.find(data, offset).unwrap().size
     }
 
-    fn next(&mut self, size: usize) -> Option<Descriptor> {
+    pub(crate) fn try_map(
+        &self,
+        data: &Data<'raw, size::Small>,
+        offset: data::Offset<size::Huge>,
+    ) -> bool {
+        let Some(descriptor) = self.find(data, offset) else {
+            return false;
+        };
+
+        self.map("", descriptor);
+        true
+    }
+
+    fn map(&self, name: &str, descriptor: &Descriptor) -> raw::Region {
+        // FIXME: move into Region?
+        self.backend
+            .allocate(
+                format!("{}-huge-{}-{}", name, descriptor.id, descriptor.index),
+                Some(self.data.offset_to_pointer(descriptor.offset)),
+                descriptor.size,
+                None,
+            )
+            .unwrap()
+    }
+
+    fn next(&mut self, id: thread::Id, size: usize) -> Option<Descriptor> {
         let descriptor = self
             .allocator
             .free
@@ -138,8 +152,9 @@ impl<'raw> Huge<'raw> {
             })
             .map(|offset| Descriptor {
                 offset: self.data.checked_offset_to_offset(offset).unwrap(),
-                id: self.allocator.id,
+                id,
                 size,
+                index: self.allocator.index,
                 next: None,
                 free: AtomicBool::new(false),
             })?;
@@ -149,18 +164,13 @@ impl<'raw> Huge<'raw> {
 
     fn find(
         &self,
-        id: thread::Id,
         data: &Data<'raw, size::Small>,
         offset: data::Offset<size::Huge>,
-    ) -> &Descriptor {
-        self.trace(id, data)
+    ) -> Option<&Descriptor> {
+        let slot = offset.into_index();
+        let owner = self[slot].load().unwrap();
+        self.trace(owner, data)
             .find(|descriptor| descriptor.offset == offset)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Failed to find descriptor for allocation at offset {:#x?}",
-                    offset,
-                )
-            })
     }
 
     fn trace(
@@ -236,21 +246,21 @@ pub(crate) struct Owned {
 
 pub(crate) struct Allocator {
     pub(crate) free: IntervalSet<usize>,
-    pub(crate) id: usize,
+    pub(crate) index: u64,
 }
 
 impl Default for Allocator {
     fn default() -> Self {
         Self {
             free: IntervalSet::empty(),
-            id: 0,
+            index: 0,
         }
     }
 }
 
 impl Allocator {
     fn allocate(&mut self, offset: usize, size: usize) {
-        self.id += 1;
+        self.index += 1;
         let allocation = (offset, offset + size - 1).to_interval_set();
         assert_eq!(
             self.free.intersection(&allocation).size(),
@@ -270,7 +280,8 @@ impl Allocator {
 
 #[repr(C, align(64))]
 pub(crate) struct Descriptor {
-    id: usize,
+    id: thread::Id,
+    index: u64,
     offset: data::Offset<size::Huge>,
     size: usize,
     next: Option<crate::Box<Descriptor>>,

@@ -422,6 +422,7 @@ dependencies = [
  "cxlalloc",
  "env_logger",
  "ipc-channel",
+ "libc",
  "log",
  "serde",
 ]

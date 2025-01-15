@@ -21,7 +21,7 @@ use crate::Heap;
 use crate::Huge;
 
 pub struct Allocator<'raw, L: view::Lens, S: 'raw, O: 'raw> {
-    pub(crate) id: thread::Id,
+    pub(crate) id: L::Perspective,
 
     pub(crate) shared: &'raw Shared<S>,
     pub(crate) owned: L::Scope<'raw, Owned<O>>,
@@ -32,7 +32,7 @@ pub struct Allocator<'raw, L: view::Lens, S: 'raw, O: 'raw> {
 
 impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
     pub(crate) fn new(
-        id: thread::Id,
+        id: L::Perspective,
         shared: &'raw Shared<S>,
         owned: L::Scope<'raw, Owned<O>>,
         small: Heap<'raw, L, size::Small>,
