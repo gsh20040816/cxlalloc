@@ -10,6 +10,7 @@ use cxlalloc::Raw;
 use cxlalloc::thread;
 use cxlalloc_test::Request;
 use cxlalloc_test::Response;
+use ipc_channel::ipc::IpcError;
 use ipc_channel::ipc::IpcOneShotServer;
 use ipc_channel::ipc::IpcReceiver;
 use ipc_channel::ipc::IpcSender;
@@ -76,10 +77,11 @@ impl Worker {
             .allocator::<(), ()>(unsafe { thread::Id::new(self.id) });
 
         loop {
-            let request = self
-                .rx
-                .recv()
-                .with_context(|| anyhow!("Failed to receive request from coordinator"))?;
+            let request = match self.rx.recv() {
+                Ok(request) => request,
+                Err(IpcError::Disconnected) => return Ok(()),
+                Err(error) => return Err(error).context("IPC error"),
+            };
 
             log::info!("[{}]: receive {:?}", self.id, request);
 
