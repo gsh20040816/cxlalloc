@@ -1,3 +1,4 @@
+use core::ptr;
 use core::ptr::NonNull;
 use std::mem;
 use std::sync::OnceLock;
@@ -19,8 +20,16 @@ static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
 
 fn handle(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
-    let raw = RAW.get().unwrap();
-    raw.map(address);
+
+    if RAW.get().unwrap().map(address) {
+        return;
+    }
+
+    unsafe {
+        let mut action = mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = libc::SIG_DFL;
+        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
+    }
 }
 
 #[derive(Parser)]
@@ -43,13 +52,12 @@ struct Cli {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut new = unsafe { mem::zeroed::<libc::sigaction>() };
-    let mut old = unsafe { mem::zeroed::<libc::sigaction>() };
-    new.sa_sigaction = handle as usize;
-    new.sa_flags = libc::SA_SIGINFO | libc::SA_RESETHAND;
+    let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
+    action.sa_sigaction = handle as usize;
+    action.sa_flags = libc::SA_SIGINFO;
 
     unsafe {
-        libc::sigaction(libc::SIGSEGV, &new, &mut old);
+        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
     }
 
     env_logger::init();
@@ -83,7 +91,7 @@ impl Worker {
                 Err(error) => return Err(error).context("IPC error"),
             };
 
-            log::info!("[{}]: receive {:?}", self.id, request);
+            log::info!("[{}]: receive {:x?}", self.id, request);
 
             match request {
                 Request::Handshake => unreachable!("Protocol error"),

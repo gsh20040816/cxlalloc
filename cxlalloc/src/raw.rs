@@ -174,20 +174,24 @@ impl Raw {
         unsafe { Allocator::new(self.unfocused().focus(id)) }
     }
 
-    pub fn map(&self, address: *mut ffi::c_void) {
+    pub fn map(&self, address: *mut ffi::c_void) -> bool {
         let Some(address) = NonNull::new(address) else {
-            return;
+            return false;
         };
 
         let allocator = self.unfocused::<(), ()>();
 
         if let Some(offset) = allocator.huge.data.checked_pointer_to_offset(address) {
             allocator.huge.map_offset(&allocator.small.data, offset);
+            true
         } else if let Some(offset) = allocator.small.data.checked_pointer_to_offset(address) {
             allocator
                 .small
                 .map_offset(&self.backend, &self.slab_small, &self.data_small, offset)
                 .unwrap();
+            true
+        } else {
+            false
         }
     }
 

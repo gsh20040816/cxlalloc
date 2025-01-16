@@ -71,6 +71,25 @@ impl Coordinator {
             offset: huge.offset,
         })?;
 
+        self.send(0, Request::Allocate {
+            id: 0xdeadbeef,
+            size: 1 << 20,
+        })?;
+
+        let huge = self.allocations.values().next().copied().unwrap();
+
+        self.send(1, Request::Load {
+            offset: huge.offset,
+        })?;
+
+        self.send(1, Request::Free {
+            id: 0xdeadbeef,
+            size: 1 << 20,
+            offset: huge.offset,
+        })?;
+
+        self.send(1, Request::Load { offset: 1 << 50 })?;
+
         Ok(())
     }
 
@@ -111,7 +130,7 @@ impl Coordinator {
     }
 
     fn send(&mut self, thread: usize, request: Request) -> anyhow::Result<()> {
-        log::info!("[C]: sending request to {}: {:?}", thread, request);
+        log::info!("[C]: sending request to {}: {:x?}", thread, request);
         self.children[&thread]
             .tx
             .send(request.clone())
@@ -121,7 +140,7 @@ impl Coordinator {
             .rx
             .recv()
             .with_context(|| anyhow!("Failed to receive response from {}", thread))?;
-        log::info!("[C]: received response from {}: {:?}", thread, response);
+        log::info!("[C]: received response from {}: {:x?}", thread, response);
 
         match (request, response) {
             (Request::Allocate { id, size }, Response::Allocate { offset }) => {
