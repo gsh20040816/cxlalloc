@@ -22,6 +22,8 @@ use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::fd::OwnedFd;
 
+use crate::raw::region;
+
 // Note: we use an enum here to avoid dynamic allocation
 // of a `Box<dyn Backend>` trait object. This is fine
 // because the set of backends should not be extensible
@@ -36,12 +38,12 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub(super) fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<File> {
+    pub(super) fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File> {
         let backend = self.as_backend();
-        backend.allocate(id.clone(), size)
+        backend.allocate(id, size)
     }
 
-    pub(super) fn free(&self, id: String) -> io::Result<()> {
+    pub(super) fn free(&self, id: region::Id) -> io::Result<()> {
         self.as_backend().free(id)
     }
 
@@ -67,9 +69,9 @@ impl Backend {
 trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
-    fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<File>;
+    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File>;
 
-    fn free(&self, id: String) -> io::Result<()>;
+    fn free(&self, id: region::Id) -> io::Result<()>;
 }
 
 pub(super) struct File {

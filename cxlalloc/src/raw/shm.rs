@@ -1,13 +1,15 @@
 use core::num::NonZeroUsize;
-use std::ffi::CString;
 use std::io;
 
 use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd as _;
 use std::os::fd::OwnedFd;
 
+use arrayvec::ArrayVec;
+
 use crate::raw;
 use crate::raw::backend;
+use crate::raw::region;
 
 #[derive(Debug)]
 pub struct Shm;
@@ -17,11 +19,11 @@ impl backend::Impl for Shm {
         "shm"
     }
 
-    fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<backend::File> {
+    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<backend::File> {
         let path = id_to_path(id);
         unsafe {
             let (fd, clean) = match libc::shm_open(
-                path.as_c_str().as_ptr(),
+                path.as_ptr().cast(),
                 libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
                 libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
             ) {
@@ -35,7 +37,7 @@ impl backend::Impl for Shm {
                     // process could have deleted and recreated the shared memory
                     // region between the previous call to `shm_open` and this one.
                     match libc::shm_open(
-                        path.as_c_str().as_ptr(),
+                        path.as_ptr().cast(),
                         libc::O_RDWR,
                         libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
                     ) {
@@ -54,20 +56,21 @@ impl backend::Impl for Shm {
         }
     }
 
-    fn free(&self, id: String) -> io::Result<()> {
+    fn free(&self, id: region::Id) -> io::Result<()> {
         let path = id_to_path(id);
-        match unsafe { libc::shm_unlink(path.as_c_str().as_ptr()) } {
+        match unsafe { libc::shm_unlink(path.as_ptr().cast()) } {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
         }
     }
 }
 
-fn id_to_path(id: String) -> CString {
-    let mut path = vec![b'/'];
-    path.append(&mut id.into_bytes());
+fn id_to_path(id: region::Id) -> ArrayVec<u8, { region::Id::SIZE }> {
+    let mut path = ArrayVec::new_const();
+    path.push(b'/');
+    path.try_extend_from_slice(id.as_bytes()).unwrap();
     path.push(0);
-    CString::from_vec_with_nul(path).unwrap()
+    path
 }
 
 impl From<Shm> for raw::Backend {

@@ -5,6 +5,7 @@ use std::os::fd::OwnedFd;
 
 use crate::raw;
 use crate::raw::backend;
+use crate::raw::region;
 
 #[derive(Debug)]
 pub struct Ivshmem {
@@ -28,7 +29,7 @@ impl backend::Impl for Ivshmem {
         "ivshmem"
     }
 
-    fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<backend::File> {
+    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<backend::File> {
         let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size.get())?;
 
         Ok(backend::File::new(
@@ -38,7 +39,7 @@ impl backend::Impl for Ivshmem {
         ))
     }
 
-    fn free(&self, _: String) -> io::Result<()> {
+    fn free(&self, _: region::Id) -> io::Result<()> {
         todo!()
         // match driver::cxl_free(&self.device, &id, region.offset(), size) {
         //     Ok(()) => (),
@@ -62,6 +63,8 @@ mod driver {
     use std::os::fd::AsRawFd as _;
 
     use ribbit::private::u14;
+
+    use crate::raw::region;
 
     // https://sites.uclouvain.be/SystInfo/usr/include/asm-generic/ioctl.h.html
     #[ribbit::pack(size = 32, debug)]
@@ -103,7 +106,7 @@ mod driver {
 
     pub(super) fn find_cxl_alloc_nomap(
         file: &File,
-        id: &str,
+        id: &region::Id,
         size: usize,
     ) -> io::Result<vcxl_find_alloc> {
         const IOCTL_FIND_ALLOC: Ioctl = Ioctl::new(

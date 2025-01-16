@@ -115,13 +115,14 @@ impl Raw {
         );
 
         let slab_count = size.next_multiple_of(crate::SIZE_SLAB) / crate::SIZE_SLAB;
+        let id = region::Id::new(id);
 
         let (shared_size, _) = Self::shared();
         // FIXME: support extension for huge allocation region?
-        let shared = region::Fixed::new(&backend, format!("{id}-shared"), shared_size)?;
+        let shared = region::Fixed::new(&backend, id.with_suffix("shared"), shared_size)?;
 
         let (owned_size, _) = Self::owned();
-        let owned = region::Fixed::new(&backend, format!("{id}-owned"), owned_size)?;
+        let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
 
         let slab_small_size = Slab::<size::Small>::layout(slab_count)
             .ok()
@@ -131,7 +132,7 @@ impl Raw {
         let slab_small_reservation = Reservation::new(Reservation::TIB)?;
         let slab_small = region::Sequential::new(
             &backend,
-            format!("{id}-ss"),
+            id.with_suffix("ss"),
             slab_small_reservation,
             slab_small_size,
         )?;
@@ -150,12 +151,12 @@ impl Raw {
             .unwrap();
         let data_small = region::Sequential::new(
             &backend,
-            format!("{id}-ds"),
+            id.with_suffix("ds"),
             data_small_reservation,
             data_small_size,
         )?;
 
-        let data_huge = region::Random::new(format!("{id}-dh"), data_huge_reservation)?;
+        let data_huge = region::Random::new(id.with_suffix("dh"), data_huge_reservation)?;
 
         Ok(Self {
             backend,

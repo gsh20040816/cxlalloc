@@ -1,13 +1,44 @@
+use core::fmt::Display;
+use core::fmt::Write as _;
 use core::num::NonZeroUsize;
+use core::ops::Deref;
 use core::ptr;
 use core::ptr::NonNull;
 use std::io;
+
+use arrayvec::ArrayString;
 
 use crate::raw::backend;
 use crate::raw::Backend;
 
 #[repr(C, align(4096))]
 pub(crate) struct Page([u8; 4096]);
+
+#[derive(Clone, Debug)]
+pub(crate) struct Id(ArrayString<{ Self::SIZE }>);
+
+impl Id {
+    pub(crate) const SIZE: usize = 32;
+
+    pub(crate) fn new(inner: &str) -> Self {
+        ArrayString::from(inner)
+            .map(Self)
+            .expect("Region identifiers must be less than 32 bytes")
+    }
+
+    pub(crate) fn with_suffix<T: Display>(&self, suffix: T) -> Self {
+        let mut id = self.clone().0;
+        write!(&mut id, "-{}", suffix).unwrap();
+        Self(id)
+    }
+}
+
+impl Deref for Id {
+    type Target = ArrayString<{ Self::SIZE }>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub(crate) struct Reservation {
     address: NonNull<Page>,
@@ -49,26 +80,26 @@ pub(crate) trait Region {
 }
 
 pub(crate) struct Fixed {
-    id: String,
+    id: Id,
     clean: bool,
     address: NonNull<Page>,
     size: NonZeroUsize,
 }
 
 pub(crate) struct Sequential {
-    prefix: String,
+    id: Id,
     clean: bool,
     reservation: Reservation,
     size: NonZeroUsize,
 }
 
 pub(crate) struct Random {
-    prefix: String,
+    id: Id,
     reservation: Reservation,
 }
 
 impl Fixed {
-    pub(super) fn new(backend: &Backend, id: String, size: NonZeroUsize) -> io::Result<Self> {
+    pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> io::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
         let file = backend.allocate(id.clone(), size)?;
         let address = unsafe { mmap(None, size, true, &file)? };
@@ -91,7 +122,7 @@ impl Region for Fixed {
     }
 
     fn id(&self) -> &str {
-        &self.id
+        &self.id.0
     }
 
     fn unmap(&self) -> io::Result<()> {
@@ -102,17 +133,17 @@ impl Region for Fixed {
 impl Sequential {
     pub(super) fn new(
         backend: &Backend,
-        prefix: String,
+        id: Id,
         reservation: Reservation,
         size: NonZeroUsize,
     ) -> io::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let file = backend.allocate(format!("{}-0", prefix), size)?;
+        let file = backend.allocate(id.with_suffix(0), size)?;
 
         unsafe { mmap(Some(reservation.address), size, true, &file) }?;
 
         Ok(Sequential {
-            prefix,
+            id,
             clean: file.clean,
             reservation,
             size,
@@ -120,8 +151,8 @@ impl Sequential {
     }
 
     pub(crate) fn map(&self, backend: &Backend, offset: usize) -> io::Result<()> {
-        let index = offset / self.size.get() as usize;
-        let file = backend.allocate(format!("{}-{}", self.prefix, index), self.size)?;
+        let index = offset / self.size.get();
+        let file = backend.allocate(self.id.with_suffix(index), self.size)?;
 
         unsafe {
             mmap(
@@ -146,7 +177,7 @@ impl Region for Sequential {
     }
 
     fn id(&self) -> &str {
-        &self.prefix
+        &self.id.0
     }
 
     /// Remove all virtual address space mappings for this region.
@@ -156,11 +187,8 @@ impl Region for Sequential {
 }
 
 impl Random {
-    pub(super) fn new(prefix: String, reservation: Reservation) -> io::Result<Self> {
-        Ok(Random {
-            prefix,
-            reservation,
-        })
+    pub(super) fn new(id: Id, reservation: Reservation) -> io::Result<Self> {
+        Ok(Random { id, reservation })
     }
 
     pub(crate) fn map(
@@ -169,8 +197,7 @@ impl Random {
         offset: usize,
         size: NonZeroUsize,
     ) -> io::Result<()> {
-        let file = backend.allocate(format!("{}-{:#x}", self.prefix, offset), size)?;
-
+        let file = backend.allocate(self.id.with_suffix(format_args!("{:#x}", offset)), size)?;
         unsafe { mmap(Some(self.address().byte_add(offset)), size, true, &file) }?;
 
         Ok(())
@@ -187,7 +214,7 @@ impl Region for Random {
     }
 
     fn id(&self) -> &str {
-        &self.prefix
+        &self.id.0
     }
 
     fn unmap(&self) -> io::Result<()> {

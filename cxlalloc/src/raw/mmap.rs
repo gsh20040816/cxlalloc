@@ -1,8 +1,9 @@
 use core::num::NonZeroUsize;
 use std::io;
 
-use crate::raw;
 use crate::raw::backend;
+use crate::raw::region;
+use crate::raw::Backend;
 
 #[derive(Clone, Debug, Default)]
 pub struct Mmap;
@@ -12,17 +13,17 @@ impl backend::Impl for Mmap {
         "mmap"
     }
 
-    fn allocate(&self, _: String, _: NonZeroUsize) -> io::Result<backend::File> {
+    fn allocate(&self, _: region::Id, _: NonZeroUsize) -> io::Result<backend::File> {
         Ok(backend::File::default())
     }
 
-    fn free(&self, _: String) -> io::Result<()> {
+    fn free(&self, _: region::Id) -> io::Result<()> {
         Ok(())
     }
 }
 
-impl From<Mmap> for raw::Backend {
+impl From<Mmap> for Backend {
     fn from(mmap: Mmap) -> Self {
-        raw::Backend::Mmap(mmap)
+        Backend::Mmap(mmap)
     }
 }
