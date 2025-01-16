@@ -109,10 +109,7 @@ impl Sequential {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
         let file = backend.allocate(format!("{}-0", prefix), size)?;
 
-        unsafe {
-            let address = mmap(Some(reservation.address), size, true, &file)?;
-            mbind(address, size)?;
-        };
+        unsafe { mmap(Some(reservation.address), size, true, &file) }?;
 
         Ok(Sequential {
             prefix,
@@ -120,6 +117,22 @@ impl Sequential {
             reservation,
             size,
         })
+    }
+
+    pub(crate) fn map(&self, backend: &Backend, offset: usize) -> io::Result<()> {
+        let index = offset / self.size.get() as usize;
+        let file = backend.allocate(format!("{}-{}", self.prefix, index), self.size)?;
+
+        unsafe {
+            mmap(
+                Some(self.reservation.address.byte_add(self.size.get() * index)),
+                self.size,
+                true,
+                &file,
+            )
+        }?;
+
+        Ok(())
     }
 }
 
@@ -158,10 +171,7 @@ impl Random {
     ) -> io::Result<()> {
         let file = backend.allocate(format!("{}-{:#x}", self.prefix, offset), size)?;
 
-        unsafe {
-            let address = mmap(Some(self.address().byte_add(offset)), size, true, &file)?;
-            mbind(address, size)?;
-        }
+        unsafe { mmap(Some(self.address().byte_add(offset)), size, true, &file) }?;
 
         Ok(())
     }
@@ -219,6 +229,10 @@ unsafe fn mmap(
 
     if let Some(expected) = address {
         assert_eq!(expected, actual);
+    }
+
+    if rw {
+        mbind(actual, size);
     }
 
     Ok(actual)

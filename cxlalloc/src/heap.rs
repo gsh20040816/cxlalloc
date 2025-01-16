@@ -2,6 +2,7 @@ use core::ffi;
 use core::fmt::Display;
 use core::ops::Add;
 use core::ops::Range;
+use std::io;
 
 use ribbit::private::u24;
 
@@ -12,6 +13,8 @@ use crate::atomic::Version;
 use crate::cas;
 use crate::crash;
 use crate::data;
+use crate::raw::region;
+use crate::raw::Backend;
 use crate::recover::ApplicationToSized;
 use crate::recover::BumpToLocal;
 use crate::recover::LocalToGlobalSave;
@@ -199,17 +202,37 @@ where
     }
 }
 
-impl<B> Heap<'_, view::Focus, B>
+impl<L, B> Heap<'_, L, B>
 where
-    B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
-    B: Into<Bracket>,
-    slab::Index<B>: Into<Index>,
+    L: view::Lens,
+    B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
 {
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
         self.slabs[index].remote.owner.load().class()
     }
 
+    pub(crate) fn map(
+        &self,
+        backend: &Backend,
+        slab: &region::Sequential,
+        data: &region::Sequential,
+        offset: data::Offset<B>,
+    ) -> io::Result<()> {
+        let data_offset = u64::from(offset) as usize;
+        let slab_offset = data_offset / B::SIZE_SLAB * size_of::<slab::Descriptor<B>>();
+        slab.map(backend, slab_offset)?;
+        data.map(backend, data_offset)?;
+        Ok(())
+    }
+}
+
+impl<B> Heap<'_, view::Focus, B>
+where
+    B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
+    B: Into<Bracket>,
+    slab::Index<B>: Into<Index>,
+{
     #[inline]
     pub(crate) fn pop(
         &mut self,
