@@ -87,31 +87,24 @@ where
         &self,
         context: &mut allocator::Context,
         capacity: u32,
-    ) -> Option<Range<slab::Index<B>>> {
-        let bump = self
-            .bump
-            .update(context, |old, version| {
-                let old_len = old.length();
-                let new_len = old_len + BATCH_BUMP_POP;
+    ) -> Result<Range<slab::Index<B>>, Epoch> {
+        let bump = self.bump.update(context, |old, version| {
+            let old_len = old.length();
+            let new_len = old_len + BATCH_BUMP_POP;
 
-                if u32::from(new_len) >= old.epoch().total(capacity) {
-                    panic!(
-                        "Heap extension not yet enabled. Tried to expand from {:#x} to {:#x} but capacity is {:#x}.",
-                        u32::from(old_len),
-                        u32::from(new_len),
-                        capacity
-                    );
-                } else {
-                    Some((
-                        old.with_length(new_len),
-                        StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
-                    ))
-                }
-            })?;
+            if u32::from(new_len) >= old.epoch().total(capacity) {
+                Err(old.epoch())
+            } else {
+                Ok((
+                    old.with_length(new_len),
+                    StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
+                ))
+            }
+        })?;
 
         let start = slab::Index::from_length(bump.length());
         let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
-        Some(start..end)
+        Ok(start..end)
     }
 
     pub(crate) fn push(
@@ -320,7 +313,7 @@ where
             }
 
             match self.shared.bump(context, self.capacity) {
-                Some(range) => {
+                Ok(range) => {
                     stat::inc(&stat::ALLOCATE_SMALL_BUMP);
                     slab::transfer_all(
                         &self.slabs,
@@ -338,7 +331,7 @@ where
                     }
                     break;
                 }
-                None => {
+                Err(epoch) => {
                     todo!()
                 }
             }

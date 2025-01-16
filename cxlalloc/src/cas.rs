@@ -3,6 +3,7 @@ use crate::atomic::Version;
 use crate::recover::StateUnpacked;
 use crate::thread;
 use crate::Atomic;
+use crate::Epoch;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);
 
@@ -26,9 +27,9 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
         old.inner()
     }
 
-    pub(crate) fn update<F>(&self, context: &mut allocator::Context, mut next: F) -> Option<T>
+    pub(crate) fn update<F, E>(&self, context: &mut allocator::Context, mut next: F) -> Result<T, E>
     where
-        F: FnMut(T, Version) -> Option<(T, StateUnpacked)>,
+        F: FnMut(T, Version) -> Result<(T, StateUnpacked), E>,
     {
         let mut old = self.0.load();
         let version = context.help[context.id].peek().next();
@@ -53,7 +54,7 @@ impl<T: ribbit::Pack<Loose = u32>> Detectable<T> {
                 .0
                 .compare_exchange(old, State::new(Some(context.id), version, new))
             {
-                Ok(_) => break Some(old.inner()),
+                Ok(_) => break Ok(old.inner()),
                 Err(next) => old = next,
             }
         }

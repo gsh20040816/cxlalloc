@@ -75,17 +75,19 @@ where
         head: Index<B>,
         tail: Index<B>,
     ) {
-        self.head.update(context, |old, version| {
-            slabs[tail].local.next.store(old);
-            crate::flush(&slabs[tail].local.next, false);
-            Some((
-                Some(head),
-                recover::StateUnpacked::LocalToGlobal(recover::LocalToGlobal::new(
-                    head.into(),
-                    version,
-                )),
-            ))
-        });
+        self.head
+            .update::<_, core::convert::Infallible>(context, |old, version| {
+                slabs[tail].local.next.store(old);
+                crate::flush(&slabs[tail].local.next, false);
+                Ok((
+                    Some(head),
+                    recover::StateUnpacked::LocalToGlobal(recover::LocalToGlobal::new(
+                        head.into(),
+                        version,
+                    )),
+                ))
+            })
+            .unwrap();
     }
 
     pub(crate) fn pop(
@@ -95,10 +97,9 @@ where
     ) -> Option<Index<B>> {
         self.head
             .update(context, |old, version| {
-                let old = old?;
+                let Some(old) = old else { return Err(()) };
                 let new = slabs[old].local.next.load();
-
-                Some((
+                Ok((
                     new,
                     recover::StateUnpacked::GlobalToLocal(recover::GlobalToLocal::new(
                         old.into(),
@@ -106,6 +107,7 @@ where
                     )),
                 ))
             })
+            .ok()
             .flatten()
     }
 
