@@ -1,19 +1,10 @@
-use core::ffi;
 use core::num::NonZeroUsize;
-use core::ptr::NonNull;
 use std::fs;
 use std::io;
-use std::os::fd::AsFd;
-use std::os::fd::AsRawFd as _;
+use std::os::fd::OwnedFd;
 
 use crate::raw;
 use crate::raw::backend;
-use crate::raw::region;
-use crate::raw::Region;
-use crate::Epoch;
-use crate::SIZE_PAGE;
-
-use super::Reservation;
 
 #[derive(Debug)]
 pub struct Ivshmem {
@@ -37,63 +28,22 @@ impl backend::Impl for Ivshmem {
         "ivshmem"
     }
 
-    fn allocate(
-        &self,
-        id: String,
-        reservation: Option<Reservation>,
-        size: usize,
-    ) -> io::Result<Region> {
-        let path = Region::epoch_to_path(&id, Epoch::default());
-        let size = size.next_multiple_of(SIZE_PAGE);
-        let allocation = driver::find_cxl_alloc_nomap(&self.device, &path, size)?;
+    fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<backend::File> {
+        let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size.get())?;
 
-        Region::new(
-            id,
-            backend::File::new(
-                self.device.as_fd(),
-                allocation.desc.offset as i64,
-                allocation.existing == 0,
-            ),
-            reservation,
-            size,
-        )
+        Ok(backend::File::new(
+            OwnedFd::from(self.device.try_clone().unwrap()),
+            allocation.desc.offset as i64,
+            allocation.existing == 0,
+        ))
     }
 
-    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
-        // let epoch = region.advance_epoch();
-        // let (address, size, id) = region.epoch_to_metadata(epoch);
-        // let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size)?;
-        // assert_eq!(allocation.desc.length, size as u64);
+    fn free(&self, _: String) -> io::Result<()> {
         todo!()
-
-        // region
-        //     .extend(
-        //         address,
-        //         size,
-        //         Some((self.device.as_raw_fd(), allocation.desc.offset as i64)),
-        //     )
-        //     .map(drop)
-    }
-
-    fn unmap(&self, region: &Region) -> io::Result<()> {
-        region.unmap()
-    }
-
-    fn free(&self, region: &Region) -> io::Result<()> {
-        let mut start = Epoch::default();
-        let end = region.epoch();
-
-        while start <= end {
-            let (_, size, id) = region.epoch_to_metadata(start);
-            match driver::cxl_free(&self.device, &id, region.offset(), size) {
-                Ok(()) => (),
-                Err(error) => log::warn!("Call to cxl_free failed: {:?}", error),
-            }
-
-            start = start.next();
-        }
-
-        Ok(())
+        // match driver::cxl_free(&self.device, &id, region.offset(), size) {
+        //     Ok(()) => (),
+        //     Err(error) => log::warn!("Call to cxl_free failed: {:?}", error),
+        // }
     }
 }
 
@@ -153,7 +103,7 @@ mod driver {
 
     pub(super) fn find_cxl_alloc_nomap(
         file: &File,
-        id: &CStr,
+        id: &str,
         size: usize,
     ) -> io::Result<vcxl_find_alloc> {
         const IOCTL_FIND_ALLOC: Ioctl = Ioctl::new(
@@ -167,13 +117,13 @@ mod driver {
         find.desc.length = size as u64;
 
         assert!(
-            id.to_bytes().len() < 12,
+            id.as_bytes().len() < 12,
             "Ivshmem driver only supports IDs up to length 12 (including null byte), got {id:?}"
         );
 
         // Note: `to_bytes` does not include null terminator. We check above
         // that `id` length + 1 fits, and array is 0-initialized.
-        find.desc.prog_id[..id.to_bytes().len()].copy_from_slice(id.to_bytes());
+        find.desc.prog_id[..id.as_bytes().len()].copy_from_slice(id.as_bytes());
 
         match unsafe {
             libc::ioctl(

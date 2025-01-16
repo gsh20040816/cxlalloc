@@ -9,15 +9,13 @@ use core::ptr::NonNull;
 use ribbit::private::u12;
 
 use crate::bitset::Bit;
-use crate::raw;
 use crate::raw::Page;
 use crate::size;
-use crate::size::Bracket as _;
 use crate::slab;
 
 pub(crate) struct Data<'raw, B> {
     pub(crate) base: NonNull<Page>,
-    _raw: PhantomData<&'raw raw::Region>,
+    _raw: PhantomData<&'raw ()>,
     _bracket: PhantomData<B>,
 }
 
@@ -34,7 +32,7 @@ where
     }
 
     pub(crate) fn layout(slab_count: usize) -> Result<Layout, LayoutError> {
-        Layout::array::<u8>(size::Small::SIZE_SLAB * slab_count)
+        Layout::array::<u8>(B::SIZE_SLAB * slab_count)
     }
 
     pub(crate) fn offset_to_pointer<T>(&self, offset: Offset<B>) -> NonNull<T> {

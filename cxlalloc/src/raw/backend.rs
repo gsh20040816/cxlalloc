@@ -20,10 +20,7 @@ pub use shm::Shm;
 use core::num::NonZeroUsize;
 use std::io;
 use std::os::fd::AsRawFd as _;
-use std::os::fd::BorrowedFd;
-
-use crate::raw::Region;
-use crate::raw::Reservation;
+use std::os::fd::OwnedFd;
 
 // Note: we use an enum here to avoid dynamic allocation
 // of a `Box<dyn Backend>` trait object. This is fine
@@ -39,40 +36,16 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub(crate) fn allocate(
-        &self,
-        id: String,
-        reservation: Option<Reservation>,
-        size: usize,
-    ) -> io::Result<Region> {
+    pub(super) fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<File> {
         let backend = self.as_backend();
-        backend
-            .allocate(id.clone(), reservation, size)
-            .inspect(|region| {
-                log::info!(
-                    "Allocated {:#x} bytes for {} ({:#x?} - {:#x?}) using {} backend",
-                    region.size(),
-                    id,
-                    region.address().as_ptr(),
-                    region.address().as_ptr().wrapping_byte_add(region.size()),
-                    backend.name(),
-                );
-            })
+        backend.allocate(id.clone(), size)
     }
 
-    pub(crate) fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
-        self.as_backend().map(region, offset, size)
+    pub(super) fn free(&self, id: String) -> io::Result<()> {
+        self.as_backend().free(id)
     }
 
-    pub(crate) fn unmap(&self, region: &Region) -> io::Result<()> {
-        self.as_backend().unmap(region)
-    }
-
-    pub(crate) fn free(&self, region: &Region) -> io::Result<()> {
-        self.as_backend().free(region)
-    }
-
-    pub(crate) fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         self.as_backend().name()
     }
 
@@ -94,29 +67,19 @@ impl Backend {
 trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
-    fn allocate(
-        &self,
-        id: String,
-        reservation: Option<Reservation>,
-        size: usize,
-    ) -> io::Result<Region>;
+    fn allocate(&self, id: String, size: NonZeroUsize) -> io::Result<File>;
 
-    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()>;
-
-    fn unmap(&self, region: &Region) -> io::Result<()>;
-
-    fn free(&self, region: &Region) -> io::Result<()>;
+    fn free(&self, id: String) -> io::Result<()>;
 }
 
-#[derive(Copy, Clone)]
-pub(super) struct File<'fd> {
-    fd: Option<BorrowedFd<'fd>>,
+pub(super) struct File {
+    fd: Option<OwnedFd>,
     pub(super) offset: i64,
     pub(super) clean: bool,
 }
 
-impl<'fd> File<'fd> {
-    fn new(fd: BorrowedFd<'fd>, offset: i64, clean: bool) -> Self {
+impl File {
+    fn new(fd: OwnedFd, offset: i64, clean: bool) -> Self {
         Self {
             fd: Some(fd),
             offset,
@@ -125,7 +88,7 @@ impl<'fd> File<'fd> {
     }
 
     pub(super) fn fd(&self) -> i32 {
-        self.fd.map(|fd| fd.as_raw_fd()).unwrap_or(-1)
+        self.fd.as_ref().map(|fd| fd.as_raw_fd()).unwrap_or(-1)
     }
 
     pub(super) fn flags(&self) -> libc::c_int {
@@ -136,7 +99,7 @@ impl<'fd> File<'fd> {
     }
 }
 
-impl Default for File<'static> {
+impl Default for File {
     fn default() -> Self {
         File {
             fd: None,

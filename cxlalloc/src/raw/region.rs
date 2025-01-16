@@ -1,14 +1,10 @@
-use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
-use std::ffi::CString;
 use std::io;
-use std::os::fd::RawFd;
 
-use crate::extend::Epoch;
 use crate::raw::backend;
-use crate::Atomic;
+use crate::raw::Backend;
 
 #[repr(C, align(4096))]
 pub(crate) struct Page([u8; 4096]);
@@ -26,7 +22,7 @@ impl Reservation {
     // and then overwrite it later via `mmap` with `MMAP_FIXED`.
     pub(crate) fn new(size: NonZeroUsize) -> io::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let address = unsafe { mmap(None, size, libc::PROT_NONE, backend::File::default())? };
+        let address = unsafe { mmap(None, size, false, &backend::File::default())? };
         Ok(Self { address, size })
     }
 
@@ -45,150 +41,147 @@ impl Reservation {
     }
 }
 
-pub(crate) struct Region {
-    /// Unique identifier of this memory region
-    id: String,
-
-    /// Offset into physical memory (for ivshmem driver)
-    #[cfg_attr(not(feature = "backend-ivshmem"), allow(dead_code))]
-    offset: i64,
-
-    /// Size of this memory region in bytes
-    size: Option<NonZeroUsize>,
-
-    reservation: Option<Reservation>,
-
-    /// Number of heap extensions this memory region has undergone.
-    epoch: Atomic<Epoch>,
-
-    /// Starting address of mapped region
-    address: NonNull<Page>,
-
-    /// Whether this is a new region
-    clean: bool,
+pub(crate) trait Region {
+    fn address(&self) -> NonNull<Page>;
+    fn is_clean(&self) -> bool;
+    fn id(&self) -> &str;
+    fn unmap(&self) -> io::Result<()>;
 }
 
-impl Region {
-    pub(super) fn new(
-        id: String,
-        file: backend::File,
-        reservation: Option<Reservation>,
-        size: usize,
-    ) -> io::Result<Self> {
-        let size = size.next_multiple_of(crate::SIZE_PAGE);
-        let size = NonZeroUsize::new(size);
-        let address = match size {
-            None => reservation
-                .as_ref()
-                .map(|reservation| reservation.address)
-                .unwrap(),
-            Some(size) => unsafe {
-                let address = mmap(
-                    reservation.as_ref().map(|reservation| reservation.address),
-                    size,
-                    libc::PROT_READ | libc::PROT_WRITE,
-                    file,
-                )?;
-                mbind(address, size)?;
-                address
-            },
-        };
+pub(crate) struct Fixed {
+    id: String,
+    clean: bool,
+    address: NonNull<Page>,
+    size: NonZeroUsize,
+}
 
-        Ok(Region {
+pub(crate) struct Sequential {
+    prefix: String,
+    clean: bool,
+    reservation: Reservation,
+    size: NonZeroUsize,
+}
+
+pub(crate) struct Random {
+    prefix: String,
+    reservation: Reservation,
+}
+
+impl Fixed {
+    pub(super) fn new(backend: &Backend, id: String, size: NonZeroUsize) -> io::Result<Self> {
+        let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
+        let file = backend.allocate(id.clone(), size)?;
+        let address = unsafe { mmap(None, size, true, &file)? };
+        Ok(Self {
             id,
-            offset: file.offset,
-            size,
-            reservation,
-            epoch: Atomic::new(Epoch::default()),
-            address: address.cast(),
+            address,
             clean: file.clean,
+            size,
         })
     }
+}
 
-    pub(crate) fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub(crate) fn address(&self) -> NonNull<Page> {
+impl Region for Fixed {
+    fn address(&self) -> NonNull<Page> {
         self.address
     }
 
-    #[cfg_attr(not(feature = "backend-ivshmem"), allow(unused))]
-    pub(crate) fn offset(&self) -> i64 {
-        self.offset
-    }
-
-    pub(crate) fn size(&self) -> usize {
-        self.size.map(NonZeroUsize::get).unwrap_or_default()
-    }
-
-    pub(crate) fn is_clean(&self) -> bool {
+    fn is_clean(&self) -> bool {
         self.clean
     }
 
-    #[cfg_attr(
-        not(any(feature = "backend-ivshmem", feature = "backend-shm")),
-        allow(unused)
-    )]
-    pub(crate) fn epoch(&self) -> Epoch {
-        self.epoch.load()
+    fn id(&self) -> &str {
+        &self.id
     }
 
-    pub(crate) fn advance_epoch(&self) -> Epoch {
-        let epoch = self.epoch.load();
-        self.epoch.store(epoch.next());
-        epoch.next()
+    fn unmap(&self) -> io::Result<()> {
+        unsafe { munmap(self.address, self.size) }
+    }
+}
+
+impl Sequential {
+    pub(super) fn new(
+        backend: &Backend,
+        prefix: String,
+        reservation: Reservation,
+        size: NonZeroUsize,
+    ) -> io::Result<Self> {
+        let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
+        let file = backend.allocate(format!("{}-0", prefix), size)?;
+
+        unsafe {
+            let address = mmap(Some(reservation.address), size, true, &file)?;
+            mbind(address, size)?;
+        };
+
+        Ok(Sequential {
+            prefix,
+            clean: file.clean,
+            reservation,
+            size,
+        })
+    }
+}
+
+impl Region for Sequential {
+    fn address(&self) -> NonNull<Page> {
+        self.reservation.address
     }
 
-    pub(super) fn epoch_to_metadata(&self, epoch: Epoch) -> (*mut ffi::c_void, usize, CString) {
-        (
-            self.epoch_to_address(epoch),
-            self.epoch_to_size(epoch),
-            Self::epoch_to_path(&self.id, epoch),
-        )
+    fn is_clean(&self) -> bool {
+        self.clean
     }
 
-    fn epoch_to_address(&self, epoch: Epoch) -> *mut ffi::c_void {
-        self.address()
-            .as_ptr()
-            .wrapping_byte_add(epoch.offset(self.size() as u32) as usize)
-            .cast()
+    fn id(&self) -> &str {
+        &self.prefix
     }
 
-    fn epoch_to_size(&self, epoch: Epoch) -> usize {
-        epoch.partial(self.size() as u32) as usize
+    /// Remove all virtual address space mappings for this region.
+    fn unmap(&self) -> io::Result<()> {
+        unsafe { munmap(self.reservation.address, self.reservation.size) }
+    }
+}
+
+impl Random {
+    pub(super) fn new(prefix: String, reservation: Reservation) -> io::Result<Self> {
+        Ok(Random {
+            prefix,
+            reservation,
+        })
     }
 
-    pub(super) fn epoch_to_path(id: &str, epoch: Epoch) -> CString {
-        CString::new(format!("{id}-{}", u8::from(epoch))).unwrap()
-    }
-
-    pub(super) fn map(
+    pub(crate) fn map(
         &self,
-        file: backend::File,
+        backend: &Backend,
         offset: usize,
         size: NonZeroUsize,
     ) -> io::Result<()> {
+        let file = backend.allocate(format!("{}-{:#x}", self.prefix, offset), size)?;
+
         unsafe {
-            let address = mmap(
-                Some(self.address.byte_add(offset)),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                file,
-            )?;
+            let address = mmap(Some(self.address().byte_add(offset)), size, true, &file)?;
             mbind(address, size)?;
         }
 
         Ok(())
     }
+}
 
-    /// Remove all virtual address space mappings for this region.
-    pub(super) fn unmap(&self) -> io::Result<()> {
-        match (&self.reservation, self.size) {
-            (Some(reservation), _) => unsafe { munmap(reservation.address, reservation.size) },
-            (None, Some(size)) => unsafe { munmap(self.address, size) },
-            (None, None) => Ok(()),
-        }
+impl Region for Random {
+    fn address(&self) -> NonNull<Page> {
+        self.reservation.address
+    }
+
+    fn is_clean(&self) -> bool {
+        false
+    }
+
+    fn id(&self) -> &str {
+        &self.prefix
+    }
+
+    fn unmap(&self) -> io::Result<()> {
+        unsafe { munmap(self.reservation.address, self.reservation.size) }
     }
 }
 
@@ -202,8 +195,8 @@ unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
 unsafe fn mmap(
     address: Option<NonNull<Page>>,
     size: NonZeroUsize,
-    protect: libc::c_int,
-    file: backend::File,
+    rw: bool,
+    file: &backend::File,
 ) -> io::Result<NonNull<Page>> {
     let actual = match libc::mmap64(
         address
@@ -211,7 +204,11 @@ unsafe fn mmap(
             .unwrap_or_else(ptr::null_mut)
             .cast(),
         size.get(),
-        protect,
+        if rw {
+            libc::PROT_READ | libc::PROT_WRITE
+        } else {
+            libc::PROT_NONE
+        },
         file.flags() | address.map(|_| libc::MAP_FIXED).unwrap_or(0),
         file.fd(),
         file.offset,

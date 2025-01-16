@@ -1,6 +1,5 @@
 use crate::allocator;
 use crate::atomic::Version;
-use crate::recover;
 use crate::recover::StateUnpacked;
 use crate::thread;
 use crate::Atomic;

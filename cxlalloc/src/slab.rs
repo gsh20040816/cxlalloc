@@ -20,21 +20,16 @@ use core::ptr::NonNull;
 
 use crate::data;
 use crate::heap::Length;
-use crate::raw;
 use crate::size;
 use crate::thread;
 
 pub(crate) struct Slab<'raw, B> {
     descriptors: Slice<'raw, B>,
-    _raw: PhantomData<&'raw raw::Region>,
 }
 
 impl<'raw, B> Slab<'raw, B> {
     pub(crate) fn new(descriptors: Slice<'raw, B>) -> Self {
-        Self {
-            descriptors,
-            _raw: PhantomData,
-        }
+        Self { descriptors }
     }
 
     pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
@@ -131,7 +126,7 @@ pub(crate) struct Descriptor<B> {
 
 pub(crate) struct Slice<'raw, B> {
     base: NonNull<Descriptor<B>>,
-    _raw: PhantomData<&'raw raw::Region>,
+    _raw: PhantomData<&'raw ()>,
 }
 
 impl<B> Slice<'_, B> {

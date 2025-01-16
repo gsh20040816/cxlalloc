@@ -3,8 +3,6 @@ use std::io;
 
 use crate::raw;
 use crate::raw::backend;
-use crate::raw::region::Reservation;
-use crate::raw::Region;
 
 #[derive(Clone, Debug, Default)]
 pub struct Mmap;
@@ -14,24 +12,11 @@ impl backend::Impl for Mmap {
         "mmap"
     }
 
-    fn allocate(
-        &self,
-        id: String,
-        reservation: Option<Reservation>,
-        size: usize,
-    ) -> io::Result<Region> {
-        Region::new(id, backend::File::default(), reservation, size)
+    fn allocate(&self, _: String, _: NonZeroUsize) -> io::Result<backend::File> {
+        Ok(backend::File::default())
     }
 
-    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
-        region.map(backend::File::default(), offset, size)
-    }
-
-    fn unmap(&self, region: &Region) -> io::Result<()> {
-        region.unmap()
-    }
-
-    fn free(&self, _: &Region) -> io::Result<()> {
+    fn free(&self, _: String) -> io::Result<()> {
         Ok(())
     }
 }

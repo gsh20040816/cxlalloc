@@ -5,13 +5,13 @@ pub(crate) mod region;
 pub use backend::Backend;
 pub use builder::Builder;
 pub(crate) use region::Page;
-pub(crate) use region::Region;
+use region::Region;
 pub(crate) use region::Reservation;
 
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
 use core::ffi;
-use core::ptr;
+use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use std::io;
 
@@ -41,7 +41,7 @@ pub struct Raw {
     // - Huge heap
     //   - Next slot: 1
     //   - Slot array: # huge allocations (extend)
-    pub(crate) shared: Region,
+    pub(crate) shared: region::Fixed,
 
     // - Local persistent roots: # threads
     // - Small heap
@@ -49,14 +49,14 @@ pub struct Raw {
     //   - Sized free lists: # sizes * # threads
     // - Huge heap
     //   - Descriptor lists: # threads
-    pub(crate) owned: Region,
+    pub(crate) owned: region::Fixed,
 
     // Slab metadata regions
-    pub(crate) slab_small: Region,
+    pub(crate) slab_small: region::Sequential,
 
     // Data regions, must be contiguous
-    pub(crate) data_small: Region,
-    pub(crate) data_huge: Region,
+    pub(crate) data_small: region::Sequential,
+    pub(crate) data_huge: region::Random,
 
     /// Initial capacity
     pub(crate) capacity: u32,
@@ -89,7 +89,7 @@ macro_rules! layout {
                 layout = next;
                 offsets.push(offset);
             }
-            (layout.pad_to_align().size(), offsets)
+            (NonZeroUsize::new(layout.pad_to_align().size()).unwrap(), offsets)
         }
     };
 }
@@ -118,17 +118,21 @@ impl Raw {
 
         let (shared_size, _) = Self::shared();
         // FIXME: support extension for huge allocation region?
-        let shared = backend.allocate(format!("{id}-shared"), None, shared_size)?;
+        let shared = region::Fixed::new(&backend, format!("{id}-shared"), shared_size)?;
 
         let (owned_size, _) = Self::owned();
-        let owned = backend.allocate(format!("{id}-owned"), None, owned_size)?;
+        let owned = region::Fixed::new(&backend, format!("{id}-owned"), owned_size)?;
 
-        let slab_small_size = Slab::<size::Small>::layout(slab_count).unwrap().size();
-
+        let slab_small_size = Slab::<size::Small>::layout(slab_count)
+            .ok()
+            .map(|layout| layout.size())
+            .and_then(NonZeroUsize::new)
+            .unwrap();
         let slab_small_reservation = Reservation::new(Reservation::TIB)?;
-        let slab_small = backend.allocate(
+        let slab_small = region::Sequential::new(
+            &backend,
             format!("{id}-ss"),
-            Some(slab_small_reservation),
+            slab_small_reservation,
             slab_small_size,
         )?;
 
@@ -139,14 +143,19 @@ impl Raw {
         let (data_small_reservation, data_huge_reservation) =
             data_reservation.split(Reservation::TIB);
 
-        let data_small_size = Data::<size::Small>::layout(slab_count).unwrap().size();
-        let data_small = backend.allocate(
+        let data_small_size = Data::<size::Small>::layout(slab_count)
+            .ok()
+            .map(|layout| layout.size())
+            .and_then(NonZeroUsize::new)
+            .unwrap();
+        let data_small = region::Sequential::new(
+            &backend,
             format!("{id}-ds"),
-            Some(data_small_reservation),
+            data_small_reservation,
             data_small_size,
         )?;
 
-        let data_huge = backend.allocate(format!("{id}-dh"), Some(data_huge_reservation), 0)?;
+        let data_huge = region::Random::new(format!("{id}-dh"), data_huge_reservation)?;
 
         Ok(Self {
             backend,
@@ -239,7 +248,7 @@ impl Raw {
         self.regions().any(Region::is_clean)
     }
 
-    fn shared() -> (usize, Vec<usize>) {
+    fn shared() -> (NonZeroUsize, Vec<usize>) {
         layout!(
             allocator::Shared<()>,
             heap::Shared<size::Small>,
@@ -247,7 +256,7 @@ impl Raw {
         )
     }
 
-    fn owned() -> (usize, Vec<usize>) {
+    fn owned() -> (NonZeroUsize, Vec<usize>) {
         layout!(
             thread::Array<UnsafeCell<allocator::Owned<()>>>,
             thread::Array<UnsafeCell<heap::Owned<size::Small>>>,
@@ -255,9 +264,9 @@ impl Raw {
         )
     }
 
-    fn regions(&self) -> impl Iterator<Item = &Region> {
+    fn regions(&self) -> impl Iterator<Item = &dyn Region> {
         [
-            &self.shared,
+            &self.shared as &dyn Region,
             &self.owned,
             &self.slab_small,
             &self.data_small,
@@ -283,10 +292,6 @@ impl Drop for Raw {
             return;
         }
 
-        self.regions()
-            .for_each(|region| match self.backend.free(region) {
-                Ok(()) => (),
-                Err(error) => log::error!("Failed to free {} region: {:?}", region.id(), error),
-            });
+        todo!()
     }
 }
