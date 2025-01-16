@@ -41,13 +41,34 @@ impl<'raw> Huge<'raw> {
         data: Data<'raw, size::Huge>,
     ) -> Self {
         Self {
-            // FIXME: recover state
             allocator: Allocator::default(),
             backend,
             region,
             shared,
             owned,
             data,
+        }
+    }
+
+    // Recover huge allocator DRAM state
+    pub(crate) fn focus(&mut self, data: &Data<'raw, size::Small>, id: thread::Id) {
+        for slot in self
+            .shared
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, owner)| owner.load() == Some(id))
+            .map(|(slot, _)| slab::Index::new_huge(slot))
+        {
+            self.allocator.claim(slot);
+        }
+
+        let walk = self.peek(data, id);
+        for descriptor in
+            Self::trace(walk).filter(|descriptor| !descriptor.free.load(Ordering::Relaxed))
+        {
+            self.allocator
+                .allocate(u64::from(descriptor.offset) as usize, descriptor.size.get());
         }
     }
 
@@ -83,7 +104,7 @@ impl<'raw> Huge<'raw> {
                     *out = descriptor;
 
                     // point at previous head in data region
-                    if let Some(prev) = self.peek(id, data) {
+                    if let Some(prev) = self.peek(data, id) {
                         unsafe {
                             crate::Box::link(&mut out.next, prev);
                             crate::fence();
@@ -166,16 +187,11 @@ impl<'raw> Huge<'raw> {
     ) -> Option<&Descriptor> {
         let slot = offset.into_index();
         let owner = self[slot].load().unwrap();
-        self.trace(owner, data)
-            .find(|descriptor| descriptor.offset == offset)
+        let walk = self.peek(data, owner);
+        Self::trace(walk).find(|descriptor| descriptor.offset == offset)
     }
 
-    fn trace(
-        &self,
-        id: thread::Id,
-        data: &Data<'raw, size::Small>,
-    ) -> impl Iterator<Item = &Descriptor> {
-        let mut walk = self.peek(id, data);
+    fn trace(mut walk: Option<&'raw Descriptor>) -> impl Iterator<Item = &'raw Descriptor> {
         std::iter::from_fn(move || {
             let next = walk?;
             walk = next.next.as_deref();
@@ -190,13 +206,10 @@ impl<'raw> Huge<'raw> {
 
     fn claim(&mut self, id: thread::Id) {
         let slot = self.shared.claim(id);
-        self.allocator.free(
-            u32::from(slot) as usize * size::Huge::SIZE_SLAB,
-            size::Huge::SIZE_SLAB,
-        )
+        self.allocator.claim(slot);
     }
 
-    fn peek(&self, id: thread::Id, data: &Data<'raw, size::Small>) -> Option<&Descriptor> {
+    fn peek(&self, data: &Data<'raw, size::Small>, id: thread::Id) -> Option<&'raw Descriptor> {
         self.owned[id]
             .head
             .load()
@@ -238,12 +251,12 @@ impl core::ops::Index<slab::Index<size::Huge>> for Huge<'_> {
 }
 
 pub(crate) struct Owned {
-    pub(crate) head: Atomic<Option<data::Offset<size::Small>>>,
+    head: Atomic<Option<data::Offset<size::Small>>>,
 }
 
 pub(crate) struct Allocator {
-    pub(crate) free: IntervalSet<usize>,
-    pub(crate) index: u64,
+    free: IntervalSet<usize>,
+    index: u64,
 }
 
 impl Default for Allocator {
@@ -256,6 +269,13 @@ impl Default for Allocator {
 }
 
 impl Allocator {
+    fn claim(&mut self, slot: slab::Index<size::Huge>) {
+        self.free(
+            u32::from(slot) as usize * size::Huge::SIZE_SLAB,
+            size::Huge::SIZE_SLAB,
+        )
+    }
+
     fn allocate(&mut self, offset: usize, size: usize) {
         self.index += 1;
         let allocation = (offset, offset + size - 1).to_interval_set();

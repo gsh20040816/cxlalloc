@@ -48,7 +48,9 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
         }
     }
 
-    pub(crate) unsafe fn focus(self, id: thread::Id) -> Allocator<'raw, view::Focus, S, O> {
+    pub(crate) unsafe fn focus(mut self, id: thread::Id) -> Allocator<'raw, view::Focus, S, O> {
+        self.huge.focus(&self.small.data, id);
+
         Allocator {
             id,
             shared: self.shared,
