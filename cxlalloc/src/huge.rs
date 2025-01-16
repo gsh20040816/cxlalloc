@@ -1,4 +1,5 @@
 use core::ffi;
+use core::num::NonZeroUsize;
 use core::sync::atomic;
 
 use core::ptr::NonNull;
@@ -16,6 +17,7 @@ use interval::IntervalSet;
 use crate::data;
 use crate::raw;
 use crate::raw::Backend;
+use crate::raw::Region;
 use crate::size;
 use crate::size::Bracket;
 use crate::slab;
@@ -26,6 +28,7 @@ use crate::Data;
 pub(crate) struct Huge<'raw> {
     allocator: Allocator,
     backend: &'raw Backend,
+    region: &'raw Region,
     shared: &'raw Shared,
     owned: &'raw thread::Array<Owned>,
     pub(crate) data: Data<'raw, size::Huge>,
@@ -34,6 +37,7 @@ pub(crate) struct Huge<'raw> {
 impl<'raw> Huge<'raw> {
     pub(crate) fn new(
         backend: &'raw Backend,
+        region: &'raw Region,
         shared: &'raw Shared,
         owned: &'raw thread::Array<Owned>,
         data: Data<'raw, size::Huge>,
@@ -42,6 +46,7 @@ impl<'raw> Huge<'raw> {
             // FIXME: recover state
             allocator: Allocator::default(),
             backend,
+            region,
             shared,
             owned,
             data,
@@ -52,7 +57,7 @@ impl<'raw> Huge<'raw> {
         &mut self,
         id: thread::Id,
         data: &Data<'raw, size::Small>,
-        size: usize,
+        size: NonZeroUsize,
         out: &mut Descriptor,
     ) -> *mut ffi::c_void {
         loop {
@@ -93,9 +98,9 @@ impl<'raw> Huge<'raw> {
                     // FIXME: mark descriptor as allocated
 
                     // mmap huge allocation
-                    let region = self.map("", out);
+                    self.map("", out);
 
-                    return region.base().cast().as_ptr();
+                    return self.data.offset_to_pointer(out.offset).as_ptr();
                 }
             }
         }
@@ -111,7 +116,7 @@ impl<'raw> Huge<'raw> {
         &self,
         data: &Data<'raw, size::Small>,
         offset: data::Offset<size::Huge>,
-    ) -> usize {
+    ) -> NonZeroUsize {
         self.find(data, offset).unwrap().size
     }
 
@@ -128,27 +133,26 @@ impl<'raw> Huge<'raw> {
         true
     }
 
-    fn map(&self, name: &str, descriptor: &Descriptor) -> raw::Region {
+    fn map(&self, name: &str, descriptor: &Descriptor) {
         // FIXME: move into Region?
         self.backend
-            .allocate(
-                format!("{}-huge-{}-{}", name, descriptor.id, descriptor.index),
-                Some(self.data.offset_to_pointer(descriptor.offset)),
+            .map(
+                &self.region,
+                u64::from(descriptor.offset) as usize,
                 descriptor.size,
-                None,
             )
             .unwrap()
     }
 
-    fn next(&mut self, id: thread::Id, size: usize) -> Option<Descriptor> {
+    fn next(&mut self, id: thread::Id, size: NonZeroUsize) -> Option<Descriptor> {
         let descriptor = self
             .allocator
             .free
             .iter()
-            .find(|interval| interval.size() >= size)
+            .find(|interval| interval.size() >= size.get())
             .map(|interval| interval.lower())
             .inspect(|offset| {
-                self.allocator.allocate(*offset, size);
+                self.allocator.allocate(*offset, size.get());
             })
             .map(|offset| Descriptor {
                 offset: self.data.checked_offset_to_offset(offset).unwrap(),
@@ -283,7 +287,7 @@ pub(crate) struct Descriptor {
     id: thread::Id,
     index: u64,
     offset: data::Offset<size::Huge>,
-    size: usize,
+    size: NonZeroUsize,
     next: Option<crate::Box<Descriptor>>,
     free: AtomicBool,
 }

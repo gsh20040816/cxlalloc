@@ -1,7 +1,7 @@
-use core::ffi;
 use core::num::NonZeroUsize;
-use core::ptr::NonNull;
 use std::io;
+use std::os::fd::AsFd as _;
+
 use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd as _;
 use std::os::fd::OwnedFd;
@@ -10,6 +10,7 @@ use crate::extend::Epoch;
 use crate::raw;
 use crate::raw::backend;
 use crate::raw::Region;
+use crate::raw::Reservation;
 use crate::SIZE_PAGE;
 
 #[derive(Debug)]
@@ -23,9 +24,8 @@ impl backend::Impl for Shm {
     fn allocate(
         &self,
         id: String,
-        address: Option<NonNull<ffi::c_void>>,
+        reservation: Option<Reservation>,
         size: usize,
-        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
         let size = size.next_multiple_of(SIZE_PAGE);
 
@@ -62,37 +62,35 @@ impl backend::Impl for Shm {
                 return Err(io::Error::last_os_error());
             }
 
-            let region = Region::new(
+            Region::new(
                 id,
-                address,
+                backend::File::new(fd.as_fd(), 0, clean),
+                reservation,
                 size,
-                reserved,
-                Some((fd.as_raw_fd(), 0, clean)),
-            )?;
-            Ok(region)
+            )
         }
     }
 
-    fn extend(&self, region: &Region) -> io::Result<()> {
+    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
         unsafe {
-            let epoch = region.advance_epoch();
-            let (address, size, path) = region.epoch_to_metadata(epoch);
-
-            let fd = match libc::shm_open(
-                path.as_c_str().as_ptr(),
-                libc::O_RDWR | libc::O_CREAT,
-                libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
-            ) {
-                -1 => return Err(std::io::Error::last_os_error()),
-                fd => OwnedFd::from_raw_fd(fd),
-            };
-
-            if libc::ftruncate64(fd.as_raw_fd(), size.try_into().unwrap()) == -1 {
-                return Err(io::Error::last_os_error());
-            }
-
-            region.extend(address, size, Some((fd.as_raw_fd(), 0)))?;
-            Ok(())
+            todo!()
+            // let epoch = region.advance_epoch();
+            // let (address, size, path) = region.epoch_to_metadata(epoch);
+            //
+            // let fd = match libc::shm_open(
+            //     path.as_c_str().as_ptr(),
+            //     libc::O_RDWR | libc::O_CREAT,
+            //     libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
+            // ) {
+            //     -1 => return Err(std::io::Error::last_os_error()),
+            //     fd => OwnedFd::from_raw_fd(fd),
+            // };
+            //
+            // if libc::ftruncate64(fd.as_raw_fd(), size.try_into().unwrap()) == -1 {
+            //     return Err(io::Error::last_os_error());
+            // }
+            //
+            // region.map(backend::File::new(fd.as_fd(), 0, true), offset, size)
         }
     }
 

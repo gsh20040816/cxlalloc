@@ -1,6 +1,7 @@
 use core::ffi;
 use core::marker::PhantomData;
 use core::mem;
+use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -138,7 +139,7 @@ where
 impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
         if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
-            return self.huge.class(&self.small.data, offset);
+            return self.huge.class(&self.small.data, offset).get();
         }
 
         let offset = self.small.data.pointer_to_offset(pointer);
@@ -180,7 +181,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let class = match class {
             None => {
                 stat::inc(&stat::ALLOCATE_LARGE);
-                let size = size.next_multiple_of(crate::SIZE_PAGE);
+                let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
 
                 let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
                 let index = self.small.peek(context, class).unwrap();

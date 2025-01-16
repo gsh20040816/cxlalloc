@@ -4,7 +4,9 @@ pub(crate) mod region;
 
 pub use backend::Backend;
 pub use builder::Builder;
+pub(crate) use region::Page;
 pub(crate) use region::Region;
+pub(crate) use region::Reservation;
 
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
@@ -16,7 +18,6 @@ use std::io;
 use crate::allocator;
 use crate::heap;
 use crate::huge;
-use crate::raw::region::RESERVATION;
 use crate::size;
 use crate::slab;
 use crate::thread;
@@ -117,45 +118,35 @@ impl Raw {
 
         let (shared_size, _) = Self::shared();
         // FIXME: support extension for huge allocation region?
-        let shared = backend.allocate(format!("{id}-shared"), None, shared_size, None)?;
+        let shared = backend.allocate(format!("{id}-shared"), None, shared_size)?;
 
         let (owned_size, _) = Self::owned();
-        let owned = backend.allocate(format!("{id}-owned"), None, owned_size, None)?;
+        let owned = backend.allocate(format!("{id}-owned"), None, owned_size)?;
 
         let slab_small_size = Slab::<size::Small>::layout(slab_count).unwrap().size();
-        let slab_small =
-            backend.allocate(format!("{id}-ss"), None, slab_small_size, Some(RESERVATION))?;
 
-        // This is hacky, but data regions must be contiguous to support
-        // applications that rely on offset pointers.
-        let address = match unsafe {
-            libc::mmap64(
-                ptr::null_mut(),
-                RESERVATION.get() * 2,
-                libc::PROT_NONE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-                -1,
-                0,
-            )
-        } {
-            libc::MAP_FAILED => return Err(io::Error::last_os_error()),
-            address => address,
-        };
+        let slab_small_reservation = Reservation::new(Reservation::TIB)?;
+        let slab_small = backend.allocate(
+            format!("{id}-ss"),
+            Some(slab_small_reservation),
+            slab_small_size,
+        )?;
+
+        // Data regions must be contiguous to support applications that rely on offset pointers.
+        let data_reservation =
+            Reservation::new(Reservation::TIB.saturating_add(Reservation::TIB.get()))?;
+
+        let (data_small_reservation, data_huge_reservation) =
+            data_reservation.split(Reservation::TIB);
 
         let data_small_size = Data::<size::Small>::layout(slab_count).unwrap().size();
         let data_small = backend.allocate(
             format!("{id}-ds"),
-            NonNull::new(address),
+            Some(data_small_reservation),
             data_small_size,
-            None,
         )?;
 
-        let data_huge = backend.allocate(
-            format!("{id}-dh"),
-            NonNull::new(address.wrapping_byte_add(RESERVATION.get())),
-            0,
-            None,
-        )?;
+        let data_huge = backend.allocate(format!("{id}-dh"), Some(data_huge_reservation), 0)?;
 
         Ok(Self {
             backend,
@@ -188,8 +179,8 @@ impl Raw {
     fn unfocused<S, O>(&self) -> allocator::Allocator<view::Unfocus, S, O> {
         let (_, shared_offsets) = Self::shared();
         let (_, owned_offsets) = Self::owned();
-        let shared = self.shared.base().as_ptr();
-        let owned = self.owned.base().as_ptr();
+        let shared = self.shared.address().as_ptr();
+        let owned = self.owned.address().as_ptr();
         unsafe {
             // Several issues here:
             // - Calls layout code at runtime. Ideally the layout information could be
@@ -222,11 +213,12 @@ impl Raw {
                         .cast::<thread::Array<UnsafeCell<heap::Owned<size::Small>>>>()
                         .as_ref()
                         .unwrap(),
-                    Slab::new(slab::Slice::from_raw(self.slab_small.base().cast())),
-                    Data::<size::Small>::new(self.data_small.base()),
+                    Slab::new(slab::Slice::from_raw(self.slab_small.address().cast())),
+                    Data::<size::Small>::new(self.data_small.address()),
                 ),
                 Huge::new(
                     &self.backend,
+                    &self.data_huge,
                     shared
                         .wrapping_byte_add(shared_offsets[2])
                         .cast::<huge::Shared>()
@@ -237,7 +229,7 @@ impl Raw {
                         .cast::<thread::Array<huge::Owned>>()
                         .as_ref()
                         .unwrap(),
-                    Data::<size::Huge>::new(self.data_huge.base()),
+                    Data::<size::Huge>::new(self.data_huge.address()),
                 ),
             )
         }
@@ -286,18 +278,6 @@ impl Drop for Raw {
             Ok(()) => (),
             Err(error) => log::error!("Failed to unmap {} region: {:?}", region.id(), error),
         });
-
-        // HACK: need to unmap contiguous data region
-        if unsafe {
-            libc::munmap(
-                self.data_small.base().as_ptr().cast(),
-                RESERVATION.get() * 2,
-            )
-        } != 0
-        {
-            let error = io::Error::last_os_error();
-            log::error!("Failed to unmap data region: {:?}", error);
-        }
 
         if !self.free {
             return;

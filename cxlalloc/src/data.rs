@@ -10,12 +10,13 @@ use ribbit::private::u12;
 
 use crate::bitset::Bit;
 use crate::raw;
+use crate::raw::Page;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
 
 pub(crate) struct Data<'raw, B> {
-    pub(crate) base: NonNull<u64>,
+    pub(crate) base: NonNull<Page>,
     _raw: PhantomData<&'raw raw::Region>,
     _bracket: PhantomData<B>,
 }
@@ -24,7 +25,7 @@ impl<B> Data<'_, B>
 where
     B: size::Bracket,
 {
-    pub(crate) fn new(base: NonNull<u64>) -> Self {
+    pub(crate) fn new(base: NonNull<Page>) -> Self {
         Self {
             base: unsafe { base.byte_sub(B::SIZE_SLAB) },
             _raw: PhantomData,
@@ -48,7 +49,13 @@ where
 
     pub(crate) fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<Offset<B>> {
         // FIXME: check epoch
-        if pointer.as_ptr().cast::<u64>() < self.base.as_ptr().wrapping_byte_add(B::SIZE_SLAB) {
+        if pointer.as_ptr().cast::<u64>()
+            < self
+                .base
+                .as_ptr()
+                .cast::<u64>()
+                .wrapping_byte_add(B::SIZE_SLAB)
+        {
             None
         } else {
             Some(self.pointer_to_offset(pointer))

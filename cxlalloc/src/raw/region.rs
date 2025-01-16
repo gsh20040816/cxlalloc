@@ -7,9 +7,43 @@ use std::io;
 use std::os::fd::RawFd;
 
 use crate::extend::Epoch;
+use crate::raw::backend;
 use crate::Atomic;
 
-pub(crate) const RESERVATION: NonZeroUsize = NonZeroUsize::new(1 << 40).unwrap();
+#[repr(C, align(4096))]
+pub(crate) struct Page([u8; 4096]);
+
+pub(crate) struct Reservation {
+    address: NonNull<Page>,
+    size: NonZeroUsize,
+}
+
+impl Reservation {
+    pub(crate) const TIB: NonZeroUsize = NonZeroUsize::new(1 << 40).unwrap();
+
+    // In order to keep heap regions contiguous when extending, we need
+    // to reserve an unbacked region of virtual address space,
+    // and then overwrite it later via `mmap` with `MMAP_FIXED`.
+    pub(crate) fn new(size: NonZeroUsize) -> io::Result<Self> {
+        let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
+        let address = unsafe { mmap(None, size, libc::PROT_NONE, backend::File::default())? };
+        Ok(Self { address, size })
+    }
+
+    pub(crate) fn split(self, at: NonZeroUsize) -> (Self, Self) {
+        let lo = Self {
+            address: self.address,
+            size: at,
+        };
+
+        let hi = Self {
+            address: unsafe { self.address.byte_add(at.get()) },
+            size: NonZeroUsize::new(self.size.get() - at.get()).unwrap(),
+        };
+
+        (lo, hi)
+    }
+}
 
 pub(crate) struct Region {
     /// Unique identifier of this memory region
@@ -20,16 +54,15 @@ pub(crate) struct Region {
     offset: i64,
 
     /// Size of this memory region in bytes
-    size: usize,
+    size: Option<NonZeroUsize>,
 
-    /// Size of the reserved virtual address space in bytes
-    reserved: usize,
+    reservation: Option<Reservation>,
 
     /// Number of heap extensions this memory region has undergone.
     epoch: Atomic<Epoch>,
 
     /// Starting address of mapped region
-    base: NonNull<u64>,
+    address: NonNull<Page>,
 
     /// Whether this is a new region
     clean: bool,
@@ -38,120 +71,46 @@ pub(crate) struct Region {
 impl Region {
     pub(super) fn new(
         id: String,
-        address: Option<NonNull<ffi::c_void>>,
+        file: backend::File,
+        reservation: Option<Reservation>,
         size: usize,
-        reserved: Option<NonZeroUsize>,
-        file: Option<(RawFd, i64, bool)>,
     ) -> io::Result<Self> {
-        let reserved = reserved.map(|reserved| {
-            assert!(
-                reserved.get() >= size,
-                "Reservation {} must be larger than size {}",
-                reserved,
-                size
-            );
-
-            reserved.get().next_multiple_of(crate::SIZE_PAGE)
-        });
         let size = size.next_multiple_of(crate::SIZE_PAGE);
-        let address = address.map(NonNull::as_ptr).unwrap_or_else(ptr::null_mut);
-
-        // In order to keep heap regions contiguous when extending, we need
-        // to reserve an unbacked region of virtual address space via `mmap` with
-        // `PROT_NONE`, and then overwrite it later via `mmap` with `MMAP_FIXED`.
-        let reservation = match reserved {
-            None => address,
-            Some(size) => match unsafe {
-                libc::mmap64(
-                    address,
+        let size = NonZeroUsize::new(size);
+        let address = match size {
+            None => reservation
+                .as_ref()
+                .map(|reservation| reservation.address)
+                .unwrap(),
+            Some(size) => unsafe {
+                let address = mmap(
+                    reservation.as_ref().map(|reservation| reservation.address),
                     size,
-                    libc::PROT_NONE,
-                    libc::MAP_PRIVATE
-                        | libc::MAP_ANONYMOUS
-                        | if !address.is_null() {
-                            libc::MAP_FIXED_NOREPLACE
-                        } else {
-                            0
-                        },
-                    -1,
-                    0,
-                )
-            } {
-                libc::MAP_FAILED => return Err(io::Error::last_os_error()),
-                address => address,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    file,
+                )?;
+                mbind(address, size)?;
+                address
             },
         };
 
-        let (fd, offset, flags, clean) = match file {
-            Some((fd, offset, clean)) => (fd, offset, libc::MAP_SHARED_VALIDATE, clean),
-            None => (-1, 0, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, true),
-        };
-
-        let base = if size == 0 {
-            // FIXME: hack to support huge allocation region
-            assert!(!reservation.is_null());
-            NonNull::new(reservation).unwrap()
-        } else {
-            match unsafe {
-                libc::mmap64(
-                    reservation,
-                    size,
-                    libc::PROT_READ | libc::PROT_WRITE,
-                    flags
-                        | if !reservation.is_null() {
-                            libc::MAP_FIXED
-                        } else {
-                            0
-                        },
-                    fd,
-                    offset,
-                )
-            } {
-                libc::MAP_FAILED => {
-                    // Save `mmap64` error before calling `munmap`.
-                    let error = io::Error::last_os_error();
-                    if unsafe { libc::munmap(reservation, reserved.unwrap_or(size)) != 0 } {
-                        log::warn!("Failed to munmap reserved virtual address space");
-                    }
-                    return Err(error);
-                }
-                address => NonNull::new(address).unwrap(),
-            }
-        };
-
-        unsafe {
-            mbind(base.as_ptr(), size).expect("Failed to mbind");
-        }
-
         Ok(Region {
             id,
-            offset,
+            offset: file.offset,
             size,
-            reserved: reserved.unwrap_or(size),
+            reservation,
             epoch: Atomic::new(Epoch::default()),
-            base: base.cast(),
-            clean,
+            address: address.cast(),
+            clean: file.clean,
         })
-    }
-
-    pub(crate) fn reconstruct(id: String, base: NonNull<u64>, size: usize, offset: i64) -> Self {
-        Region {
-            id,
-            offset,
-            size,
-            reserved: size,
-            epoch: Atomic::new(Epoch::default()),
-            base,
-            clean: false,
-        }
     }
 
     pub(crate) fn id(&self) -> &str {
         &self.id
     }
 
-    pub(crate) fn base(&self) -> NonNull<u64> {
-        self.base
+    pub(crate) fn address(&self) -> NonNull<Page> {
+        self.address
     }
 
     #[cfg_attr(not(feature = "backend-ivshmem"), allow(unused))]
@@ -160,7 +119,7 @@ impl Region {
     }
 
     pub(crate) fn size(&self) -> usize {
-        self.size
+        self.size.map(NonZeroUsize::get).unwrap_or_default()
     }
 
     pub(crate) fn is_clean(&self) -> bool {
@@ -190,69 +149,86 @@ impl Region {
     }
 
     fn epoch_to_address(&self, epoch: Epoch) -> *mut ffi::c_void {
-        self.base()
+        self.address()
             .as_ptr()
-            .wrapping_byte_add(epoch.offset(self.size as u32) as usize)
+            .wrapping_byte_add(epoch.offset(self.size() as u32) as usize)
             .cast()
     }
 
     fn epoch_to_size(&self, epoch: Epoch) -> usize {
-        epoch.partial(self.size as u32) as usize
+        epoch.partial(self.size() as u32) as usize
     }
 
     pub(super) fn epoch_to_path(id: &str, epoch: Epoch) -> CString {
         CString::new(format!("{id}-{}", u8::from(epoch))).unwrap()
     }
 
-    pub(super) fn extend(
+    pub(super) fn map(
         &self,
-        address: *mut libc::c_void,
-        size: usize,
-        file: Option<(RawFd, i64)>,
-    ) -> io::Result<*mut ffi::c_void> {
-        let (fd, offset, flags) = match file {
-            Some((fd, offset)) => (fd, offset, libc::MAP_SHARED_VALIDATE),
-            None => (-1, 0, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS),
-        };
-
-        match unsafe {
-            libc::mmap64(
-                address,
+        file: backend::File,
+        offset: usize,
+        size: NonZeroUsize,
+    ) -> io::Result<()> {
+        unsafe {
+            let address = mmap(
+                Some(self.address.byte_add(offset)),
                 size,
                 libc::PROT_READ | libc::PROT_WRITE,
-                flags | libc::MAP_FIXED,
-                fd,
-                offset,
-            )
-        } {
-            libc::MAP_FAILED => Err(io::Error::last_os_error()),
-            actual => {
-                assert_eq!(actual, address);
-
-                unsafe {
-                    mbind(actual, size).expect("Failed to mbind");
-                }
-
-                Ok(actual)
-            }
+                file,
+            )?;
+            mbind(address, size)?;
         }
+
+        Ok(())
     }
 
     /// Remove all virtual address space mappings for this region.
     pub(super) fn unmap(&self) -> io::Result<()> {
-        if self.reserved == 0 {
-            return Ok(());
-        }
-
-        match unsafe { libc::munmap(self.base.as_ptr().cast(), self.reserved) } {
-            0 => Ok(()),
-            _ => Err(io::Error::last_os_error()),
+        match (&self.reservation, self.size) {
+            (Some(reservation), _) => unsafe { munmap(reservation.address, reservation.size) },
+            (None, Some(size)) => unsafe { munmap(self.address, size) },
+            (None, None) => Ok(()),
         }
     }
 }
 
+unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
+    match unsafe { libc::munmap(address.as_ptr().cast(), size.get()) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+
+unsafe fn mmap(
+    address: Option<NonNull<Page>>,
+    size: NonZeroUsize,
+    protect: libc::c_int,
+    file: backend::File,
+) -> io::Result<NonNull<Page>> {
+    let actual = match libc::mmap64(
+        address
+            .map(NonNull::as_ptr)
+            .unwrap_or_else(ptr::null_mut)
+            .cast(),
+        size.get(),
+        protect,
+        file.flags() | address.map(|_| libc::MAP_FIXED).unwrap_or(0),
+        file.fd(),
+        file.offset,
+    ) {
+        libc::MAP_FAILED => return Err(io::Error::last_os_error()),
+        actual => NonNull::new(actual).unwrap().cast::<Page>(),
+    };
+
+    if let Some(expected) = address {
+        assert_eq!(expected, actual);
+    }
+
+    Ok(actual)
+}
+
 // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-pub(crate) unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
     let Some(numa) = std::env::var("CXL_NUMA_NODE")
         .ok()
         .and_then(|numa| numa.parse::<usize>().ok())
@@ -261,20 +237,18 @@ pub(crate) unsafe fn mbind(address: *mut ffi::c_void, size: usize) -> io::Result
     };
 
     let mask = 1u64 << numa;
-    if libc::syscall(
+    match libc::syscall(
         libc::SYS_mbind,
         address,
-        size as u64,
+        size.get(),
         libc::MPOL_BIND | libc::MPOL_F_STATIC_NODES,
         &mask,
         64,
         // MPOL_MF_STRICT
         // https://github.com/torvalds/linux/blob/0c559323bbaabee7346c12e74b497e283aaafef5/include/uapi/linux/mempolicy.h#L48
         1,
-    ) >= 0
-    {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+    ) {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
     }
 }

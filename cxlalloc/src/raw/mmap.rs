@@ -1,10 +1,9 @@
-use core::ffi;
 use core::num::NonZeroUsize;
-use core::ptr::NonNull;
 use std::io;
 
 use crate::raw;
 use crate::raw::backend;
+use crate::raw::region::Reservation;
 use crate::raw::Region;
 
 #[derive(Clone, Debug, Default)]
@@ -18,17 +17,14 @@ impl backend::Impl for Mmap {
     fn allocate(
         &self,
         id: String,
-        address: Option<NonNull<ffi::c_void>>,
+        reservation: Option<Reservation>,
         size: usize,
-        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
-        Region::new(id, address, size, reserved, None)
+        Region::new(id, backend::File::default(), reservation, size)
     }
 
-    fn extend(&self, region: &Region) -> io::Result<()> {
-        let epoch = region.advance_epoch();
-        let (address, size, _) = region.epoch_to_metadata(epoch);
-        region.extend(address, size, None).map(drop)
+    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
+        region.map(backend::File::default(), offset, size)
     }
 
     fn unmap(&self, region: &Region) -> io::Result<()> {

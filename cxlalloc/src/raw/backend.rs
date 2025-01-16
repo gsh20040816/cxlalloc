@@ -17,12 +17,13 @@ pub use ivshmem::Ivshmem;
 #[cfg(feature = "backend-shm")]
 pub use shm::Shm;
 
-use core::ffi;
 use core::num::NonZeroUsize;
-use core::ptr::NonNull;
 use std::io;
+use std::os::fd::AsRawFd as _;
+use std::os::fd::BorrowedFd;
 
 use crate::raw::Region;
+use crate::raw::Reservation;
 
 // Note: we use an enum here to avoid dynamic allocation
 // of a `Box<dyn Backend>` trait object. This is fine
@@ -41,28 +42,26 @@ impl Backend {
     pub(crate) fn allocate(
         &self,
         id: String,
-        address: Option<NonNull<ffi::c_void>>,
+        reservation: Option<Reservation>,
         size: usize,
-        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
         let backend = self.as_backend();
         backend
-            .allocate(id.clone(), address, size, reserved)
+            .allocate(id.clone(), reservation, size)
             .inspect(|region| {
                 log::info!(
-                    "Allocated {} bytes for {} ({:#x?} - {:#x?}) using {} backend",
+                    "Allocated {:#x} bytes for {} ({:#x?} - {:#x?}) using {} backend",
                     region.size(),
                     id,
-                    region.base().as_ptr(),
-                    region.base().as_ptr().wrapping_byte_add(region.size()),
+                    region.address().as_ptr(),
+                    region.address().as_ptr().wrapping_byte_add(region.size()),
                     backend.name(),
                 );
             })
     }
 
-    #[cfg_attr(not(feature = "extend"), allow(dead_code))]
-    pub(crate) fn extend(&self, region: &Region) -> io::Result<()> {
-        self.as_backend().extend(region)
+    pub(crate) fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
+        self.as_backend().map(region, offset, size)
     }
 
     pub(crate) fn unmap(&self, region: &Region) -> io::Result<()> {
@@ -98,14 +97,51 @@ trait Impl: Send + Sync {
     fn allocate(
         &self,
         id: String,
-        address: Option<NonNull<ffi::c_void>>,
+        reservation: Option<Reservation>,
         size: usize,
-        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region>;
 
-    fn extend(&self, region: &Region) -> io::Result<()>;
+    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()>;
 
     fn unmap(&self, region: &Region) -> io::Result<()>;
 
     fn free(&self, region: &Region) -> io::Result<()>;
+}
+
+#[derive(Copy, Clone)]
+pub(super) struct File<'fd> {
+    fd: Option<BorrowedFd<'fd>>,
+    pub(super) offset: i64,
+    pub(super) clean: bool,
+}
+
+impl<'fd> File<'fd> {
+    fn new(fd: BorrowedFd<'fd>, offset: i64, clean: bool) -> Self {
+        Self {
+            fd: Some(fd),
+            offset,
+            clean,
+        }
+    }
+
+    pub(super) fn fd(&self) -> i32 {
+        self.fd.map(|fd| fd.as_raw_fd()).unwrap_or(-1)
+    }
+
+    pub(super) fn flags(&self) -> libc::c_int {
+        match self.fd {
+            Some(_) => libc::MAP_SHARED_VALIDATE,
+            None => libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+        }
+    }
+}
+
+impl Default for File<'static> {
+    fn default() -> Self {
+        File {
+            fd: None,
+            offset: 0,
+            clean: true,
+        }
+    }
 }

@@ -1,25 +1,29 @@
 use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
-use std::fs::File;
+use std::fs;
 use std::io;
+use std::os::fd::AsFd;
 use std::os::fd::AsRawFd as _;
 
 use crate::raw;
 use crate::raw::backend;
+use crate::raw::region;
 use crate::raw::Region;
 use crate::Epoch;
 use crate::SIZE_PAGE;
 
+use super::Reservation;
+
 #[derive(Debug)]
 pub struct Ivshmem {
-    device: File,
+    device: fs::File,
 }
 
 impl Ivshmem {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        File::options()
+        fs::File::options()
             .read(true)
             .write(true)
             .open("/dev/cxl_ivpci0")
@@ -36,9 +40,8 @@ impl backend::Impl for Ivshmem {
     fn allocate(
         &self,
         id: String,
-        address: Option<NonNull<ffi::c_void>>,
+        reservation: Option<Reservation>,
         size: usize,
-        reserved: Option<NonZeroUsize>,
     ) -> io::Result<Region> {
         let path = Region::epoch_to_path(&id, Epoch::default());
         let size = size.next_multiple_of(SIZE_PAGE);
@@ -46,30 +49,30 @@ impl backend::Impl for Ivshmem {
 
         Region::new(
             id,
-            address,
-            size,
-            reserved,
-            Some((
-                self.device.as_raw_fd(),
+            backend::File::new(
+                self.device.as_fd(),
                 allocation.desc.offset as i64,
                 allocation.existing == 0,
-            )),
+            ),
+            reservation,
+            size,
         )
     }
 
-    fn extend(&self, region: &Region) -> io::Result<()> {
-        let epoch = region.advance_epoch();
-        let (address, size, id) = region.epoch_to_metadata(epoch);
-        let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size)?;
-        assert_eq!(allocation.desc.length, size as u64);
+    fn map(&self, region: &Region, offset: usize, size: NonZeroUsize) -> io::Result<()> {
+        // let epoch = region.advance_epoch();
+        // let (address, size, id) = region.epoch_to_metadata(epoch);
+        // let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size)?;
+        // assert_eq!(allocation.desc.length, size as u64);
+        todo!()
 
-        region
-            .extend(
-                address,
-                size,
-                Some((self.device.as_raw_fd(), allocation.desc.offset as i64)),
-            )
-            .map(drop)
+        // region
+        //     .extend(
+        //         address,
+        //         size,
+        //         Some((self.device.as_raw_fd(), allocation.desc.offset as i64)),
+        //     )
+        //     .map(drop)
     }
 
     fn unmap(&self, region: &Region) -> io::Result<()> {
