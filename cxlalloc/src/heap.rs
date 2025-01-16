@@ -76,35 +76,28 @@ impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
 #[repr(C)]
 pub(crate) struct Shared<B> {
     free: slab::stack::Global<B>,
-    bump: cas::Detectable<Bump>,
+    bump: cas::Detectable<Option<slab::Index<B>>>,
 }
 
 impl<B> Shared<B>
 where
     slab::Index<B>: Into<allocator::Index>,
 {
-    pub(crate) fn bump(
-        &self,
-        context: &mut allocator::Context,
-        capacity: u32,
-    ) -> Result<Range<slab::Index<B>>, Epoch> {
-        let bump = self.bump.update(context, |old, version| {
-            let old_len = old.length();
-            let new_len = old_len + BATCH_BUMP_POP;
-
-            if u32::from(new_len) >= old.epoch().total(capacity) {
-                Err(old.epoch())
-            } else {
-                Ok((
-                    old.with_length(new_len),
-                    StateUnpacked::BumpToLocal(BumpToLocal::new(old, version)),
+    pub(crate) fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
+        let start = self
+            .bump
+            .update(context, |old, version| {
+                let new = unsafe { old.unwrap_or(slab::Index::MIN).add(BATCH_BUMP_POP) };
+                Some((
+                    Some(new),
+                    StateUnpacked::BumpToLocal(BumpToLocal::new(old.map(Into::into), version)),
                 ))
-            }
-        })?;
+            })
+            .unwrap();
 
-        let start = slab::Index::from_length(bump.length());
-        let end = slab::Index::from_length(bump.length() + BATCH_BUMP_POP);
-        Ok(start..end)
+        let start = start.unwrap_or(slab::Index::MIN);
+        let end = unsafe { start.add(BATCH_BUMP_POP) };
+        start..end
     }
 
     pub(crate) fn push(
@@ -127,38 +120,6 @@ where
         }
 
         self.free.pop(context, slabs)
-    }
-}
-
-#[ribbit::pack(size = 32, debug, new(vis = ""))]
-#[derive(Copy, Clone)]
-pub(crate) struct Bump {
-    #[ribbit(size = 24)]
-    length: Length,
-    #[ribbit(size = 8)]
-    epoch: Epoch,
-}
-
-#[ribbit::pack(size = 24)]
-#[derive(Copy, Clone)]
-pub(crate) struct Length(u24);
-
-impl From<Length> for u32 {
-    fn from(length: Length) -> Self {
-        length._0().value()
-    }
-}
-
-impl Add<u32> for Length {
-    type Output = Self;
-    fn add(self, rhs: u32) -> Self::Output {
-        Self::new(self._0() + u24::new(rhs))
-    }
-}
-
-impl Display for Length {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        Display::fmt(&u32::from(*self), f)
     }
 }
 
@@ -303,37 +264,30 @@ where
             return self.owned.r#sized[class].peek();
         }
 
-        loop {
+        'slow: {
             if let Some(index) = self.shared.pop(context, &self.slabs) {
                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
                 slab::transfer(&self.slabs, index, None, Some(context.id));
 
                 self.owned.r#unsized.push(&self.slabs, index);
-                break;
+                break 'slow;
             }
 
-            match self.shared.bump(context, self.capacity) {
-                Ok(range) => {
-                    stat::inc(&stat::ALLOCATE_SMALL_BUMP);
-                    slab::transfer_all(
-                        &self.slabs,
-                        range.start,
-                        BATCH_BUMP_POP as usize,
-                        None,
-                        Some(context.id),
-                    );
+            let range = self.shared.bump(context);
+            stat::inc(&stat::ALLOCATE_SMALL_BUMP);
+            slab::transfer_all(
+                &self.slabs,
+                range.start,
+                BATCH_BUMP_POP as usize,
+                None,
+                Some(context.id),
+            );
 
-                    unsafe {
-                        self.slabs.link(range.clone(), None);
-                        self.owned
-                            .r#unsized
-                            .set(Some(range.start), BATCH_BUMP_POP as usize);
-                    }
-                    break;
-                }
-                Err(epoch) => {
-                    todo!()
-                }
+            unsafe {
+                self.slabs.link(range.clone(), None);
+                self.owned
+                    .r#unsized
+                    .set(Some(range.start), BATCH_BUMP_POP as usize);
             }
         }
 

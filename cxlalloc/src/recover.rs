@@ -85,7 +85,7 @@ pub(crate) enum State {
     #[derive(Copy, Clone)]
     BumpToLocal {
         #[ribbit(size = 32)]
-        bump: heap::Bump,
+        start: Option<Index>,
 
         #[ribbit(size = 16)]
         version: Version,

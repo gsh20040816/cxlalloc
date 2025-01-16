@@ -19,7 +19,6 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::data;
-use crate::heap::Length;
 use crate::size;
 use crate::thread;
 
@@ -52,6 +51,10 @@ pub(crate) struct Index<B> {
     _bracket: B,
 }
 
+impl<B> Index<B> {
+    pub(crate) const MIN: Self = Self::new(NonZeroU32::MIN);
+}
+
 impl Index<size::Huge> {
     pub(crate) fn new_huge(slot: usize) -> Self {
         Self::new(NonZeroU32::MIN.checked_add(slot as u32).unwrap())
@@ -75,12 +78,6 @@ impl<B> PartialEq for Index<B> {
 }
 
 impl<B> Index<B> {
-    pub(crate) fn from_length(length: Length) -> Self {
-        NonZeroU32::new(u32::from(length) + 1)
-            .map(Self::new)
-            .unwrap()
-    }
-
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
         self.value().checked_add(count).map(Self::new).unwrap()
     }

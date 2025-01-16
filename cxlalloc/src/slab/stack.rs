@@ -76,10 +76,10 @@ where
         tail: Index<B>,
     ) {
         self.head
-            .update::<_, core::convert::Infallible>(context, |old, version| {
+            .update(context, |old, version| {
                 slabs[tail].local.next.store(old);
                 crate::flush(&slabs[tail].local.next, false);
-                Ok((
+                Some((
                     Some(head),
                     recover::StateUnpacked::LocalToGlobal(recover::LocalToGlobal::new(
                         head.into(),
@@ -97,9 +97,9 @@ where
     ) -> Option<Index<B>> {
         self.head
             .update(context, |old, version| {
-                let Some(old) = old else { return Err(()) };
+                let old = old?;
                 let new = slabs[old].local.next.load();
-                Ok((
+                Some((
                     new,
                     recover::StateUnpacked::GlobalToLocal(recover::GlobalToLocal::new(
                         old.into(),
@@ -107,7 +107,6 @@ where
                     )),
                 ))
             })
-            .ok()
             .flatten()
     }
 
