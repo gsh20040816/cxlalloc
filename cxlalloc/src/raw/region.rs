@@ -232,7 +232,7 @@ unsafe fn mmap(
     }
 
     if rw {
-        mbind(actual, size);
+        mbind(actual, size)?;
     }
 
     Ok(actual)

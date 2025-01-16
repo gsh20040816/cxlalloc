@@ -1,10 +1,7 @@
 use core::ffi;
 use core::fmt::Display;
-use core::ops::Add;
 use core::ops::Range;
 use std::io;
-
-use ribbit::private::u24;
 
 use crate::allocator;
 use crate::allocator::Bracket;
@@ -28,7 +25,6 @@ use crate::stat;
 use crate::thread;
 use crate::view;
 use crate::Data;
-use crate::Epoch;
 use crate::Slab;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
@@ -212,7 +208,7 @@ where
         self.slabs[index].remote.owner.load().class()
     }
 
-    pub(crate) fn map(
+    pub(crate) fn map_offset(
         &self,
         backend: &Backend,
         slab: &region::Sequential,

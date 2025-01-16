@@ -96,7 +96,7 @@ impl<'raw> Huge<'raw> {
                     // FIXME: mark descriptor as allocated
 
                     // mmap huge allocation
-                    self.map(out);
+                    self.map_descriptor(out);
 
                     return self.data.offset_to_pointer(out.offset).as_ptr();
                 }
@@ -118,21 +118,16 @@ impl<'raw> Huge<'raw> {
         self.find(data, offset).unwrap().size
     }
 
-    pub(crate) fn try_map(
+    pub(crate) fn map_offset(
         &self,
         data: &Data<'raw, size::Small>,
         offset: data::Offset<size::Huge>,
-    ) -> bool {
-        let Some(descriptor) = self.find(data, offset) else {
-            return false;
-        };
-
-        self.map(descriptor);
-        true
+    ) {
+        let descriptor = self.find(data, offset).unwrap();
+        self.map_descriptor(descriptor);
     }
 
-    fn map(&self, descriptor: &Descriptor) {
-        // FIXME: move into Region?
+    fn map_descriptor(&self, descriptor: &Descriptor) {
         self.region
             .map(
                 self.backend,

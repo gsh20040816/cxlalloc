@@ -3,7 +3,6 @@ use crate::atomic::Version;
 use crate::recover::StateUnpacked;
 use crate::thread;
 use crate::Atomic;
-use crate::Epoch;
 use std::fmt::Debug;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);

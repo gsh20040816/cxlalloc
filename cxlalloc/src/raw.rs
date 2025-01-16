@@ -181,11 +181,11 @@ impl Raw {
         let allocator = self.unfocused::<(), ()>();
 
         if let Some(offset) = allocator.huge.data.checked_pointer_to_offset(address) {
-            allocator.huge.try_map(&allocator.small.data, offset);
+            allocator.huge.map_offset(&allocator.small.data, offset);
         } else if let Some(offset) = allocator.small.data.checked_pointer_to_offset(address) {
             allocator
                 .small
-                .map(&self.backend, &self.slab_small, &self.data_small, offset)
+                .map_offset(&self.backend, &self.slab_small, &self.data_small, offset)
                 .unwrap();
         }
     }
