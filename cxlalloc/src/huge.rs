@@ -24,8 +24,6 @@ use crate::thread;
 use crate::Atomic;
 use crate::Data;
 
-use self::region::Region as _;
-
 pub(crate) struct Huge<'raw> {
     allocator: Allocator,
     backend: &'raw Backend,

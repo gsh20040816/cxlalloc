@@ -306,11 +306,6 @@ impl Raw {
         ]
         .into_iter()
     }
-
-    #[allow(unused)]
-    pub(crate) fn extend(&self) -> io::Result<()> {
-        todo!()
-    }
 }
 
 impl Drop for Raw {

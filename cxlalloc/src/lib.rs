@@ -4,7 +4,6 @@ mod bitset;
 mod r#box;
 mod cas;
 mod data;
-mod extend;
 mod heap;
 mod huge;
 pub mod raw;
@@ -33,7 +32,6 @@ use std::io;
 
 pub use atomic::Atomic;
 pub(crate) use data::Data;
-pub use extend::Epoch;
 pub(crate) use heap::Heap;
 pub(crate) use huge::Huge;
 pub use r#box::Box;
