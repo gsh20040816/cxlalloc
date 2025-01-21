@@ -40,6 +40,7 @@ proptest-state-machine = "0.3"
 ribbit = { git = "https://github.com/nwtnni/ribbit.git" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
+toml = "0.8"
 
 # https://proptest-rs.github.io/proptest/proptest/tips-and-best-practices.html
 [profile.test.package.proptest]

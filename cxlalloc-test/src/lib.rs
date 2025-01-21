@@ -3,10 +3,35 @@ use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Handshake,
-    Allocate { id: u64, size: u64 },
-    Free { id: u64, size: u64, offset: u64 },
-    Load { offset: u64 },
+    Handshake {
+        thread: u64,
+    },
+    Allocate {
+        thread: u64,
+        id: u64,
+        size: u64,
+    },
+    Free {
+        thread: u64,
+        id: u64,
+        size: u64,
+        offset: u64,
+    },
+    Load {
+        thread: u64,
+        offset: u64,
+    },
+}
+
+impl Request {
+    pub fn thread(&self) -> u64 {
+        match self {
+            Request::Handshake { thread }
+            | Request::Allocate { thread, .. }
+            | Request::Free { thread, .. }
+            | Request::Load { thread, .. } => *thread,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

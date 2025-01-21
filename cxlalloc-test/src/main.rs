@@ -24,25 +24,58 @@ struct Cli {
 
     #[clap(short, long, default_value = "target/debug/cxlalloc-test-worker")]
     path: PathBuf,
+
+    #[clap(subcommand)]
+    workload: Workload,
+}
+
+#[derive(Parser)]
+enum Workload {
+    Trace { path: PathBuf },
 }
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
-    for entry in std::fs::read_dir("/dev/shm")?
-        .map(Result::unwrap)
-        .filter(|entry| entry.file_type().unwrap().is_file())
-    {
-        let name = entry.file_name().into_string().unwrap();
-        if name.starts_with(&cli.name) {
-            std::fs::remove_file(entry.path())?;
+    match &cli.workload {
+        Workload::Trace { path } => {
+            let paths = if path.is_dir() {
+                path.read_dir()?
+                    .map(Result::unwrap)
+                    .filter(|entry| entry.metadata().unwrap().is_file())
+                    .map(|entry| entry.path())
+                    .collect::<Vec<_>>()
+            } else if path.is_file() {
+                vec![path.clone()]
+            } else {
+                unimplemented!()
+            };
+
+            let traces = paths
+                .into_iter()
+                .map(|path| {
+                    let data = std::fs::read_to_string(&path)
+                        .with_context(|| anyhow!("Failed to read {}", path.display()))
+                        .unwrap();
+                    (path, data)
+                })
+                .map(|(path, data)| {
+                    toml::from_str::<Vec<Request>>(&data)
+                        .with_context(|| anyhow!("Failed to parse {} as TOML", path.display()))
+                        .map(|trace| (path, trace))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            for (path, trace) in traces {
+                eprintln!("Running {}...", path.display());
+
+                let coordinator = Coordinator::new(&cli)?;
+
+                coordinator.run(trace).context("Coordinator failure")?;
+            }
         }
-    }
-
-    let coordinator = Coordinator::new(cli)?;
-
-    coordinator.run().context("Coordinator failure")?;
+    };
 
     Ok(())
 }
@@ -53,47 +86,24 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn run(mut self) -> anyhow::Result<()> {
-        self.send(0, Request::Allocate {
-            id: 0xdeadbeef,
-            size: 1 << 20,
-        })?;
-
-        let huge = self.allocations.values().next().copied().unwrap();
-
-        self.send(1, Request::Load {
-            offset: huge.offset,
-        })?;
-
-        self.send(1, Request::Free {
-            id: 0xdeadbeef,
-            size: 1 << 20,
-            offset: huge.offset,
-        })?;
-
-        self.send(0, Request::Allocate {
-            id: 0xdeadbeef,
-            size: 1 << 20,
-        })?;
-
-        let huge = self.allocations.values().next().copied().unwrap();
-
-        self.send(1, Request::Load {
-            offset: huge.offset,
-        })?;
-
-        self.send(1, Request::Free {
-            id: 0xdeadbeef,
-            size: 1 << 20,
-            offset: huge.offset,
-        })?;
-
-        self.send(1, Request::Load { offset: 1 << 50 })?;
-
+    fn run(mut self, trace: Vec<Request>) -> anyhow::Result<()> {
+        for request in trace {
+            self.send(request)?;
+        }
         Ok(())
     }
 
-    fn new(cli: Cli) -> anyhow::Result<Self> {
+    fn new(cli: &Cli) -> anyhow::Result<Self> {
+        for entry in std::fs::read_dir("/dev/shm")?
+            .map(Result::unwrap)
+            .filter(|entry| entry.file_type().unwrap().is_file())
+        {
+            let name = entry.file_name().into_string().unwrap();
+            if name.starts_with(&cli.name) {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
+
         let mut children = HashMap::new();
 
         for id in 0..cli.count {
@@ -117,7 +127,7 @@ impl Coordinator {
             };
 
             let tx = IpcSender::connect(socket)?;
-            tx.send(Request::Handshake)?;
+            tx.send(Request::Handshake { thread: id as u64 })?;
 
             log::info!("[C]: connected to {}", id);
             children.insert(id, Child { handle, tx, rx });
@@ -129,8 +139,10 @@ impl Coordinator {
         })
     }
 
-    fn send(&mut self, thread: usize, request: Request) -> anyhow::Result<()> {
-        log::info!("[C]: sending request to {}: {:x?}", thread, request);
+    fn send(&mut self, request: Request) -> anyhow::Result<()> {
+        log::info!("[C]: sending request: {:x?}", request);
+        let thread = request.thread() as usize;
+
         self.children[&thread]
             .tx
             .send(request.clone())
@@ -143,7 +155,14 @@ impl Coordinator {
         log::info!("[C]: received response from {}: {:x?}", thread, response);
 
         match (request, response) {
-            (Request::Allocate { id, size }, Response::Allocate { offset }) => {
+            (
+                Request::Allocate {
+                    thread: _,
+                    id,
+                    size,
+                },
+                Response::Allocate { offset },
+            ) => {
                 assert!(
                     self.allocations
                         .insert(offset, Allocation { id, size, offset })
@@ -152,6 +171,7 @@ impl Coordinator {
             }
             (
                 Request::Free {
+                    thread: _,
                     id: _,
                     size: _,
                     offset,
@@ -160,7 +180,7 @@ impl Coordinator {
             ) => {
                 self.allocations.remove(&offset);
             }
-            (Request::Load { offset }, Response::Load { value }) => {
+            (Request::Load { thread: _, offset }, Response::Load { value }) => {
                 assert_eq!(value, self.allocations[&offset].id);
             }
             (request, response) => unreachable!("Protocol error: {:?} -> {:?}", request, response),
