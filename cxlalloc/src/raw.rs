@@ -115,7 +115,7 @@ impl Raw {
             thread_count,
         );
 
-        let slab_count = size.next_multiple_of(crate::SIZE_SLAB) / crate::SIZE_SLAB;
+        let slab_count = size.next_multiple_of(size::Small::SIZE_SLAB) / size::Small::SIZE_SLAB;
         let id = region::Id::new(id);
 
         let (shared_size, _) = Self::shared();

@@ -47,9 +47,6 @@ const SIZE_METADATA: usize = if cfg!(feature = "validate") { 4 } else { 3 };
 // Number of 64-bit chunks in free bitset, minus three for metadata
 pub(crate) const SIZE_BIT_SET: usize = (SIZE_CACHE_LINE * 8) / 8 - SIZE_METADATA;
 
-// Each chunk maps to 64 blocks of the minimum size class
-pub(crate) const SIZE_SLAB: usize = (SIZE_BIT_SET + SIZE_METADATA) * 64 * size::MIN;
-
 pub(crate) const COUNT_THREAD: usize = 96;
 
 pub(crate) const COUNT_CACHE_SLAB: usize = 32;

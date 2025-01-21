@@ -3,7 +3,6 @@ use std::io;
 use crate::raw::backend;
 use crate::raw::Backend;
 use crate::Raw;
-use crate::SIZE_SLAB;
 
 pub struct Builder {
     pub(super) backend: Backend,
@@ -42,7 +41,7 @@ impl Default for Builder {
     fn default() -> Self {
         Builder {
             backend: Backend::Mmap(backend::Mmap),
-            size: 64 * SIZE_SLAB,
+            size: 0,
             thread_count: 1,
             free: false,
         }

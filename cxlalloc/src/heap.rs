@@ -36,7 +36,7 @@ use crate::COUNT_CACHE_SLAB;
 
 use self::region::Region as _;
 
-pub struct Heap<'raw, L: view::Lens, B> {
+pub struct Heap<'raw, L: view::Lens, B: size::Bracket> {
     /// Capacity is in units of slabs
     pub(crate) capacity: u32,
 
@@ -50,7 +50,7 @@ pub struct Heap<'raw, L: view::Lens, B> {
     pub(crate) data: Data<'raw, B>,
 }
 
-impl<'raw, L: view::Lens, B> Heap<'raw, L, B> {
+impl<'raw, L: view::Lens, B: size::Bracket> Heap<'raw, L, B> {
     pub(crate) fn new(
         capacity: u32,
         shared: &'raw Shared<B>,
@@ -128,7 +128,7 @@ where
     }
 }
 
-pub(crate) struct Owned<B> {
+pub(crate) struct Owned<B: size::Bracket> {
     pub(crate) r#unsized: slab::stack::Local<B>,
     pub(crate) r#sized: size::Array<B, slab::stack::Local<B>>,
 }
@@ -175,11 +175,6 @@ where
 
     #[cold]
     pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
-        // Special case: not in sized list
-        if class.is_max() {
-            return self.r#unsized.push(slabs, index);
-        }
-
         let next = slabs[index].local.next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
@@ -301,7 +296,7 @@ where
     fn allocate(&mut self, context: &mut allocator::Context, class: B) -> Option<slab::Index<B>> {
         stat::inc(&stat::ALLOCATE_SMALL);
 
-        if class.is_min() {
+        if class.is_zero() {
             stat::inc(&stat::ALLOCATE_SMALL_ZERO);
             return None;
         }
