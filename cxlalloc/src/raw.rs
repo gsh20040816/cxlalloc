@@ -279,6 +279,21 @@ impl Raw {
                     Slab::new(slab::Slice::from_raw(self.slab_small.address().cast())),
                     Data::<size::Small>::new(self.data_small.address()),
                 ),
+                Heap::<view::Unfocus, size::Large>::new(
+                    self.capacity,
+                    shared
+                        .wrapping_byte_add(shared_offsets[2])
+                        .cast::<heap::Shared<size::Large>>()
+                        .as_ref()
+                        .unwrap(),
+                    owned
+                        .wrapping_byte_add(owned_offsets[2])
+                        .cast::<thread::Array<UnsafeCell<heap::Owned<size::Large>>>>()
+                        .as_ref()
+                        .unwrap(),
+                    Slab::new(slab::Slice::from_raw(self.slab_small.address().cast())),
+                    Data::<size::Large>::new(self.data_small.address()),
+                ),
                 Huge::new(
                     &self.backend,
                     &self.data_huge,

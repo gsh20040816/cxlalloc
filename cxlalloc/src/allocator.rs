@@ -31,6 +31,7 @@ pub struct Allocator<'raw, L: view::Lens, S: 'raw, O: 'raw> {
     pub(crate) owned: L::Scope<'raw, Owned<O>>,
 
     pub(crate) small: Heap<'raw, L, size::Small>,
+    pub(crate) large: Heap<'raw, L, size::Large>,
     pub(crate) huge: Huge<'raw>,
 }
 
@@ -40,6 +41,7 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
         shared: &'raw Shared<S>,
         owned: L::Scope<'raw, Owned<O>>,
         small: Heap<'raw, L, size::Small>,
+        large: Heap<'raw, L, size::Large>,
         huge: Huge<'raw>,
     ) -> Self {
         Self {
@@ -47,6 +49,7 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
             shared,
             owned,
             small,
+            large,
             huge,
         }
     }
@@ -59,6 +62,7 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
             shared: self.shared,
             owned: L::focus(self.owned, id),
             small: self.small.focus(id),
+            large: self.large.focus(id),
             huge: self.huge,
         }
     }
