@@ -54,7 +54,7 @@ impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
                 .0
                 .compare_exchange(old, State::new(Some(context.id), version, new))
             {
-                Ok(_) => break Some(dbg!(old.inner())),
+                Ok(_) => break Some(old.inner()),
                 Err(next) => old = next,
             }
         }
