@@ -181,6 +181,12 @@ impl Raw {
 
         let allocator = self.unfocused::<(), ()>();
 
+        match allocator.huge.try_map(&allocator.small.data, address) {
+            Ok(()) => return true,
+            Err(crate::Error::OutOfBounds) => (),
+            Err(error) => panic!("Failed to map huge allocation at {:x?}: {}", address, error),
+        }
+
         match allocator.small.try_map(
             &self.backend,
             &self.slab_small,
@@ -190,12 +196,7 @@ impl Raw {
         ) {
             Ok(()) => return true,
             Err(crate::Error::OutOfBounds) => (),
-            Err(error) => panic!("Failed to map {:x?}: {}", address, error),
-        }
-
-        if let Some(offset) = allocator.huge.data.checked_pointer_to_offset(address) {
-            allocator.huge.map_offset(&allocator.small.data, offset);
-            return true;
+            Err(error) => panic!("Failed to extend small heap at {:x?}: {}", address, error),
         }
 
         false

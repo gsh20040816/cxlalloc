@@ -4,6 +4,7 @@ use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
+use std::io;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -117,7 +118,7 @@ impl<'raw> Huge<'raw> {
                     // FIXME: mark descriptor as allocated
 
                     // mmap huge allocation
-                    self.map_descriptor(out);
+                    self.map_descriptor(out).unwrap();
 
                     return self.data.offset_to_pointer(out.offset).as_ptr();
                 }
@@ -139,23 +140,22 @@ impl<'raw> Huge<'raw> {
         self.find(data, offset).unwrap().size
     }
 
-    pub(crate) fn map_offset(
+    pub(crate) fn try_map(
         &self,
         data: &Data<'raw, size::Small>,
-        offset: data::Offset<size::Huge>,
-    ) {
-        let descriptor = self.find(data, offset).unwrap();
-        self.map_descriptor(descriptor);
+        address: NonNull<ffi::c_void>,
+    ) -> crate::Result<()> {
+        let offset = self.data.pointer_to_offset(address);
+        let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
+        self.map_descriptor(descriptor).map_err(crate::Error::from)
     }
 
-    fn map_descriptor(&self, descriptor: &Descriptor) {
-        self.region
-            .map(
-                self.backend,
-                u64::from(descriptor.offset) as usize,
-                descriptor.size,
-            )
-            .unwrap()
+    fn map_descriptor(&self, descriptor: &Descriptor) -> io::Result<()> {
+        self.region.map(
+            self.backend,
+            u64::from(descriptor.offset) as usize,
+            descriptor.size,
+        )
     }
 
     fn next(&mut self, id: thread::Id, size: NonZeroUsize) -> Option<Descriptor> {

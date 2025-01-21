@@ -2,7 +2,6 @@ use core::ffi;
 use core::fmt::Display;
 use core::ops::Range;
 use core::ptr::NonNull;
-use std::io;
 
 use crate::allocator;
 use crate::allocator::Bracket;
