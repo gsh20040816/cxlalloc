@@ -24,6 +24,8 @@ use crate::thread;
 use crate::Atomic;
 use crate::Data;
 
+use self::region::Region as _;
+
 pub(crate) struct Huge<'raw> {
     allocator: Allocator,
     backend: &'raw Backend,
@@ -145,6 +147,10 @@ impl<'raw> Huge<'raw> {
         data: &Data<'raw, size::Small>,
         address: NonNull<ffi::c_void>,
     ) -> crate::Result<()> {
+        if !self.region.contains(address) {
+            return Err(crate::Error::OutOfBounds);
+        }
+
         let offset = self.data.pointer_to_offset(address);
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
         self.map_descriptor(descriptor).map_err(crate::Error::from)

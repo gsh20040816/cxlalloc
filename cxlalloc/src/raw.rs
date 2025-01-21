@@ -19,6 +19,7 @@ use crate::allocator;
 use crate::heap;
 use crate::huge;
 use crate::size;
+use crate::size::Bracket as _;
 use crate::slab;
 use crate::thread;
 use crate::view;
@@ -124,17 +125,26 @@ impl Raw {
         let (owned_size, _) = Self::owned();
         let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
 
-        let slab_small_size = Slab::<size::Small>::layout(slab_count)
+        let (slab_small_lazy, slab_small_size) = match Slab::<size::Small>::layout(slab_count)
             .ok()
             .map(|layout| layout.size())
-            .and_then(NonZeroUsize::new)
-            .unwrap();
+            .map(NonZeroUsize::new)
+            .unwrap()
+        {
+            Some(size) => (false, size),
+            None => (
+                true,
+                NonZeroUsize::new((1 << 30) / size_of::<slab::Descriptor<size::Small>>()).unwrap(),
+            ),
+        };
+
         let slab_small_reservation = Reservation::new(Reservation::TIB)?;
         let slab_small = region::Sequential::new(
             &backend,
             id.with_suffix("ss"),
             slab_small_reservation,
             slab_small_size,
+            slab_small_lazy,
         )?;
 
         // Data regions must be contiguous to support applications that rely on offset pointers.
@@ -144,16 +154,25 @@ impl Raw {
         let (data_small_reservation, data_huge_reservation) =
             data_reservation.split(Reservation::TIB);
 
-        let data_small_size = Data::<size::Small>::layout(slab_count)
+        let (data_small_lazy, data_small_size) = match Data::<size::Small>::layout(slab_count)
             .ok()
             .map(|layout| layout.size())
-            .and_then(NonZeroUsize::new)
-            .unwrap();
+            .map(NonZeroUsize::new)
+            .unwrap()
+        {
+            Some(size) => (false, size),
+            None => (
+                true,
+                NonZeroUsize::new((1 << 30) / size::Small::SIZE_SLAB).unwrap(),
+            ),
+        };
+
         let data_small = region::Sequential::new(
             &backend,
             id.with_suffix("ds"),
             data_small_reservation,
             data_small_size,
+            data_small_lazy,
         )?;
 
         let data_huge = region::Random::new(id.with_suffix("dh"), data_huge_reservation)?;
@@ -208,13 +227,9 @@ impl Raw {
         let shared = self.shared.address().as_ptr();
         let owned = self.owned.address().as_ptr();
         unsafe {
-            // Several issues here:
-            // - Calls layout code at runtime. Ideally the layout information could be
-            //   a const, but some APIs (Layout::extend, Layout::pad_to_align) aren't
-            //   const yet.
-            // - Offsets aren't statically checked to match their memory regions.
-            // - Indexes into offset arrays aren't statically checked to match their struct type.
-            // - This module maybe shouldn't need to know about `thread::Array<UnsafeCell<...>>`?
+            // Note: calls layout code at runtime. Ideally the layout information could be
+            // a const, but some APIs (Layout::extend, Layout::pad_to_align) aren't
+            // const yet.
             allocator::Allocator::new(
                 (),
                 shared

@@ -1,3 +1,4 @@
+use core::ffi;
 use core::fmt::Display;
 use core::fmt::Write as _;
 use core::num::NonZeroUsize;
@@ -136,15 +137,22 @@ impl Sequential {
         id: Id,
         reservation: Reservation,
         size: NonZeroUsize,
+        lazy: bool,
     ) -> io::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let file = backend.allocate(id.with_suffix(0), size)?;
 
-        unsafe { mmap(Some(reservation.address), size, true, &file) }?;
+        let clean = match lazy {
+            true => false,
+            false => {
+                let file = backend.allocate(id.with_suffix(0), size)?;
+                unsafe { mmap(Some(reservation.address), size, true, &file) }?;
+                file.clean
+            }
+        };
 
         Ok(Sequential {
             id,
-            clean: file.clean,
+            clean,
             reservation,
             size,
         })
@@ -189,6 +197,11 @@ impl Region for Sequential {
 impl Random {
     pub(super) fn new(id: Id, reservation: Reservation) -> io::Result<Self> {
         Ok(Random { id, reservation })
+    }
+
+    pub(crate) fn contains(&self, pointer: NonNull<ffi::c_void>) -> bool {
+        pointer >= self.address().cast()
+            && pointer < unsafe { self.address().byte_add(self.reservation.size.get()) }.cast()
     }
 
     pub(crate) fn map(
