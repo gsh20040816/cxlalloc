@@ -14,24 +14,10 @@ pub struct Test {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Handshake {
-        thread: u64,
-    },
-    Allocate {
-        thread: u64,
-        id: u64,
-        size: u64,
-    },
-    Free {
-        thread: u64,
-        id: u64,
-        size: u64,
-        offset: u64,
-    },
-    Load {
-        thread: u64,
-        offset: u64,
-    },
+    Handshake { thread: u64 },
+    Allocate { thread: u64, id: u64, size: u64 },
+    Free { thread: u64, id: u64 },
+    Load { thread: u64, id: u64 },
 }
 
 impl Request {

@@ -79,7 +79,8 @@ fn main() -> anyhow::Result<()> {
 
 struct Coordinator {
     children: HashMap<usize, Child>,
-    allocations: HashMap<u64, Allocation>,
+    by_offset: HashMap<u64, Allocation>,
+    by_id: HashMap<u64, Allocation>,
 }
 
 impl Coordinator {
@@ -136,7 +137,8 @@ impl Coordinator {
 
         Ok(Self {
             children,
-            allocations: HashMap::new(),
+            by_offset: HashMap::new(),
+            by_id: HashMap::new(),
         })
     }
 
@@ -165,24 +167,28 @@ impl Coordinator {
                 Response::Allocate { offset },
             ) => {
                 assert!(
-                    self.allocations
+                    self.by_offset
                         .insert(offset, Allocation { id, size, offset })
                         .is_none()
                 );
+
+                assert!(
+                    self.by_id
+                        .insert(id, Allocation { id, size, offset })
+                        .is_none()
+                );
             }
-            (
-                Request::Free {
-                    thread: _,
-                    id: _,
-                    size: _,
-                    offset,
-                },
-                Response::Free,
-            ) => {
-                self.allocations.remove(&offset);
+            (Request::Free { thread: _, id }, Response::Free) => {
+                let allocation = self.by_id.remove(&id).unwrap();
+                assert_eq!(
+                    allocation,
+                    self.by_offset.remove(&allocation.offset).unwrap(),
+                );
             }
-            (Request::Load { thread: _, offset }, Response::Load { value }) => {
-                assert_eq!(value, self.allocations[&offset].id);
+            (Request::Load { thread: _, id }, Response::Load { value }) => {
+                let allocation = self.by_id[&id];
+                assert_eq!(allocation, self.by_offset[&allocation.offset]);
+                assert_eq!(allocation.id, value);
             }
             (request, response) => unreachable!("Protocol error: {:?} -> {:?}", request, response),
         }
@@ -197,11 +203,9 @@ struct Child {
     rx: IpcReceiver<Response>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct Allocation {
     id: u64,
-    #[expect(unused)]
     size: u64,
-    #[expect(unused)]
     offset: u64,
 }
