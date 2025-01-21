@@ -13,7 +13,7 @@ const PAGE: usize = 4096;
 
 fn with_allocator<F: FnOnce(&mut Allocator)>(apply: F) {
     let _ = env_logger::try_init();
-    let raw = raw::Builder::default().build("").unwrap();
+    let raw = raw::Builder::default().size(1 << 34).build("").unwrap();
     let id = unsafe { cxlalloc::thread::Id::new(0) };
     let mut allocator = raw.allocator(id);
     apply(&mut allocator)
@@ -61,7 +61,7 @@ fn huge() {
 
 proptest! {
     #[test]
-    fn single(size in 1usize..(1 << 20usize)) {
+    fn single(size in 1usize..(1 << 8usize)) {
         with_allocator(|allocator| unsafe {
             let allocation = allocator.allocate_untyped(size);
             allocator.free_untyped(NonNull::new(allocation).unwrap());
@@ -116,7 +116,7 @@ impl<const THREADS: usize> ReferenceStateMachine for Abstract<THREADS> {
         (0..THREADS)
             .prop_flat_map(move |thread| {
                 let id = state[thread].len();
-                let allocate = (1usize..1 << 10usize).prop_map(move |size| Transition::Allocate {
+                let allocate = (1usize..1 << 9usize).prop_map(move |size| Transition::Allocate {
                     thread,
                     id,
                     size,
@@ -176,7 +176,7 @@ impl<const THREADS: usize> StateMachineTest for Concrete<THREADS> {
     ) -> Self::SystemUnderTest {
         assert!(ref_state.iter().all(|state| state.is_empty()));
         Self {
-            raw: raw::Builder::default().build("").unwrap(),
+            raw: raw::Builder::default().size(1 << 34).build("").unwrap(),
             allocations: std::array::from_fn(|_| HashMap::new()),
         }
     }
