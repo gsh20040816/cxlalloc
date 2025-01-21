@@ -54,7 +54,7 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
     action.sa_sigaction = handle as usize;
-    action.sa_flags = libc::SA_SIGINFO;
+    action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
 
     unsafe {
         libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
@@ -148,6 +148,7 @@ impl Worker {
                 .backend(cxlalloc::raw::backend::Shm)
                 .free(false)
                 .thread_count(cli.count)
+                .size(cli.size)
                 .build(&cli.name)
                 .unwrap()
         });

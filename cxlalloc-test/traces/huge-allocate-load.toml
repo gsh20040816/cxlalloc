@@ -1,0 +1,15 @@
+# Load a single huge allocation from a different process
+
+count = 2
+size = 17179869184
+
+[[requests]]
+type = "allocate"
+thread = 0
+id = 0xdeadbeef
+size = 1073741824
+
+[[requests]]
+type = "load"
+thread = 1
+id = 0xdeadbeef
