@@ -1,5 +1,8 @@
 use crate::allocator;
 use crate::atomic::Version;
+use crate::coherence::flush;
+use crate::coherence::sfence;
+use crate::coherence::Invalidate;
 use crate::recover::StateUnpacked;
 use crate::thread;
 use crate::Atomic;
@@ -23,7 +26,7 @@ pub(crate) struct State<T> {
 impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
     pub(crate) fn load(&self, help: &help::Array) -> T {
         let old = self.0.load();
-        self.notify(help, old);
+        self.help(help, old);
         old.inner()
     }
 
@@ -38,12 +41,12 @@ impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
             context.help[context.id].prepare(version);
 
             // Must wait for persistence
-            crate::flush(&context.help[context.id], false);
-            crate::fence();
+            flush(&context.help[context.id], Invalidate::No);
+            sfence();
         }
 
         loop {
-            self.notify(context.help, old);
+            self.help(context.help, old);
 
             let (new, log) = next(old.inner(), version)?;
 
@@ -60,17 +63,17 @@ impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
         }
     }
 
-    fn notify(&self, help: &help::Array, state: State<T>) {
+    fn help(&self, help: &help::Array, state: State<T>) {
         if !cfg!(feature = "recover-cas") {
             return;
         }
 
         if let Some(id) = state.id() {
             let version = state.version();
-            if help[id].must_notify(version) {
-                crate::flush(&self.0, false);
+            if help[id].must_help(version) {
+                flush(&self.0, Invalidate::No);
                 // Notify is a CAS, which will serialize the flush
-                help[id].notify(version);
+                help[id].help(version);
             }
         }
     }
@@ -87,30 +90,30 @@ pub(crate) struct Inner {
 }
 
 impl Help {
-    pub(crate) fn peek(&self) -> Version {
+    fn peek(&self) -> Version {
         self.0.load().version()
     }
 
-    pub(crate) fn detect(&self) -> (Version, bool) {
+    fn detect(&self) -> (Version, bool) {
         let inner = self.0.load();
         (inner.version(), inner.helped())
     }
 
-    pub(crate) fn prepare(&self, version: Version) {
+    fn prepare(&self, version: Version) {
         self.0.store(Inner::new(version, false))
     }
 
-    pub(crate) fn must_notify(&self, version: Version) -> bool {
+    fn must_help(&self, version: Version) -> bool {
         let (current, notified) = self.detect();
         current == version && !notified
     }
 
-    pub(crate) fn notify(&self, version: Version) {
+    fn help(&self, version: Version) {
         let _ = self
             .0
             .compare_exchange(Inner::new(version, false), Inner::new(version, true));
 
-        crate::flush(self, false);
+        flush(self, Invalidate::No);
     }
 }
 

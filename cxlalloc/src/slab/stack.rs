@@ -4,6 +4,8 @@ use crate::allocator;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
+use crate::coherence::flush;
+use crate::coherence::Invalidate;
 use crate::recover;
 use crate::slab::Index;
 use crate::slab::Slice;
@@ -28,14 +30,14 @@ impl<B> Local<B> {
     pub(crate) fn set(&mut self, head: Option<Index<B>>, count: usize) {
         self.count = count;
         self.head = head;
-        crate::flush(&self, false);
+        flush(&self, Invalidate::No);
     }
 
     pub(crate) fn pop(&mut self, slabs: &Slice<B>) -> Option<Index<B>> {
         let index = self.head?;
         self.count -= 1;
         self.head = slabs[index].local.next.load();
-        crate::flush(self, false);
+        flush(self, Invalidate::No);
         Some(index)
     }
 
@@ -46,11 +48,11 @@ impl<B> Local<B> {
 
         let slab = &slabs[index].local;
         slab.next.store(self.head);
-        crate::flush(&slab.next, false);
+        flush(&slab.next, Invalidate::No);
 
         self.count += 1;
         self.head = Some(index);
-        crate::flush(&self.head, false);
+        flush(&self.head, Invalidate::No);
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slice<B>) -> impl Iterator<Item = Index<B>> + 'a {
@@ -78,7 +80,7 @@ where
         self.head
             .update(context, |old, version| {
                 slabs[tail].local.next.store(old);
-                crate::flush(&slabs[tail].local.next, false);
+                flush(&slabs[tail].local.next, Invalidate::No);
                 Some((
                     Some(head),
                     recover::StateUnpacked::LocalToGlobal(recover::LocalToGlobal::new(

@@ -9,6 +9,9 @@ use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
+use crate::coherence::flush;
+use crate::coherence::sfence;
+use crate::coherence::Invalidate;
 use crate::crash;
 use crate::data;
 use crate::raw::region;
@@ -163,7 +166,7 @@ where
         slab.remote
             .owner
             .store(slab::remote::Owner::new(class, Some(context.id)));
-        crate::flush(&slab.remote.owner, false);
+        flush(&slab.remote.owner, Invalidate::No);
 
         let count = self.r#unsized.len();
         self.r#unsized.set(next, count - 1);
@@ -194,7 +197,7 @@ where
             };
 
             slabs[prev].local.next.store(next);
-            crate::flush(&slabs[prev], false);
+            flush(&slabs[prev], Invalidate::No);
         };
 
         self.r#unsized.push(slabs, index);
@@ -351,7 +354,7 @@ where
             slab.remote
                 .owner
                 .store(slab::remote::Owner::new(owner.class(), None));
-            crate::flush(&slab.remote.owner, false);
+            flush(&slab.remote.owner, Invalidate::No);
             self.transfer(index, Some(context.id), None);
         } else {
             stat::inc(&stat::ALLOCATE_FAST_DETACH);
@@ -452,19 +455,19 @@ where
         // FIXME: get rid of CAS
         match slab.meta.compare_exchange(old, new) {
             Ok(_) => {
-                crate::flush(&slab.meta, false);
-                crate::fence();
+                flush(&slab.meta, Invalidate::No);
+                sfence();
                 stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN);
             }
             Err(_) => {
-                crate::flush(&slab.meta, true);
+                flush(&slab.meta, Invalidate::Yes);
                 stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
                 return;
             }
         }
 
         slab.free.clear();
-        crate::flush(&slab.free, false);
+        flush(&slab.free, Invalidate::No);
 
         if cfg!(feature = "validate") {
             assert!(
@@ -484,7 +487,7 @@ where
             stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
             slab.owner
                 .store(slab::remote::Owner::new(B::default(), Some(context.id)));
-            crate::flush(&slab.owner, false);
+            flush(&slab.owner, Invalidate::No);
         }
 
         self.owned.r#unsized.push(&self.slabs, index);

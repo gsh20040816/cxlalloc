@@ -14,6 +14,9 @@ use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
+use crate::coherence::flush;
+use crate::coherence::sfence;
+use crate::coherence::Invalidate;
 use crate::data;
 use crate::raw::region;
 use crate::raw::Backend;
@@ -108,7 +111,8 @@ impl<'raw> Huge<'raw> {
                     if let Some(prev) = self.peek(data, id) {
                         unsafe {
                             crate::Box::link(&mut out.next, prev);
-                            crate::fence();
+                            flush(out, Invalidate::No);
+                            sfence();
                         }
                     }
 
@@ -129,7 +133,7 @@ impl<'raw> Huge<'raw> {
     pub(crate) fn free(&self, data: &Data<'raw, size::Small>, offset: data::Offset<size::Huge>) {
         let descriptor = self.find(data, offset).unwrap();
         descriptor.free.store(true, Ordering::Relaxed);
-        crate::flush(&descriptor.free, true);
+        flush(&descriptor.free, Invalidate::Yes);
     }
 
     pub(crate) fn class(

@@ -3,6 +3,7 @@ pub mod atomic;
 mod bitset;
 mod r#box;
 mod cas;
+mod coherence;
 mod data;
 mod heap;
 mod huge;
@@ -88,53 +89,4 @@ pub enum Error {
 
     #[error("underlying I/O error")]
     Io(#[from] io::Error),
-}
-
-#[inline]
-pub(crate) fn flush<T>(address: &T, invalidate: bool) {
-    if cfg!(feature = "arch-gpf") {
-        return;
-    }
-
-    for line in 0..size_of::<T>().next_multiple_of(SIZE_CACHE_LINE) / SIZE_CACHE_LINE {
-        stat::inc(&stat::FLUSH);
-        clflush(
-            (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
-            invalidate,
-        );
-    }
-}
-
-#[inline]
-pub(crate) fn clflush(address: *const u8, invalidate: bool) {
-    unsafe {
-        match invalidate {
-            false if cfg!(feature = "arch-clwb") => core::arch::asm! {
-                "clwb [{address}]",
-                address = in(reg) address,
-                options(nomem, preserves_flags, nostack),
-            },
-            _ if cfg!(feature = "arch-clflushopt") => core::arch::asm! {
-                "clflushopt [{address}]",
-                address = in(reg) address,
-                options(nomem, preserves_flags, nostack),
-            },
-            _ => core::arch::x86_64::_mm_clflush(address),
-        }
-    }
-}
-
-#[inline]
-pub(crate) fn fence() {
-    // CLFLUSH is serializing, so we don't need a fence.
-    if cfg!(any(
-        feature = "arch-gpf",
-        feature = "arch-clwb",
-        feature = "arch-clflushopt"
-    )) {
-        unsafe {
-            stat::inc(&stat::FENCE);
-            core::arch::x86_64::_mm_sfence();
-        }
-    }
 }

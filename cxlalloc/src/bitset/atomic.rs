@@ -4,8 +4,9 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
 use crate::bitset::Bit;
-use crate::clflush;
-use crate::fence;
+use crate::coherence::clflush;
+use crate::coherence::sfence;
+use crate::coherence::Invalidate;
 use crate::stat;
 
 /// Fixed-size bitset implementation.
@@ -42,8 +43,8 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
             // Flush to memory and invalidate our cache so
             // that we can see writes from other hosts in
             // a software cache-coherent region.
-            clflush(word as *const _ as _, true);
-            fence();
+            clflush(word as *const _ as _, Invalidate::Yes);
+            sfence();
             prev = word.load(Ordering::Relaxed);
             match prev & mask > 0 {
                 true => {

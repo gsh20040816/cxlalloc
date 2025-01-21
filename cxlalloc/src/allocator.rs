@@ -6,6 +6,9 @@ use core::ptr;
 use core::ptr::NonNull;
 
 use crate::cas;
+use crate::coherence::flush;
+use crate::coherence::sfence;
+use crate::coherence::Invalidate;
 use crate::data;
 use crate::huge;
 use crate::recover;
@@ -88,9 +91,9 @@ impl Context<'_> {
             return;
         }
 
-        crate::fence();
+        sfence();
         self.log_unsync(state);
-        crate::fence();
+        sfence();
     }
 
     #[inline]
@@ -100,7 +103,7 @@ impl Context<'_> {
         }
 
         *self.log = Some(State::new(state));
-        crate::flush(&self.log, false);
+        flush(&self.log, Invalidate::No);
     }
 }
 

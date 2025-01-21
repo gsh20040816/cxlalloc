@@ -18,6 +18,8 @@ use core::ops::Deref;
 use core::ops::Range;
 use core::ptr::NonNull;
 
+use crate::coherence::flush;
+use crate::coherence::Invalidate;
 use crate::data;
 use crate::size;
 use crate::thread;
@@ -157,7 +159,7 @@ impl<B> Slice<'_, B> {
         ) {
             let next = &self[i].local.next;
             next.store(j);
-            crate::flush(next, false);
+            flush(next, Invalidate::No);
         }
     }
 

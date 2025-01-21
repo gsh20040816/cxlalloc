@@ -1,6 +1,8 @@
 use core::fmt::Debug;
 
 use crate::bitset::Bit;
+use crate::coherence::flush;
+use crate::coherence::Invalidate;
 
 #[repr(C, align(8))]
 pub(crate) struct HiBitSet<const SIZE: usize> {
@@ -41,7 +43,7 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
             .for_each(|row| *row = 0);
 
         self.count = count as u64;
-        crate::flush(self, false);
+        flush(self, Invalidate::No);
         self.validate();
     }
 
@@ -61,10 +63,10 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         }
 
         *cols |= 1 << col;
-        crate::flush(cols, false);
+        flush(cols, Invalidate::No);
         self.count += 1;
         self.sparse |= 1 << row;
-        crate::flush(&self.count, false);
+        flush(&self.count, Invalidate::No);
         self.validate();
     }
 
@@ -78,10 +80,10 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
         }
 
         *cols &= !(1 << col);
-        crate::flush(cols, false);
+        flush(cols, Invalidate::No);
         self.count -= 1;
         self.sparse &= !((*cols == 0) as u64) << row;
-        crate::flush(&self.count, false);
+        flush(&self.count, Invalidate::No);
         self.validate();
     }
 
