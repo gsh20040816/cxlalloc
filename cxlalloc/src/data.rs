@@ -39,25 +39,11 @@ where
         unsafe { self.base.byte_add(NonZeroU64::from(offset).get() as usize) }.cast()
     }
 
-    pub(crate) fn checked_offset_to_offset(&self, offset: usize) -> Option<Offset<B>> {
+    pub(crate) fn offset_to_offset(&self, offset: usize) -> Offset<B> {
         let offset = offset + B::SIZE_SLAB;
-        // FIXME: check epoch
-        NonZeroU64::new(offset as u64).map(|offset| Offset::new_internal(offset))
-    }
-
-    pub(crate) fn checked_pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<Offset<B>> {
-        // FIXME: check epoch
-        if pointer.as_ptr().cast::<u64>()
-            < self
-                .base
-                .as_ptr()
-                .cast::<u64>()
-                .wrapping_byte_add(B::SIZE_SLAB)
-        {
-            None
-        } else {
-            Some(self.pointer_to_offset(pointer))
-        }
+        NonZeroU64::new(offset as u64)
+            .map(|offset| Offset::new_internal(offset))
+            .unwrap()
     }
 
     pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Offset<B> {

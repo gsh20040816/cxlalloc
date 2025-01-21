@@ -140,7 +140,7 @@ where
 
 impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
-        if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
+        if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
             return self.huge.class(&self.small.data, offset).get();
         }
 
@@ -221,7 +221,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
 
-        if let Some(offset) = self.huge.data.checked_pointer_to_offset(pointer) {
+        if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
             stat::inc(&stat::FREE_LARGE);
             return self.huge.free(&self.small.data, offset);
         }

@@ -32,7 +32,7 @@ pub(crate) struct Huge<'raw> {
     region: &'raw region::Random,
     shared: &'raw Shared,
     owned: &'raw thread::Array<Owned>,
-    pub(crate) data: Data<'raw, size::Huge>,
+    data: Data<'raw, size::Huge>,
 }
 
 impl<'raw> Huge<'raw> {
@@ -142,6 +142,16 @@ impl<'raw> Huge<'raw> {
         self.find(data, offset).unwrap().size
     }
 
+    pub(crate) fn checked_pointer_to_offset(
+        &self,
+        pointer: NonNull<ffi::c_void>,
+    ) -> Option<data::Offset<size::Huge>> {
+        match self.region.contains(pointer) {
+            false => None,
+            true => Some(self.data.pointer_to_offset(pointer)),
+        }
+    }
+
     pub(crate) fn try_map(
         &self,
         data: &Data<'raw, size::Small>,
@@ -175,7 +185,7 @@ impl<'raw> Huge<'raw> {
                 self.allocator.allocate(*offset, size.get());
             })
             .map(|offset| Descriptor {
-                offset: self.data.checked_offset_to_offset(offset).unwrap(),
+                offset: self.data.offset_to_offset(offset),
                 id,
                 size,
                 index: self.allocator.index,
