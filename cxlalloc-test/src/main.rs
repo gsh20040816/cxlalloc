@@ -7,7 +7,7 @@ use clap::Parser;
 
 use cxlalloc_test::Request;
 use cxlalloc_test::Response;
-use cxlalloc_test::Test;
+use cxlalloc_test::trace;
 use ipc_channel::ipc::IpcOneShotServer;
 use ipc_channel::ipc::IpcReceiver;
 use ipc_channel::ipc::IpcSender;
@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
                     (path, data)
                 })
                 .map(|(path, data)| {
-                    toml::from_str::<Test>(&data)
+                    toml::from_str::<trace::Test>(&data)
                         .with_context(|| anyhow!("Failed to parse {} as TOML", path.display()))
                         .map(|trace| (path, trace))
                 })
@@ -84,14 +84,35 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn run(mut self, trace: Vec<Request>) -> anyhow::Result<()> {
+    fn run(mut self, trace: Vec<trace::Request>) -> anyhow::Result<()> {
         for request in trace {
-            self.send(request)?;
+            let (thread, request) = match request {
+                trace::Request::Allocate { thread, id, size } => {
+                    (thread, Request::Allocate { id, size })
+                }
+                trace::Request::Free { thread, id } => {
+                    let allocation = &self.by_id[&id];
+                    (thread, Request::Free {
+                        id,
+                        size: allocation.size,
+                        offset: allocation.offset,
+                    })
+                }
+                trace::Request::Load { thread, id } => {
+                    let allocation = &self.by_id[&id];
+                    (thread, Request::Load {
+                        id,
+                        offset: allocation.offset,
+                    })
+                }
+            };
+
+            self.send(thread as usize, request)?;
         }
         Ok(())
     }
 
-    fn new(cli: &Cli, test: &Test) -> anyhow::Result<Self> {
+    fn new(cli: &Cli, test: &trace::Test) -> anyhow::Result<Self> {
         for entry in std::fs::read_dir("/dev/shm")?
             .map(Result::unwrap)
             .filter(|entry| entry.file_type().unwrap().is_file())
@@ -125,7 +146,7 @@ impl Coordinator {
             };
 
             let tx = IpcSender::connect(socket)?;
-            tx.send(Request::Handshake { thread: id as u64 })?;
+            tx.send(Request::Handshake)?;
 
             log::info!("[C]: connected to {}", id);
             children.insert(id, Child {
@@ -142,9 +163,8 @@ impl Coordinator {
         })
     }
 
-    fn send(&mut self, request: Request) -> anyhow::Result<()> {
-        log::info!("[C]: sending request: {:x?}", request);
-        let thread = request.thread() as usize;
+    fn send(&mut self, thread: usize, request: Request) -> anyhow::Result<()> {
+        log::info!("[C]: sending request to {}: {:x?}", thread, request);
 
         self.children[&thread]
             .tx
@@ -158,14 +178,7 @@ impl Coordinator {
         log::info!("[C]: received response from {}: {:x?}", thread, response);
 
         match (request, response) {
-            (
-                Request::Allocate {
-                    thread: _,
-                    id,
-                    size,
-                },
-                Response::Allocate { offset },
-            ) => {
+            (Request::Allocate { id, size }, Response::Allocate { offset }) => {
                 assert!(
                     self.by_offset
                         .insert(offset, Allocation { id, size, offset })
@@ -178,14 +191,21 @@ impl Coordinator {
                         .is_none()
                 );
             }
-            (Request::Free { thread: _, id }, Response::Free) => {
+            (
+                Request::Free {
+                    id,
+                    size: _,
+                    offset: _,
+                },
+                Response::Free,
+            ) => {
                 let allocation = self.by_id.remove(&id).unwrap();
                 assert_eq!(
                     allocation,
                     self.by_offset.remove(&allocation.offset).unwrap(),
                 );
             }
-            (Request::Load { thread: _, id }, Response::Load { value }) => {
+            (Request::Load { id, offset: _ }, Response::Load { value }) => {
                 let allocation = self.by_id[&id];
                 assert_eq!(allocation, self.by_offset[&allocation.offset]);
                 assert_eq!(allocation.id, value);
