@@ -29,6 +29,7 @@ mod crash {
 
 use core::ops::Deref;
 use core::ops::DerefMut;
+use std::io;
 
 pub use atomic::Atomic;
 pub(crate) use data::Data;
@@ -78,6 +79,17 @@ impl<S, O> DerefMut for Allocator<'_, S, O> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+pub type Result<T> = core::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("out-of-bounds memory access")]
+    OutOfBounds,
+
+    #[error("underlying I/O error")]
+    Io(#[from] io::Error),
 }
 
 #[inline]

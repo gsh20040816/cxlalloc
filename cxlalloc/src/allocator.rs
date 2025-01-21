@@ -237,17 +237,6 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 }
 
-#[cfg(feature = "extend")]
-impl<'raw, S, O> Allocator<'_, view::Focus, S, O> {
-    pub fn extend(&mut self) {
-        todo!()
-    }
-
-    pub fn epoch(&self) -> crate::extend::Epoch {
-        todo!()
-    }
-}
-
 #[derive(Copy, Clone)]
 #[ribbit::pack(size = 32, nonzero)]
 pub(crate) enum Index {

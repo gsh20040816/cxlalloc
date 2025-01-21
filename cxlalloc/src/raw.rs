@@ -181,18 +181,24 @@ impl Raw {
 
         let allocator = self.unfocused::<(), ()>();
 
+        match allocator.small.try_map(
+            &self.backend,
+            &self.slab_small,
+            &self.data_small,
+            &allocator.shared.help,
+            address,
+        ) {
+            Ok(()) => return true,
+            Err(crate::Error::OutOfBounds) => (),
+            Err(error) => panic!("Failed to map {:x?}: {}", address, error),
+        }
+
         if let Some(offset) = allocator.huge.data.checked_pointer_to_offset(address) {
             allocator.huge.map_offset(&allocator.small.data, offset);
-            true
-        } else if let Some(offset) = allocator.small.data.checked_pointer_to_offset(address) {
-            allocator
-                .small
-                .map_offset(&self.backend, &self.slab_small, &self.data_small, offset)
-                .unwrap();
-            true
-        } else {
-            false
+            return true;
         }
+
+        false
     }
 
     fn unfocused<S, O>(&self) -> allocator::Allocator<view::Unfocus, S, O> {

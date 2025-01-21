@@ -1,6 +1,7 @@
 use core::ffi;
 use core::fmt::Display;
 use core::ops::Range;
+use core::ptr::NonNull;
 use std::io;
 
 use crate::allocator;
@@ -8,6 +9,7 @@ use crate::allocator::Bracket;
 use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::cas;
+use crate::cas::help;
 use crate::crash;
 use crate::data;
 use crate::raw::region;
@@ -29,6 +31,8 @@ use crate::Slab;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
+
+use self::region::Region as _;
 
 pub struct Heap<'raw, L: view::Lens, B> {
     /// Capacity is in units of slabs
@@ -208,15 +212,38 @@ where
         self.slabs[index].remote.owner.load().class()
     }
 
-    pub(crate) fn map_offset(
+    pub(crate) fn try_map(
         &self,
         backend: &Backend,
         slab: &region::Sequential,
         data: &region::Sequential,
-        offset: data::Offset<B>,
-    ) -> io::Result<()> {
-        let data_offset = u64::from(offset) as usize;
-        let slab_offset = data_offset / B::SIZE_SLAB * size_of::<slab::Descriptor<B>>();
+        help: &help::Array,
+        address: NonNull<ffi::c_void>,
+    ) -> crate::Result<()> {
+        let Some(len) = self.shared.bump.load(help).map(u32::from) else {
+            return Err(crate::Error::OutOfBounds);
+        };
+
+        // Check if within either region
+        let slab_lo = slab.address().as_ptr().cast::<ffi::c_void>();
+        let slab_hi = slab_lo.wrapping_byte_add(len as usize * size_of::<slab::Descriptor<B>>());
+
+        let data_lo = data.address().as_ptr().cast::<ffi::c_void>();
+        let data_hi = data_lo.wrapping_byte_add(len as usize * B::SIZE_SLAB);
+
+        let address = address.as_ptr();
+        let (slab_offset, data_offset) = if (slab_lo..slab_hi).contains(&address) {
+            let slab_offset = address as usize - slab_lo as usize;
+            let data_offset = slab_offset / size_of::<slab::Descriptor<B>>() * B::SIZE_SLAB;
+            (slab_offset, data_offset)
+        } else if (data_lo..data_hi).contains(&address) {
+            let data_offset = address as usize - data_lo as usize;
+            let slab_offset = data_offset / B::SIZE_SLAB * size_of::<slab::Descriptor<B>>();
+            (slab_offset, data_offset)
+        } else {
+            return Err(crate::Error::OutOfBounds);
+        };
+
         slab.map(backend, slab_offset)?;
         data.map(backend, data_offset)?;
         Ok(())
