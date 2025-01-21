@@ -19,7 +19,7 @@ use crate::allocator;
 use crate::heap;
 use crate::huge;
 use crate::size;
-use crate::size::Bracket as _;
+use crate::size::Bracket;
 use crate::slab;
 use crate::thread;
 use crate::view;
@@ -36,7 +36,7 @@ pub struct Raw {
 
     // - Global persistent root: 1
     // - Help array: # threads
-    // - Small heap
+    // - Small and large heaps
     //   - Global stack: 1
     //   - Bump pointer: 1
     // - Huge heap
@@ -45,7 +45,7 @@ pub struct Raw {
     pub(crate) shared: region::Fixed,
 
     // - Local persistent roots: # threads
-    // - Small heap
+    // - Small and large heaps
     //   - Unsized free list: # threads
     //   - Sized free lists: # sizes * # threads
     // - Huge heap
@@ -54,9 +54,11 @@ pub struct Raw {
 
     // Slab metadata regions
     pub(crate) slab_small: region::Sequential,
+    pub(crate) slab_large: region::Sequential,
 
     // Data regions, must be contiguous
     pub(crate) data_small: region::Sequential,
+    pub(crate) data_large: region::Sequential,
     pub(crate) data_huge: region::Random,
 
     /// Initial capacity
@@ -147,11 +149,21 @@ impl Raw {
             slab_small_lazy,
         )?;
 
+        let slab_large_reservation = Reservation::new(Reservation::TIB)?;
+        let slab_large = region::Sequential::new(
+            &backend,
+            id.with_suffix("sl"),
+            slab_large_reservation,
+            NonZeroUsize::new((1 << 30) / size_of::<slab::Descriptor<size::Large>>()).unwrap(),
+            true,
+        )?;
+
         // Data regions must be contiguous to support applications that rely on offset pointers.
         let data_reservation =
-            Reservation::new(Reservation::TIB.saturating_add(Reservation::TIB.get()))?;
+            Reservation::new(Reservation::TIB.saturating_mul(NonZeroUsize::new(3).unwrap()))?;
 
-        let (data_small_reservation, data_huge_reservation) =
+        let (data_small_reservation, data_reservation) = data_reservation.split(Reservation::TIB);
+        let (data_large_reservation, data_huge_reservation) =
             data_reservation.split(Reservation::TIB);
 
         let (data_small_lazy, data_small_size) = match Data::<size::Small>::layout(slab_count)
@@ -175,6 +187,14 @@ impl Raw {
             data_small_lazy,
         )?;
 
+        let data_large = region::Sequential::new(
+            &backend,
+            id.with_suffix("dl"),
+            data_large_reservation,
+            NonZeroUsize::new((1 << 30) / size::Large::SIZE_SLAB).unwrap(),
+            true,
+        )?;
+
         let data_huge = region::Random::new(id.with_suffix("dh"), data_huge_reservation)?;
 
         Ok(Self {
@@ -182,7 +202,9 @@ impl Raw {
             shared,
             owned,
             slab_small,
+            slab_large,
             data_small,
+            data_large,
             data_huge,
             capacity: slab_count as u32,
             free,
@@ -261,12 +283,12 @@ impl Raw {
                     &self.backend,
                     &self.data_huge,
                     shared
-                        .wrapping_byte_add(shared_offsets[2])
+                        .wrapping_byte_add(shared_offsets[3])
                         .cast::<huge::Shared>()
                         .as_ref()
                         .unwrap(),
                     owned
-                        .wrapping_byte_add(owned_offsets[2])
+                        .wrapping_byte_add(owned_offsets[3])
                         .cast::<thread::Array<huge::Owned>>()
                         .as_ref()
                         .unwrap(),
@@ -284,6 +306,7 @@ impl Raw {
         layout!(
             allocator::Shared<()>,
             heap::Shared<size::Small>,
+            heap::Shared<size::Large>,
             huge::Shared,
         )
     }
@@ -292,6 +315,7 @@ impl Raw {
         layout!(
             thread::Array<UnsafeCell<allocator::Owned<()>>>,
             thread::Array<UnsafeCell<heap::Owned<size::Small>>>,
+            thread::Array<UnsafeCell<heap::Owned<size::Large>>>,
             thread::Array<huge::Owned>,
         )
     }
@@ -301,7 +325,9 @@ impl Raw {
             &self.shared as &dyn Region,
             &self.owned,
             &self.slab_small,
+            &self.slab_large,
             &self.data_small,
+            &self.data_large,
             &self.data_huge,
         ]
         .into_iter()
