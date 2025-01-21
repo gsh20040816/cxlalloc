@@ -92,10 +92,15 @@ impl Worker {
             };
 
             log::info!("[{}]: receive {:x?}", self.id, request);
+            assert_eq!(request.thread() as u16, self.id);
 
             match request {
-                Request::Handshake => unreachable!("Protocol error"),
-                Request::Allocate { id, size } => {
+                Request::Handshake { .. } => unreachable!("Protocol error"),
+                Request::Allocate {
+                    thread: _,
+                    id,
+                    size,
+                } => {
                     let size = size as usize;
                     let pointer = allocator.allocate_untyped(size).cast::<u64>();
                     unsafe { std::slice::from_raw_parts_mut(pointer, size / size_of::<u64>()) }
@@ -106,7 +111,12 @@ impl Worker {
 
                     self.tx.send(Response::Allocate { offset })?;
                 }
-                Request::Free { id, size, offset } => {
+                Request::Free {
+                    thread: _,
+                    id,
+                    size,
+                    offset,
+                } => {
                     let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
 
                     assert!(
@@ -124,7 +134,7 @@ impl Worker {
 
                     self.tx.send(Response::Free)?;
                 }
-                Request::Load { offset } => {
+                Request::Load { thread: _, offset } => {
                     let pointer = allocator.offset_to_pointer(offset as usize).cast::<u64>();
                     self.tx.send(Response::Load {
                         value: unsafe { pointer.read() },
@@ -139,7 +149,7 @@ impl Worker {
         let (server, socket) = IpcOneShotServer::<Request>::new()?;
         tx.send(Response::Handshake { socket })?;
 
-        let (rx, Request::Handshake) = server.accept()? else {
+        let (rx, Request::Handshake { thread: _ }) = server.accept()? else {
             panic!("Expected handshake")
         };
 

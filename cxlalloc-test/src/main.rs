@@ -7,20 +7,15 @@ use clap::Parser;
 
 use cxlalloc_test::Request;
 use cxlalloc_test::Response;
+use cxlalloc_test::Test;
 use ipc_channel::ipc::IpcOneShotServer;
 use ipc_channel::ipc::IpcReceiver;
 use ipc_channel::ipc::IpcSender;
 
 #[derive(Parser)]
 struct Cli {
-    #[clap(short, long, default_value_t = 1 << 34)]
-    size: usize,
-
     #[clap(short, long, default_value = "test")]
     name: String,
-
-    #[clap(short, long)]
-    count: usize,
 
     #[clap(short, long, default_value = "target/debug/cxlalloc-test-worker")]
     path: PathBuf,
@@ -52,7 +47,7 @@ fn main() -> anyhow::Result<()> {
                 unimplemented!()
             };
 
-            let traces = paths
+            let tests = paths
                 .into_iter()
                 .map(|path| {
                     let data = std::fs::read_to_string(&path)
@@ -61,18 +56,20 @@ fn main() -> anyhow::Result<()> {
                     (path, data)
                 })
                 .map(|(path, data)| {
-                    toml::from_str::<Vec<Request>>(&data)
+                    toml::from_str::<Test>(&data)
                         .with_context(|| anyhow!("Failed to parse {} as TOML", path.display()))
                         .map(|trace| (path, trace))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            for (path, trace) in traces {
+            for (path, test) in tests {
                 eprintln!("Running {}...", path.display());
 
-                let coordinator = Coordinator::new(&cli)?;
+                let coordinator = Coordinator::new(&cli, &test)?;
 
-                coordinator.run(trace).context("Coordinator failure")?;
+                coordinator
+                    .run(test.requests)
+                    .context("Coordinator failure")?;
             }
         }
     };
@@ -93,7 +90,7 @@ impl Coordinator {
         Ok(())
     }
 
-    fn new(cli: &Cli) -> anyhow::Result<Self> {
+    fn new(cli: &Cli, test: &Test) -> anyhow::Result<Self> {
         for entry in std::fs::read_dir("/dev/shm")?
             .map(Result::unwrap)
             .filter(|entry| entry.file_type().unwrap().is_file())
@@ -106,16 +103,16 @@ impl Coordinator {
 
         let mut children = HashMap::new();
 
-        for id in 0..cli.count {
+        for id in 0..test.count {
             let (server, socket) = IpcOneShotServer::<Response>::new()?;
 
             let handle = std::process::Command::new(&cli.path)
                 .arg("--size")
-                .arg(cli.size.to_string())
+                .arg(test.size.to_string())
                 .arg("--name")
                 .arg(&cli.name)
                 .arg("--count")
-                .arg(cli.count.to_string())
+                .arg(test.count.to_string())
                 .arg("--socket")
                 .arg(socket)
                 .arg("--id")
@@ -130,7 +127,11 @@ impl Coordinator {
             tx.send(Request::Handshake { thread: id as u64 })?;
 
             log::info!("[C]: connected to {}", id);
-            children.insert(id, Child { handle, tx, rx });
+            children.insert(id, Child {
+                _handle: handle,
+                tx,
+                rx,
+            });
         }
 
         Ok(Self {
@@ -191,7 +192,7 @@ impl Coordinator {
 }
 
 struct Child {
-    handle: std::process::Child,
+    _handle: std::process::Child,
     tx: IpcSender<Request>,
     rx: IpcReceiver<Response>,
 }
@@ -199,6 +200,8 @@ struct Child {
 #[derive(Copy, Clone)]
 struct Allocation {
     id: u64,
+    #[expect(unused)]
     size: u64,
+    #[expect(unused)]
     offset: u64,
 }

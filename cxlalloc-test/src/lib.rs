@@ -2,6 +2,17 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Test {
+    /// Number of threads
+    pub count: usize,
+
+    /// Initial heap size
+    pub size: usize,
+
+    pub requests: Vec<Request>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
     Handshake {
         thread: u64,
