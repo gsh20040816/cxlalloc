@@ -127,6 +127,8 @@ impl Raw {
         let (owned_size, _) = Self::owned();
         let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
 
+        const GIB: NonZeroUsize = NonZeroUsize::new(1 << 30).unwrap();
+
         let (slab_small_lazy, slab_small_size) = match Slab::<size::Small>::layout(slab_count)
             .ok()
             .map(|layout| layout.size())
@@ -136,7 +138,11 @@ impl Raw {
             Some(size) => (false, size),
             None => (
                 true,
-                NonZeroUsize::new((1 << 30) / size_of::<slab::Descriptor<size::Small>>()).unwrap(),
+                NonZeroUsize::new(
+                    (GIB.get() / size::Small::SIZE_SLAB)
+                        * size_of::<slab::Descriptor<size::Small>>(),
+                )
+                .unwrap(),
             ),
         };
 
@@ -154,7 +160,10 @@ impl Raw {
             &backend,
             id.with_suffix("sl"),
             slab_large_reservation,
-            NonZeroUsize::new((1 << 30) / size_of::<slab::Descriptor<size::Large>>()).unwrap(),
+            NonZeroUsize::new(
+                (GIB.get() / size::Large::SIZE_SLAB) * size_of::<slab::Descriptor<size::Large>>(),
+            )
+            .unwrap(),
             true,
         )?;
 
@@ -175,7 +184,7 @@ impl Raw {
             Some(size) => (false, size),
             None => (
                 true,
-                NonZeroUsize::new((1 << 30) / size::Small::SIZE_SLAB).unwrap(),
+                NonZeroUsize::new(GIB.get().next_multiple_of(size::Small::SIZE_SLAB)).unwrap(),
             ),
         };
 
@@ -191,7 +200,7 @@ impl Raw {
             &backend,
             id.with_suffix("dl"),
             data_large_reservation,
-            NonZeroUsize::new((1 << 30) / size::Large::SIZE_SLAB).unwrap(),
+            NonZeroUsize::new(GIB.get().next_multiple_of(size::Large::SIZE_SLAB)).unwrap(),
             true,
         )?;
 
