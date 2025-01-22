@@ -4,8 +4,6 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::allocator;
-use crate::allocator::Bracket;
-use crate::allocator::Index;
 use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
@@ -16,12 +14,14 @@ use crate::crash;
 use crate::data;
 use crate::raw::region;
 use crate::raw::Backend;
+use crate::recover;
 use crate::recover::ApplicationToSized;
 use crate::recover::BumpToLocal;
+use crate::recover::HeapState;
 use crate::recover::LocalToGlobalSave;
 use crate::recover::Remote;
 use crate::recover::SizedToApplication;
-use crate::recover::StateUnpacked;
+use crate::recover::State;
 use crate::recover::UnsizedToSized;
 use crate::size;
 use crate::slab;
@@ -86,17 +86,15 @@ pub(crate) struct Shared<B> {
 
 impl<B> Shared<B>
 where
-    slab::Index<B>: Into<allocator::Index>,
+    B: ribbit::Pack<Loose = u8>,
+    State: From<HeapState<B>>,
 {
     pub(crate) fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
         let start = self
             .bump
             .update(context, |old, version| {
                 let new = unsafe { old.unwrap_or(slab::Index::MIN).add(BATCH_BUMP_POP) };
-                Some((
-                    Some(new),
-                    StateUnpacked::BumpToLocal(BumpToLocal::new(old.map(Into::into), version)),
-                ))
+                Some((Some(new), BumpToLocal::new(old, version).into()))
             })
             .unwrap();
 
@@ -135,8 +133,8 @@ pub(crate) struct Owned<B: size::Bracket> {
 
 impl<B> Owned<B>
 where
-    B: size::Bracket + Display + ribbit::Pack<Loose = u8> + Into<Bracket>,
-    slab::Index<B>: Into<Index>,
+    B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
+    State: From<HeapState<B>>,
 {
     pub(crate) fn unsized_to_sized(
         &mut self,
@@ -153,10 +151,7 @@ where
         let slab = &slabs[index];
         let next = slab.local.next.load();
 
-        context.log(StateUnpacked::UnsizedToSized(UnsizedToSized::new(
-            next.map(Into::into),
-            class.into(),
-        )));
+        context.log(HeapState::from(UnsizedToSized::new(next, class)));
 
         self.r#sized[class].push(slabs, index);
         unsafe {
@@ -250,8 +245,7 @@ where
 impl<B> Heap<'_, view::Focus, B>
 where
     B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
-    B: Into<Bracket>,
-    slab::Index<B>: Into<Index>,
+    recover::State: From<HeapState<B>>,
 {
     #[inline]
     pub(crate) fn pop(
@@ -263,10 +257,7 @@ where
         let free = unsafe { &mut *self.slabs[index].local.free.get() };
         let block = free.peek();
 
-        context.log(StateUnpacked::SizedToApplication(SizedToApplication::new(
-            index.into(),
-            block,
-        )));
+        context.log(HeapState::from(SizedToApplication::new(index, block)));
 
         free.unset(block);
 
@@ -389,10 +380,7 @@ where
         let block = offset.into_block(class);
         let free = unsafe { &mut *slab.local.free.get() };
 
-        context.log(StateUnpacked::ApplicationToSized(ApplicationToSized::new(
-            index.into(),
-            block,
-        )));
+        context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
         let count = free.len();
         free.set(block);
@@ -422,11 +410,7 @@ where
         let block = offset.into_block(class);
         let version = slab.meta.load().version();
 
-        context.log(StateUnpacked::Remote(Remote::new(
-            index.into(),
-            block,
-            version,
-        )));
+        context.log(HeapState::from(Remote::new(index, block, version)));
 
         slab.free.set(block);
 
@@ -506,9 +490,7 @@ where
         let tail = iter.last().unwrap();
         let next = self.slabs[tail].local.next.load();
 
-        context.log(StateUnpacked::LocalToGlobalSave(LocalToGlobalSave::new(
-            head.into(),
-        )));
+        context.log(HeapState::from(LocalToGlobalSave::new(head)));
 
         self.owned.r#unsized.set(next, count - BATCH_GLOBAL_PUSH);
         self.shared.push(context, &self.slabs, head, tail);

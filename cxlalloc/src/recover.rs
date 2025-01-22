@@ -1,12 +1,9 @@
 use crate::allocator::Allocator;
-use crate::allocator::Bracket;
-use crate::allocator::BracketUnpacked;
 use crate::allocator::Context;
-use crate::allocator::Index;
-use crate::allocator::IndexUnpacked;
 use crate::atomic::Version;
 use crate::bitset::Bit;
-use crate::heap;
+use crate::size;
+use crate::slab;
 use crate::view;
 
 impl<S, O> Allocator<'_, view::Focus, S, O> {
@@ -20,18 +17,10 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let Some(state) = context.log else { return };
 
         match state.unpack() {
-            StateUnpacked::UnsizedToSized(state) => match state.class().unpack() {
-                BracketUnpacked::Small(class) => {
+            StateUnpacked::Small(small) => match small.unpack() {
+                HeapStateUnpacked::UnsizedToSized(state) => {
                     let r#unsized = &mut self.small.owned.r#unsized;
-
-                    let index =
-                        state
-                            .index()
-                            .map(|index| index.unpack())
-                            .map(|index| match index {
-                                IndexUnpacked::Small(index) => index,
-                            });
-
+                    let index = state.index();
                     let slabs = &self.small.slabs;
 
                     match r#unsized.peek() {
@@ -42,97 +31,99 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                         }
                         // Retry
                         _ => {
-                            self.small.owned.unsized_to_sized(context, slabs, class);
+                            self.small
+                                .owned
+                                .unsized_to_sized(context, slabs, state.class());
                         }
                     }
                 }
+                HeapStateUnpacked::GlobalToLocal(_state) => todo!(),
+                HeapStateUnpacked::BumpToLocal(_state) => todo!(),
+                HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
+                HeapStateUnpacked::SizedToApplication(_state) => todo!(),
+                HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
+                HeapStateUnpacked::LocalToGlobalSave(_state) => todo!(),
+                HeapStateUnpacked::Remote(_state) => todo!(),
             },
-            StateUnpacked::GlobalToLocal(state) => todo!(),
-            StateUnpacked::BumpToLocal(state) => todo!(),
-            StateUnpacked::LocalToGlobal(state) => todo!(),
-            StateUnpacked::SizedToApplication(state) => todo!(),
-            StateUnpacked::ApplicationToSized(state) => todo!(),
-            StateUnpacked::LocalToGlobalSave(state) => todo!(),
-            StateUnpacked::Remote(state) => todo!(),
+            StateUnpacked::Large(_) => todo!(),
         }
     }
 }
 
-#[ribbit::pack(size = 64, nonzero)]
-#[derive(Copy, Clone)]
+#[ribbit::pack(size = 64, nonzero, copy, from)]
 pub(crate) enum State {
-    #[ribbit(size = 40)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 63)]
+    Small(HeapState<size::Small>),
+    #[ribbit(size = 63)]
+    Large(HeapState<size::Large>),
+}
+
+#[ribbit::pack(size = 63, copy, from)]
+pub(crate) enum HeapState<B> {
+    #[ribbit(size = 40, copy, from)]
     UnsizedToSized {
         #[ribbit(size = 32)]
-        index: Option<Index>,
+        index: Option<slab::Index<B>>,
 
         #[ribbit(size = 8)]
-        class: Bracket,
+        class: B,
     },
 
-    #[ribbit(size = 48)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 48, copy, from)]
     GlobalToLocal {
         #[ribbit(size = 32)]
-        index: Index,
+        index: slab::Index<B>,
 
         #[ribbit(size = 16)]
         version: Version,
     },
 
-    #[ribbit(size = 48)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 48, copy, from)]
     BumpToLocal {
         #[ribbit(size = 32)]
-        start: Option<Index>,
+        start: Option<slab::Index<B>>,
 
         #[ribbit(size = 16)]
         version: Version,
     },
 
-    #[ribbit(size = 48)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 48, copy, from)]
     LocalToGlobal {
         #[ribbit(size = 32)]
-        index: Index,
+        index: slab::Index<B>,
 
         #[ribbit(size = 16)]
         version: Version,
     },
 
-    #[ribbit(size = 44)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 44, copy, from)]
     SizedToApplication {
         #[ribbit(size = 32)]
-        index: Index,
+        index: slab::Index<B>,
 
         #[ribbit(size = 12)]
         block: Bit,
     },
 
-    #[ribbit(size = 44)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 44, copy, from)]
     ApplicationToSized {
         #[ribbit(size = 32)]
-        index: Index,
+        index: slab::Index<B>,
 
         #[ribbit(size = 12)]
         block: Bit,
     },
 
-    #[ribbit(size = 32)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 32, copy, from)]
     LocalToGlobalSave {
         #[ribbit(size = 32)]
-        index: Index,
+        index: slab::Index<B>,
     },
 
-    #[ribbit(size = 60)]
-    #[derive(Copy, Clone)]
+    #[ribbit(size = 60, copy, from)]
     Remote {
         #[ribbit(size = 32)]
-        index: Index,
+        index: slab::Index<B>,
 
         #[ribbit(size = 12)]
         block: Bit,
@@ -140,4 +131,16 @@ pub(crate) enum State {
         #[ribbit(size = 16)]
         version: Version,
     },
+}
+
+impl From<HeapState<size::Small>> for State {
+    fn from(state: HeapState<size::Small>) -> Self {
+        Self::new(StateUnpacked::Small(state))
+    }
+}
+
+impl From<HeapState<size::Large>> for State {
+    fn from(state: HeapState<size::Large>) -> Self {
+        Self::new(StateUnpacked::Large(state))
+    }
 }

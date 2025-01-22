@@ -3,7 +3,8 @@ use crate::atomic::Version;
 use crate::coherence::flush;
 use crate::coherence::sfence;
 use crate::coherence::Invalidate;
-use crate::recover::StateUnpacked;
+use crate::recover;
+use crate::recover::HeapState;
 use crate::thread;
 use crate::Atomic;
 use std::fmt::Debug;
@@ -30,9 +31,10 @@ impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
         old.inner()
     }
 
-    pub(crate) fn update<F>(&self, context: &mut allocator::Context, mut next: F) -> Option<T>
+    pub(crate) fn update<F, B>(&self, context: &mut allocator::Context, mut next: F) -> Option<T>
     where
-        F: FnMut(T, Version) -> Option<(T, StateUnpacked)>,
+        F: FnMut(T, Version) -> Option<(T, HeapState<B>)>,
+        recover::State: From<HeapState<B>>,
     {
         let mut old = self.0.load();
         let version = context.help[context.id].peek().next();

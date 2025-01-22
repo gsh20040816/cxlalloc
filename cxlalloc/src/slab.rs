@@ -45,8 +45,8 @@ impl<'raw, B> Deref for Slab<'raw, B> {
     }
 }
 
-#[ribbit::pack(size = 32, nonzero, new(vis = ""))]
 #[repr(transparent)]
+#[ribbit::pack(size = 32, nonzero, new(vis = ""))]
 pub(crate) struct Index<B> {
     value: NonZeroU32,
     #[ribbit(size = 0)]

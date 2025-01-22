@@ -13,10 +13,8 @@ use crate::data;
 use crate::huge;
 use crate::recover;
 use crate::recover::State;
-use crate::recover::StateUnpacked;
 use crate::size;
 use crate::size::Bracket as _;
-use crate::slab;
 use crate::stat;
 use crate::thread;
 use crate::view;
@@ -90,7 +88,7 @@ pub(crate) struct Owned<R> {
 
 impl Context<'_> {
     #[inline]
-    pub(crate) fn log(&mut self, state: StateUnpacked) {
+    pub(crate) fn log<S: Into<State>>(&mut self, state: S) {
         if !cfg!(feature = "recover-log") {
             return;
         }
@@ -101,12 +99,12 @@ impl Context<'_> {
     }
 
     #[inline]
-    pub(crate) fn log_unsync(&mut self, state: StateUnpacked) {
+    pub(crate) fn log_unsync<S: Into<State>>(&mut self, state: S) {
         if !cfg!(feature = "recover-log") {
             return;
         }
 
-        *self.log = Some(State::new(state));
+        *self.log = Some(state.into());
         flush(&self.log, Invalidate::No);
     }
 }
@@ -180,42 +178,17 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
         stat::inc(&stat::ALLOCATE);
 
+        let Some(class) = size::Small::new(size) else {
+            return self.allocate_large(size);
+        };
+
+        stat::record_small(class);
+
         let context = &mut Context {
             id: self.id,
             log: &mut self.owned.state,
             help: &self.shared.help,
         };
-
-        let class = size::Small::new(size);
-        let class = match class {
-            None => {
-                stat::inc(&stat::ALLOCATE_LARGE);
-                let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
-
-                let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
-                let index = self.small.peek(context, class).unwrap();
-                let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
-                let block = free.peek();
-
-                let offset = data::Offset::from_block(index, class, block);
-                let descriptor = unsafe {
-                    self.small
-                        .data
-                        .offset_to_pointer::<huge::Descriptor>(offset)
-                        .as_mut()
-                };
-
-                let data = &self.small.data;
-                let allocation = self.huge.allocate(context.id, data, size, descriptor);
-                // FIXME: pop before mmap in `self.huge.allocate` or check if
-                // allocated on recovery
-                self.small.pop(context, class, index);
-                return allocation;
-            }
-            Some(class) => class,
-        };
-
-        stat::record_small(class);
 
         let Some(index) = self.small.peek(context, class) else {
             return ptr::null_mut();
@@ -244,28 +217,56 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 }
 
-#[derive(Copy, Clone)]
-#[ribbit::pack(size = 32, nonzero)]
-pub(crate) enum Index {
-    #[ribbit(size = 32, nonzero)]
-    Small(slab::Index<size::Small>),
-}
+impl<S, O> Allocator<'_, view::Focus, S, O> {
+    #[cold]
+    fn allocate_large(&mut self, size: usize) -> *mut ffi::c_void {
+        let Some(class) = size::Large::new(size) else {
+            return self.allocate_huge(size);
+        };
 
-impl From<slab::Index<size::Small>> for Index {
-    fn from(index: slab::Index<size::Small>) -> Self {
-        Self::new(IndexUnpacked::Small(index))
+        let context = &mut Context {
+            id: self.id,
+            log: &mut self.owned.state,
+            help: &self.shared.help,
+        };
+
+        let Some(index) = self.large.peek(context, class) else {
+            return ptr::null_mut();
+        };
+
+        stat::inc(&stat::ALLOCATE_LARGE);
+        self.large.pop(context, class, index)
     }
-}
 
-#[derive(Copy, Clone)]
-#[ribbit::pack(size = 8)]
-pub(crate) enum Bracket {
-    #[ribbit(size = 8)]
-    Small(size::Small),
-}
+    #[cold]
+    fn allocate_huge(&mut self, size: usize) -> *mut ffi::c_void {
+        let context = &mut Context {
+            id: self.id,
+            log: &mut self.owned.state,
+            help: &self.shared.help,
+        };
 
-impl From<size::Small> for Bracket {
-    fn from(class: size::Small) -> Self {
-        Self::new(BracketUnpacked::Small(class))
+        let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
+        let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
+
+        let index = self.small.peek(context, class).unwrap();
+        let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
+        let block = free.peek();
+
+        let offset = data::Offset::from_block(index, class, block);
+        let descriptor = unsafe {
+            self.small
+                .data
+                .offset_to_pointer::<huge::Descriptor>(offset)
+                .as_mut()
+        };
+
+        let data = &self.small.data;
+        let allocation = self.huge.allocate(context.id, data, size, descriptor);
+
+        // FIXME: pop before mmap in `self.huge.allocate` or check if
+        // allocated on recovery
+        self.small.pop(context, class, index);
+        return allocation;
     }
 }

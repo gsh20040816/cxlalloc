@@ -3,6 +3,9 @@ use core::fmt::Display;
 use core::marker::PhantomData;
 use core::ops;
 
+use ribbit::private::u4;
+use ribbit::private::u6;
+
 use crate::SIZE_BIT_SET;
 
 pub(crate) const MIN: usize = 8;
@@ -10,6 +13,7 @@ pub(crate) const MIN: usize = 8;
 pub(crate) trait Bracket {
     const SIZE_SLAB: usize = (crate::SIZE_BIT_SET + crate::SIZE_METADATA) * 64 * Self::SIZE_MIN;
     const SIZE_MIN: usize;
+    const SIZE_MAX: usize;
     const COUNT: usize;
 
     type Array<T>: AsRef<[T]> + AsMut<[T]>;
@@ -38,6 +42,7 @@ impl Display for Huge {
 impl Bracket for Huge {
     const SIZE_SLAB: usize = 1 << 30;
     const SIZE_MIN: usize = 4096;
+    const SIZE_MAX: usize = 4096;
     const COUNT: usize = 1;
 
     type Array<T> = [T; 0];
@@ -79,7 +84,7 @@ impl<B: Bracket, T> Array<B, T> {
             .as_ref()
             .iter()
             .enumerate()
-            .map(|(index, element)| (Small::new_internal(index as u8), element))
+            .map(|(index, element)| (Small::new_internal(u6::new(index as u8)), element))
             .skip(1)
     }
 }
@@ -112,9 +117,9 @@ impl<B: Bracket, T> ops::IndexMut<B> for Array<B, T> {
 }
 
 /// 8B, 16B, 24B, ..., 504B
-#[ribbit::pack(size = 8, debug, new(rename = "new_internal", vis = ""))]
+#[ribbit::pack(size = 6, debug, new(rename = "new_internal", vis = ""))]
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
-pub(crate) struct Small(u8);
+pub(crate) struct Small(u6);
 
 impl Display for Small {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -123,13 +128,13 @@ impl Display for Small {
 }
 
 impl Small {
-    const COUNT: usize = 63;
-
     #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
-        match size {
-            0..=504 => Some(Small::new_internal((size.next_multiple_of(8) / 8) as u8)),
-            _ => None,
+        match size <= Self::SIZE_MAX {
+            true => Some(Small::new_internal(u6::new(
+                (size.next_multiple_of(8) / 8) as u8,
+            ))),
+            false => None,
         }
     }
 
@@ -158,6 +163,7 @@ impl Small {
 
 impl Bracket for Small {
     const SIZE_MIN: usize = 8;
+    const SIZE_MAX: usize = 504;
     const COUNT: usize = 63;
 
     type Array<T> = [T; 1 + Self::COUNT];
@@ -169,17 +175,17 @@ impl Bracket for Small {
 
     #[inline]
     fn pack(self) -> u8 {
-        self._0()
+        self._0().value()
     }
 
     #[inline]
     fn is_zero(&self) -> bool {
-        self._0() == 0
+        self._0().value() == 0
     }
 
     #[inline]
     fn size(&self) -> u64 {
-        self._0() as u64 * 8
+        self._0().value() as u64 * 8
     }
 
     #[inline]
@@ -194,8 +200,26 @@ impl Bracket for Small {
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub(crate) struct Large(u4);
 
+impl Display for Large {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (512 << self._0().value()).fmt(f)
+    }
+}
+
+impl Large {
+    pub(crate) fn new(size: usize) -> Option<Self> {
+        match size <= Self::SIZE_MAX {
+            true => Some(Self::new_internal(u4::new(
+                (size.next_power_of_two() >> 9) as u8,
+            ))),
+            false => None,
+        }
+    }
+}
+
 impl Bracket for Large {
-    const SIZE_MIN: usize = 512;
+    const SIZE_MIN: usize = 1 << 9;
+    const SIZE_MAX: usize = 1 << 19;
     const COUNT: usize = 11;
 
     type Array<T> = [T; Self::COUNT];

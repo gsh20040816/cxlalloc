@@ -7,6 +7,7 @@ use crate::cas::help;
 use crate::coherence::flush;
 use crate::coherence::Invalidate;
 use crate::recover;
+use crate::recover::HeapState;
 use crate::slab::Index;
 use crate::slab::Slice;
 use crate::thread;
@@ -68,7 +69,8 @@ pub(crate) struct Global<B> {
 
 impl<B> Global<B>
 where
-    Index<B>: Into<allocator::Index>,
+    B: ::ribbit::Pack<Loose = u8>,
+    recover::State: From<HeapState<B>>,
 {
     pub(crate) fn push(
         &self,
@@ -83,10 +85,7 @@ where
                 flush(&slabs[tail].local.next, Invalidate::No);
                 Some((
                     Some(head),
-                    recover::StateUnpacked::LocalToGlobal(recover::LocalToGlobal::new(
-                        head.into(),
-                        version,
-                    )),
+                    recover::LocalToGlobal::new(head, version).into(),
                 ))
             })
             .unwrap();
@@ -101,13 +100,7 @@ where
             .update(context, |old, version| {
                 let old = old?;
                 let new = slabs[old].local.next.load();
-                Some((
-                    new,
-                    recover::StateUnpacked::GlobalToLocal(recover::GlobalToLocal::new(
-                        old.into(),
-                        version,
-                    )),
-                ))
+                Some((new, recover::GlobalToLocal::new(old, version).into()))
             })
             .flatten()
     }

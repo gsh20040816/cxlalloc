@@ -79,7 +79,7 @@ mod driver {
     }
 
     #[ribbit::pack(size = 2)]
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Debug)]
     enum Dir {
         None,
         W,
@@ -120,13 +120,13 @@ mod driver {
         find.desc.length = size as u64;
 
         assert!(
-            id.as_bytes().len() < 12,
+            id.len() < 12,
             "Ivshmem driver only supports IDs up to length 12 (including null byte), got {id:?}"
         );
 
         // Note: `to_bytes` does not include null terminator. We check above
         // that `id` length + 1 fits, and array is 0-initialized.
-        find.desc.prog_id[..id.as_bytes().len()].copy_from_slice(id.as_bytes());
+        find.desc.prog_id[..id.len()].copy_from_slice(id.as_bytes());
 
         match unsafe {
             libc::ioctl(
