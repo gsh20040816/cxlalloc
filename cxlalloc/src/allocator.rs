@@ -215,13 +215,15 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 
     #[inline]
-    pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
+    pub fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
 
-        if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
-            stat::inc(&stat::FREE_LARGE);
-            return self.huge.free(&self.small.data, offset);
-        }
+        let Some(offset) = self
+            .small
+            .checked_pointer_to_offset(&self.shared.help, pointer)
+        else {
+            return self.free_large(pointer);
+        };
 
         let context = &mut Context {
             id: self.id,
@@ -229,17 +231,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             log: &mut self.owned.state,
         };
 
-        if let Some(offset) = self
-            .small
-            .checked_pointer_to_offset(&self.shared.help, pointer)
-        {
-            self.small.free(context, offset)
-        } else if let Some(offset) = self
-            .large
-            .checked_pointer_to_offset(&self.shared.help, pointer)
-        {
-            self.large.free(context, offset)
-        }
+        self.small.free(context, offset);
     }
 }
 
@@ -293,6 +285,32 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         // FIXME: pop before mmap in `self.huge.allocate` or check if
         // allocated on recovery
         self.small.pop(context, class, index);
-        return allocation;
+        allocation
+    }
+
+    #[cold]
+    fn free_large(&mut self, pointer: NonNull<ffi::c_void>) {
+        let Some(offset) = self
+            .large
+            .checked_pointer_to_offset(&self.shared.help, pointer)
+        else {
+            return self.free_huge(pointer);
+        };
+
+        let context = &mut Context {
+            id: self.id,
+            log: &mut self.owned.state,
+            help: &self.shared.help,
+        };
+
+        self.large.free(context, offset)
+    }
+
+    #[cold]
+    fn free_huge(&mut self, pointer: NonNull<ffi::c_void>) {
+        if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
+            stat::inc(&stat::FREE_LARGE);
+            self.huge.free(&self.small.data, offset);
+        }
     }
 }
