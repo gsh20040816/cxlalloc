@@ -5,8 +5,7 @@ use core::ops::Index;
 
 use crate::COUNT_THREAD;
 
-#[ribbit::pack(size = 16, nonzero, new(rename = "new_internal", vis = ""))]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[ribbit::pack(size = 16, nonzero, new(rename = "new_internal", vis = ""), eq, hash)]
 pub struct Id(NonZeroU16);
 
 impl Id {

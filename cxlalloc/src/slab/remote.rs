@@ -13,7 +13,6 @@ pub(crate) struct Remote<B> {
 
 #[ribbit::pack(size = 32)]
 #[repr(C)]
-#[derive(Copy, Clone)]
 pub(crate) struct Meta {
     #[ribbit(size = 16)]
     pub(crate) version: Version,
@@ -24,7 +23,6 @@ pub(crate) struct Meta {
 
 #[ribbit::pack(size = 24)]
 #[repr(C)]
-#[derive(Copy, Clone)]
 pub(crate) struct Owner<B> {
     #[ribbit(size = 8)]
     pub(crate) class: B,

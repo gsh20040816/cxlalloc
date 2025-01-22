@@ -78,8 +78,7 @@ macro_rules! impl_convert64 {
 impl_convert64!(u8, u16, u32, u64);
 
 #[repr(C)]
-#[ribbit::pack(size = 16, debug)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[ribbit::pack(size = 16, debug, eq, hash)]
 pub struct Version(u16);
 
 impl Version {

@@ -69,7 +69,6 @@ mod driver {
     // https://sites.uclouvain.be/SystInfo/usr/include/asm-generic/ioctl.h.html
     #[ribbit::pack(size = 32, debug)]
     #[repr(C)]
-    #[derive(Copy, Clone)]
     struct Ioctl {
         function: u8,
         driver: u8,
@@ -78,8 +77,7 @@ mod driver {
         dir: Dir,
     }
 
-    #[ribbit::pack(size = 2)]
-    #[derive(Copy, Clone, Debug)]
+    #[ribbit::pack(size = 2, debug)]
     enum Dir {
         None,
         W,

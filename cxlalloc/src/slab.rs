@@ -46,11 +46,11 @@ impl<'raw, B> Deref for Slab<'raw, B> {
 }
 
 #[repr(transparent)]
-#[ribbit::pack(size = 32, nonzero, new(vis = ""))]
+#[ribbit::pack(size = 32, nonzero, new(vis = ""), eq)]
 pub(crate) struct Index<B> {
     value: NonZeroU32,
     #[ribbit(size = 0)]
-    _bracket: B,
+    _bracket: PhantomData<B>,
 }
 
 impl<B> Index<B> {
@@ -60,22 +60,6 @@ impl<B> Index<B> {
 impl Index<size::Huge> {
     pub(crate) fn new_huge(slot: usize) -> Self {
         Self::new(NonZeroU32::MIN.checked_add(slot as u32).unwrap())
-    }
-}
-
-impl<B> Clone for Index<B> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<B> Copy for Index<B> {}
-
-impl<B> Eq for Index<B> {}
-
-impl<B> PartialEq for Index<B> {
-    fn eq(&self, other: &Self) -> bool {
-        self.value() == other.value()
     }
 }
 

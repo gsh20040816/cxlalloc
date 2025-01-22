@@ -53,9 +53,15 @@ where
     }
 }
 
-#[ribbit::pack(size = 64, nonzero, new(rename = "new_internal", vis = ""), debug)]
+#[ribbit::pack(
+    size = 64,
+    nonzero,
+    new(rename = "new_internal", vis = ""),
+    debug,
+    eq,
+    ord
+)]
 #[repr(transparent)]
-#[derive(PartialEq, Eq)]
 pub(crate) struct Offset<B> {
     #[ribbit(debug(format = "{:#x?}"))]
     value: NonZeroU64,
@@ -104,11 +110,3 @@ impl<B: size::Bracket> From<Offset<B>> for u64 {
         offset.value.get() - B::SIZE_SLAB as u64
     }
 }
-
-impl<B> Clone for Offset<B> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<B> Copy for Offset<B> {}

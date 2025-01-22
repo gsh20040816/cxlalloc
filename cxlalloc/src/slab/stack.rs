@@ -110,8 +110,7 @@ where
     }
 }
 
-#[ribbit::pack(size = 64, debug)]
-#[derive(PartialEq, Eq)]
+#[ribbit::pack(size = 64, debug, eq)]
 struct Head<B> {
     #[ribbit(size = 16, nonzero)]
     id: thread::Id,
@@ -122,11 +121,3 @@ struct Head<B> {
     #[ribbit(size = 32)]
     index: Option<Index<B>>,
 }
-
-impl<B> Clone for Head<B> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<B> Copy for Head<B> {}

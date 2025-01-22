@@ -50,7 +50,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 }
 
-#[ribbit::pack(size = 64, nonzero, copy, from)]
+#[ribbit::pack(size = 64, nonzero, from)]
 pub(crate) enum State {
     #[ribbit(size = 63)]
     Small(HeapState<size::Small>),
@@ -58,9 +58,9 @@ pub(crate) enum State {
     Large(HeapState<size::Large>),
 }
 
-#[ribbit::pack(size = 63, copy, from)]
+#[ribbit::pack(size = 63, from)]
 pub(crate) enum HeapState<B> {
-    #[ribbit(size = 40, copy, from)]
+    #[ribbit(size = 40, from)]
     UnsizedToSized {
         #[ribbit(size = 32)]
         index: Option<slab::Index<B>>,
@@ -69,7 +69,7 @@ pub(crate) enum HeapState<B> {
         class: B,
     },
 
-    #[ribbit(size = 48, copy, from)]
+    #[ribbit(size = 48, from)]
     GlobalToLocal {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -78,7 +78,7 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
-    #[ribbit(size = 48, copy, from)]
+    #[ribbit(size = 48, from)]
     BumpToLocal {
         #[ribbit(size = 32)]
         start: Option<slab::Index<B>>,
@@ -87,7 +87,7 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
-    #[ribbit(size = 48, copy, from)]
+    #[ribbit(size = 48, from)]
     LocalToGlobal {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -96,7 +96,7 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
-    #[ribbit(size = 44, copy, from)]
+    #[ribbit(size = 44, from)]
     SizedToApplication {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -105,7 +105,7 @@ pub(crate) enum HeapState<B> {
         block: Bit,
     },
 
-    #[ribbit(size = 44, copy, from)]
+    #[ribbit(size = 44, from)]
     ApplicationToSized {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -114,13 +114,13 @@ pub(crate) enum HeapState<B> {
         block: Bit,
     },
 
-    #[ribbit(size = 32, copy, from)]
+    #[ribbit(size = 32, from)]
     LocalToGlobalSave {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
     },
 
-    #[ribbit(size = 60, copy, from)]
+    #[ribbit(size = 60, from)]
     Remote {
         #[ribbit(size = 32)]
         index: slab::Index<B>,

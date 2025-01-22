@@ -42,7 +42,7 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
             .skip(skip)
             .for_each(|row| *row = 0);
 
-        self.count = count as u64;
+        self.count = count;
         flush(self, Invalidate::No);
         self.validate();
     }

@@ -29,8 +29,8 @@ pub(crate) trait Bracket {
     fn count(&self) -> u64;
 }
 
-#[ribbit::pack(size = 0)]
-#[derive(Copy, Clone, Default, PartialEq, Eq)]
+#[ribbit::pack(size = 0, eq)]
+#[derive(Default)]
 pub struct Huge;
 
 impl Display for Huge {
@@ -117,8 +117,8 @@ impl<B: Bracket, T> ops::IndexMut<B> for Array<B, T> {
 }
 
 /// 8B, 16B, 24B, ..., 504B
-#[ribbit::pack(size = 6, debug, new(rename = "new_internal", vis = ""))]
-#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[ribbit::pack(size = 6, debug, new(rename = "new_internal", vis = ""), eq, hash)]
+#[derive(Default)]
 pub(crate) struct Small(u6);
 
 impl Display for Small {
@@ -196,8 +196,8 @@ impl Bracket for Small {
 }
 
 /// 512B, 1KiB, 2KiB, ..., 512KiB
-#[ribbit::pack(size = 4, debug, new(rename = "new_internal", vis = ""))]
-#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[ribbit::pack(size = 4, debug, new(rename = "new_internal", vis = ""), eq, hash)]
+#[derive(Default)]
 pub(crate) struct Large(u4);
 
 impl Display for Large {
