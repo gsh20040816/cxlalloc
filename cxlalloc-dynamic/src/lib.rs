@@ -13,8 +13,10 @@ use core::alloc::Layout;
 use core::cell::Cell;
 use core::cell::UnsafeCell;
 use core::ffi;
+use core::mem;
 use core::mem::ManuallyDrop;
 use core::mem::MaybeUninit;
+use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
@@ -61,12 +63,34 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
         );
     }
 
+    let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
+    action.sa_sigaction = handle as usize;
+    action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
+
+    unsafe {
+        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
+    }
+
     cxlalloc::raw::Builder::default()
         .size(1usize << 34)
         .thread_count(64)
         .build("cxl")
         .expect("Heap creation failed")
 });
+
+fn handle(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
+    let address = unsafe { info.read().si_addr() };
+
+    if RAW.map(address) {
+        return;
+    }
+
+    unsafe {
+        let mut action = mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = libc::SIG_DFL;
+        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
+    }
+}
 
 // The behavior of these thread locals is unfortunately quite hairy.
 //
@@ -218,7 +242,7 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut ffi::c_void) -> usize 
         return 0;
     };
 
-    with(|allocator| allocator.class(pointer))
+    with(|allocator| allocator.class_untyped(pointer))
 }
 
 #[no_mangle]
