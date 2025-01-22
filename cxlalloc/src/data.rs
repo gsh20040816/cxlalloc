@@ -46,10 +46,11 @@ where
             .unwrap()
     }
 
-    pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Offset<B> {
-        Offset::new_internal(
-            NonZeroU64::new(pointer.as_ptr() as u64 - self.base.as_ptr() as u64).unwrap(),
-        )
+    pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<Offset<B>> {
+        (pointer.as_ptr() as u64)
+            .checked_sub(self.base.as_ptr() as u64)
+            .and_then(NonZeroU64::new)
+            .map(Offset::new_internal)
     }
 }
 

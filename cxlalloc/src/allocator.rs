@@ -120,7 +120,11 @@ where
     }
 
     pub fn set_root_shared(&self, root: &'raw S) {
-        let offset = self.small.data.pointer_to_offset(NonNull::from(root));
+        let offset = self
+            .small
+            .data
+            .pointer_to_offset(NonNull::from(root))
+            .unwrap();
         self.shared.root.store(Some(offset));
     }
 
@@ -149,8 +153,21 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return self.huge.class(&self.small.data, offset).get();
         }
 
-        let offset = self.small.data.pointer_to_offset(pointer);
-        self.small.class(offset).size() as usize
+        if let Some(offset) = self
+            .small
+            .checked_pointer_to_offset(&self.shared.help, pointer)
+        {
+            return self.small.class(offset).size() as usize;
+        }
+
+        if let Some(offset) = self
+            .large
+            .checked_pointer_to_offset(&self.shared.help, pointer)
+        {
+            return self.large.class(offset).size() as usize;
+        }
+
+        panic!("Unrecognized pointer: {:#x?}", pointer)
     }
 
     pub unsafe fn realloc_untyped(
@@ -206,14 +223,23 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return self.huge.free(&self.small.data, offset);
         }
 
-        let offset = self.small.data.pointer_to_offset(pointer);
         let context = &mut Context {
             id: self.id,
             help: &self.shared.help,
             log: &mut self.owned.state,
         };
 
-        self.small.free(context, offset)
+        if let Some(offset) = self
+            .small
+            .checked_pointer_to_offset(&self.shared.help, pointer)
+        {
+            self.small.free(context, offset)
+        } else if let Some(offset) = self
+            .large
+            .checked_pointer_to_offset(&self.shared.help, pointer)
+        {
+            self.large.free(context, offset)
+        }
     }
 }
 

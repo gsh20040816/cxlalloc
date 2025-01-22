@@ -89,7 +89,7 @@ where
     B: ribbit::Pack<Loose = u8>,
     State: From<HeapState<B>>,
 {
-    pub(crate) fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
+    fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
         let start = self
             .bump
             .update(context, |old, version| {
@@ -103,7 +103,11 @@ where
         start..end
     }
 
-    pub(crate) fn push(
+    fn len(&self, help: &help::Array) -> Option<slab::Index<B>> {
+        self.bump.load(help)
+    }
+
+    fn push(
         &self,
         context: &mut allocator::Context,
         slabs: &Slab<B>,
@@ -113,11 +117,7 @@ where
         self.free.push(context, slabs, head, tail);
     }
 
-    pub(crate) fn pop(
-        &self,
-        context: &mut allocator::Context,
-        slabs: &Slab<B>,
-    ) -> Option<slab::Index<B>> {
+    fn pop(&self, context: &mut allocator::Context, slabs: &Slab<B>) -> Option<slab::Index<B>> {
         if self.free.is_empty(context.help) {
             return None;
         }
@@ -247,6 +247,20 @@ where
     B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
     recover::State: From<HeapState<B>>,
 {
+    pub(crate) fn checked_pointer_to_offset(
+        &self,
+        help: &help::Array,
+        pointer: NonNull<ffi::c_void>,
+    ) -> Option<data::Offset<B>> {
+        let offset = self.data.pointer_to_offset(pointer)?;
+        let len = self.shared.len(help)?;
+
+        match offset >= data::Offset::from(len) {
+            false => Some(offset),
+            true => None,
+        }
+    }
+
     #[inline]
     pub(crate) fn pop(
         &mut self,

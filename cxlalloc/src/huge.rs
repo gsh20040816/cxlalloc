@@ -150,7 +150,7 @@ impl<'raw> Huge<'raw> {
     ) -> Option<data::Offset<size::Huge>> {
         match self.region.contains(pointer) {
             false => None,
-            true => Some(self.data.pointer_to_offset(pointer)),
+            true => self.data.pointer_to_offset(pointer),
         }
     }
 
@@ -159,12 +159,12 @@ impl<'raw> Huge<'raw> {
         data: &Data<'raw, size::Small>,
         address: NonNull<ffi::c_void>,
     ) -> crate::Result<()> {
-        if !self.region.contains(address) {
-            return Err(crate::Error::OutOfBounds);
-        }
+        let offset = self
+            .checked_pointer_to_offset(address)
+            .ok_or(crate::Error::OutOfBounds)?;
 
-        let offset = self.data.pointer_to_offset(address);
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
+
         self.map_descriptor(descriptor).map_err(crate::Error::from)
     }
 
@@ -219,7 +219,7 @@ impl<'raw> Huge<'raw> {
 
     fn set(&self, id: thread::Id, data: &Data<'raw, size::Small>, head: &Descriptor) {
         let offset = data.pointer_to_offset(NonNull::from(head));
-        self.owned[id].head.store(Some(offset))
+        self.owned[id].head.store(offset)
     }
 
     fn claim(&mut self, id: thread::Id) {
