@@ -8,8 +8,6 @@ use ribbit::private::u6;
 
 use crate::SIZE_BIT_SET;
 
-pub(crate) const MIN: usize = 8;
-
 pub(crate) trait Bracket {
     const SIZE_SLAB: usize = (crate::SIZE_BIT_SET + crate::SIZE_METADATA) * 64 * Self::SIZE_MIN;
     const SIZE_MIN: usize;
@@ -210,7 +208,7 @@ impl Large {
     pub(crate) fn new(size: usize) -> Option<Self> {
         match size <= Self::SIZE_MAX {
             true => Some(Self::new_internal(u4::new(
-                (size.next_power_of_two() >> 9) as u8,
+                (size.next_power_of_two() >> 9).trailing_zeros() as u8,
             ))),
             false => None,
         }
@@ -246,6 +244,10 @@ impl Bracket for Large {
 
     #[inline]
     fn count(&self) -> u64 {
-        (Self::SIZE_SLAB as u64 >> 9) << self._0().value()
+        const COUNT_MIN: u64 = crate::SIZE_BIT_SET as u64 * 64;
+        match self._0().value() == 0 {
+            true => COUNT_MIN,
+            false => Self::SIZE_SLAB as u64 >> 9 >> self._0().value(),
+        }
     }
 }
