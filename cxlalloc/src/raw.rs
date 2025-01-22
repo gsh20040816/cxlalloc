@@ -240,6 +240,18 @@ impl Raw {
             Err(error) => panic!("Failed to extend small heap at {:x?}: {}", address, error),
         }
 
+        match allocator.large.try_map(
+            &self.backend,
+            &self.slab_large,
+            &self.data_large,
+            &allocator.shared.help,
+            address,
+        ) {
+            Ok(()) => return true,
+            Err(crate::Error::OutOfBounds) => (),
+            Err(error) => panic!("Failed to extend large heap at {:x?}: {}", address, error),
+        }
+
         false
     }
 
@@ -291,8 +303,8 @@ impl Raw {
                         .cast::<thread::Array<UnsafeCell<heap::Owned<size::Large>>>>()
                         .as_ref()
                         .unwrap(),
-                    Slab::new(slab::Slice::from_raw(self.slab_small.address().cast())),
-                    Data::<size::Large>::new(self.data_small.address()),
+                    Slab::new(slab::Slice::from_raw(self.slab_large.address().cast())),
+                    Data::<size::Large>::new(self.data_large.address()),
                 ),
                 Huge::new(
                     &self.backend,

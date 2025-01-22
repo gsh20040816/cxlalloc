@@ -1,0 +1,15 @@
+# Free large allocation after faulting
+
+count = 2
+size = 0
+
+[[requests]]
+type = "allocate"
+thread = 0
+id = 0xdeadbeef
+size = 1024
+
+[[requests]]
+type = "free"
+thread = 1
+id = 0xdeadbeef

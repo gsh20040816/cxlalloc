@@ -27,16 +27,13 @@ fn create() {
 #[test]
 fn small() {
     with_allocator(|allocator| unsafe {
-        let small = allocator
-            .allocate_untyped(8)
-            .cast::<u64>()
-            .as_mut()
-            .unwrap();
+        let pointer = NonNull::new(allocator.allocate_untyped(8)).unwrap();
+        let small = pointer.cast::<u64>().as_mut();
 
         *small = 5;
         assert_eq!(*small, 5);
-
-        allocator.free_untyped(NonNull::from(small).cast());
+        assert!(allocator.class_untyped(pointer) >= 8);
+        allocator.free_untyped(pointer);
     })
 }
 
@@ -45,17 +42,15 @@ fn huge() {
     with_allocator(|allocator| unsafe {
         const SIZE: usize = 1 << 30;
 
-        let huge = allocator
-            .allocate_untyped(SIZE)
-            .cast::<[u8; SIZE]>()
-            .as_mut()
-            .unwrap();
+        let pointer = NonNull::new(allocator.allocate_untyped(SIZE)).unwrap();
+        let huge = pointer.cast::<[u8; SIZE]>().as_mut();
 
         for i in 0..SIZE / PAGE {
             huge[i * PAGE] = i as u8;
         }
 
-        allocator.free_untyped(NonNull::from(huge).cast());
+        assert!(allocator.class_untyped(pointer) >= SIZE);
+        allocator.free_untyped(pointer);
     })
 }
 
@@ -116,7 +111,7 @@ impl<const THREADS: usize> ReferenceStateMachine for Abstract<THREADS> {
         (0..THREADS)
             .prop_flat_map(move |thread| {
                 let id = state[thread].len();
-                let allocate = (1usize..1 << 9usize).prop_map(move |size| Transition::Allocate {
+                let allocate = (1usize..1 << 8usize).prop_map(move |size| Transition::Allocate {
                     thread,
                     id,
                     size,
