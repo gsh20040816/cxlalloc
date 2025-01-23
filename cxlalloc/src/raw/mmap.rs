@@ -16,10 +16,6 @@ impl backend::Impl for Mmap {
     fn allocate(&self, _: region::Id, _: NonZeroUsize) -> io::Result<backend::File> {
         Ok(backend::File::default())
     }
-
-    fn free(&self, _: region::Id) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 impl From<Mmap> for Backend {

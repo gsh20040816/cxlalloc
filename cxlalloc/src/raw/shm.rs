@@ -55,14 +55,6 @@ impl backend::Impl for Shm {
             Ok(backend::File::new(fd, 0, clean))
         }
     }
-
-    fn free(&self, id: region::Id) -> io::Result<()> {
-        let path = id_to_path(id);
-        match unsafe { libc::shm_unlink(path.as_ptr().cast()) } {
-            0 => Ok(()),
-            _ => Err(io::Error::last_os_error()),
-        }
-    }
 }
 
 fn id_to_path(id: region::Id) -> ArrayVec<u8, { region::Id::SIZE }> {

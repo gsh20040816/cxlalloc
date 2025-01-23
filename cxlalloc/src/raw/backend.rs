@@ -43,10 +43,6 @@ impl Backend {
         backend.allocate(id, size)
     }
 
-    pub(super) fn free(&self, id: region::Id) -> io::Result<()> {
-        self.as_backend().free(id)
-    }
-
     pub(super) fn name(&self) -> &str {
         self.as_backend().name()
     }
@@ -70,8 +66,6 @@ trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
     fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File>;
-
-    fn free(&self, id: region::Id) -> io::Result<()>;
 }
 
 pub(super) struct File {
@@ -81,6 +75,10 @@ pub(super) struct File {
 }
 
 impl File {
+    #[cfg_attr(
+        not(any(feature = "backend-shm", feature = "backend-ivshmem")),
+        expect(unused)
+    )]
     fn new(fd: OwnedFd, offset: i64, clean: bool) -> Self {
         Self {
             fd: Some(fd),

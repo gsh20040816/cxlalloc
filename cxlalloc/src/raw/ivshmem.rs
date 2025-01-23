@@ -38,14 +38,6 @@ impl backend::Impl for Ivshmem {
             allocation.existing == 0,
         ))
     }
-
-    fn free(&self, _: region::Id) -> io::Result<()> {
-        todo!()
-        // match driver::cxl_free(&self.device, &id, region.offset(), size) {
-        //     Ok(()) => (),
-        //     Err(error) => log::warn!("Call to cxl_free failed: {:?}", error),
-        // }
-    }
 }
 
 impl From<Ivshmem> for raw::Backend {
