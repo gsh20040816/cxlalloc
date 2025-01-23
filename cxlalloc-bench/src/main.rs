@@ -59,17 +59,17 @@ enum Wrapper {
     Rr,
 
     PerfRecord {
-        /// CPU mask for taskset
-        #[arg(long, default_value_t = u64::MAX)]
-        cpu: u64,
+        /// CPU list for taskset
+        #[arg(long)]
+        pin: String,
 
         #[arg(long, value_delimiter = ',')]
         bases: Vec<String>,
     },
     PerfStat {
-        /// CPU mask for taskset
-        #[arg(short, long, default_value_t = u64::MAX)]
-        cpu: u64,
+        /// CPU list for taskset
+        #[arg(long)]
+        pin: String,
     },
 }
 
@@ -144,17 +144,20 @@ fn main() -> anyhow::Result<()> {
                     .display()
             );
 
+            let ld = ld_preload.clone();
             wrapper
                 .as_ref()
                 .map(Wrapper::prefix)
-                .unwrap_or_else(|| cmd!("env", &ld_preload))
-                .before_spawn(move |command| {
-                    command.arg("env");
-                    command.arg(&ld_preload);
-                    command.arg(&path_benchmark);
-                    command.args(benchmark.args(threads));
-                    Ok(())
+                .map(|wrapper| {
+                    wrapper.before_spawn(move |command| {
+                        command.arg("env");
+                        command.arg(&ld);
+                        command.arg(&path_benchmark);
+                        command.args(benchmark.args(threads));
+                        Ok(())
+                    })
                 })
+                .unwrap_or_else(|| cmd!("env", ld_preload))
                 .run()
                 .context("Failed to run command")?;
 
@@ -183,10 +186,11 @@ impl Wrapper {
         match self {
             Wrapper::Rr => cmd!["rr", "record"],
             Wrapper::Gdb => cmd!["gdb", "--ex=run", "--args"],
-            Wrapper::PerfRecord { cpu, bases: _ } => {
+            Wrapper::PerfRecord { pin, bases: _ } => {
                 cmd![
                     "taskset",
-                    cpu.to_string(),
+                    "-c",
+                    pin,
                     "perf",
                     "record",
                     "--call-graph",
@@ -199,8 +203,8 @@ impl Wrapper {
                     "perf.data",
                 ]
             }
-            Wrapper::PerfStat { cpu } => {
-                cmd!["taskset", cpu.to_string(), "perf", "stat"]
+            Wrapper::PerfStat { pin } => {
+                cmd!["taskset", "-c", pin, "perf", "stat"]
             }
         }
     }
