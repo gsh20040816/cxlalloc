@@ -233,6 +233,8 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return self.allocate_huge(size);
         };
 
+        stat::record_large(class);
+
         let context = &mut Context {
             id: self.id,
             log: &mut self.owned.state,
@@ -249,6 +251,8 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
     #[cold]
     fn allocate_huge(&mut self, size: usize) -> *mut ffi::c_void {
+        stat::record_huge(size);
+
         let context = &mut Context {
             id: self.id,
             log: &mut self.owned.state,

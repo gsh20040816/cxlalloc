@@ -84,6 +84,7 @@ pub(crate) fn inc(counter: &'static LocalKey<Cell<usize>>) {
 
 thread_local! {
     static SMALL: size::Array<size::Small, Cell<usize>> = size::Array::default();
+    static LARGE: size::Array<size::Large, Cell<usize>> = size::Array::default();
 
     // FIXME: this leaks memory, but we need it for now if we want to track
     // size statistics through the `LD_PRELOAD` shim.
@@ -95,7 +96,7 @@ thread_local! {
     // the cxlalloc-dynamic main thread destructor, which tries to dump
     // statistics and panics.
     #[cfg(feature = "stat-size")]
-    static LARGE: core::mem::ManuallyDrop<core::cell::RefCell<hdrhistogram::Histogram<u64>>>  = core::mem::ManuallyDrop::new(core::cell::RefCell::new(
+    static HUGE: core::mem::ManuallyDrop<core::cell::RefCell<hdrhistogram::Histogram<u64>>>  = core::mem::ManuallyDrop::new(core::cell::RefCell::new(
         hdrhistogram::Histogram::new(3).unwrap()
     ));
 }
@@ -110,9 +111,18 @@ pub(crate) fn record_small(class: size::Small) {
 }
 
 #[inline]
-pub(crate) fn record_large(_large: usize) {
+pub(crate) fn record_large(class: size::Large) {
+    if !cfg!(feature = "stat-size") {
+        return;
+    }
+
+    LARGE.with(|counters| counters[class].set(counters[class].get() + 1))
+}
+
+#[inline]
+pub(crate) fn record_huge(_huge: usize) {
     #[cfg(feature = "stat-size")]
-    LARGE.with(|histogram| histogram.borrow_mut().record(_large as u64).unwrap())
+    HUGE.with(|histogram| histogram.borrow_mut().record(_huge as u64).unwrap())
 }
 
 pub fn dump_sizes(id: usize) {
@@ -121,14 +131,21 @@ pub fn dump_sizes(id: usize) {
     }
 
     let mut output = format!("{id}");
+
     SMALL.with(|counters| {
         for (class, count) in counters.iter().filter(|(_, count)| count.get() > 0) {
             write!(&mut output, ",{}:{}", class.size(), count.get()).unwrap();
         }
     });
 
+    LARGE.with(|counters| {
+        for (class, count) in counters.iter().filter(|(_, count)| count.get() > 0) {
+            write!(&mut output, ",{}:{}", class.size(), count.get()).unwrap();
+        }
+    });
+
     #[cfg(feature = "stat-size")]
-    LARGE.with(|histogram| {
+    HUGE.with(|histogram| {
         for value in histogram.borrow().iter_recorded() {
             write!(
                 &mut output,
