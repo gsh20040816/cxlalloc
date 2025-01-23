@@ -146,7 +146,7 @@ impl Raw {
             ),
         };
 
-        let slab_small_reservation = Reservation::new(Reservation::TIB)?;
+        let slab_small_reservation = Reservation::new()?;
         let slab_small = region::Sequential::new(
             &backend,
             id.with_suffix("ss"),
@@ -155,7 +155,7 @@ impl Raw {
             slab_small_lazy,
         )?;
 
-        let slab_large_reservation = Reservation::new(Reservation::TIB)?;
+        let slab_large_reservation = Reservation::new()?;
         let slab_large = region::Sequential::new(
             &backend,
             id.with_suffix("sl"),
@@ -167,13 +167,8 @@ impl Raw {
             true,
         )?;
 
-        // Data regions must be contiguous to support applications that rely on offset pointers.
-        let data_reservation =
-            Reservation::new(Reservation::TIB.saturating_mul(NonZeroUsize::new(3).unwrap()))?;
-
-        let (data_small_reservation, data_reservation) = data_reservation.split(Reservation::TIB);
-        let (data_large_reservation, data_huge_reservation) =
-            data_reservation.split(Reservation::TIB);
+        let [data_small_reservation, data_large_reservation, data_huge_reservation] =
+            Reservation::new_contiguous()?;
 
         let (data_small_lazy, data_small_size) = match Data::<size::Small>::layout(slab_count)
             .ok()

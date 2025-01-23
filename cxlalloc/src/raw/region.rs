@@ -41,35 +41,37 @@ impl Deref for Id {
     }
 }
 
-pub(crate) struct Reservation {
-    address: NonNull<Page>,
-    size: NonZeroUsize,
-}
+pub(crate) struct Reservation(NonNull<Page>);
 
 impl Reservation {
-    pub(crate) const TIB: NonZeroUsize = NonZeroUsize::new(1 << 40).unwrap();
+    pub(crate) const SIZE: NonZeroUsize = NonZeroUsize::new(1 << 40).unwrap();
 
     // In order to keep heap regions contiguous when extending, we need
     // to reserve an unbacked region of virtual address space,
     // and then overwrite it later via `mmap` with `MMAP_FIXED`.
-    pub(crate) fn new(size: NonZeroUsize) -> io::Result<Self> {
-        let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let address = unsafe { mmap(None, size, false, &backend::File::default())? };
-        Ok(Self { address, size })
+    pub(crate) fn new() -> io::Result<Self> {
+        let address = unsafe { mmap(None, Self::SIZE, false, &backend::File::default())? };
+        Ok(Self(address))
     }
 
-    pub(crate) fn split(self, at: NonZeroUsize) -> (Self, Self) {
-        let lo = Self {
-            address: self.address,
-            size: at,
-        };
+    pub(crate) fn new_contiguous<const COUNT: usize>() -> io::Result<[Self; COUNT]> {
+        let total = NonZeroUsize::new(Self::SIZE.get() * COUNT).unwrap();
+        let address = unsafe { mmap(None, total, false, &backend::File::default())? };
+        Ok(std::array::from_fn(|i| {
+            Self(unsafe { address.byte_add(Self::SIZE.get() * i) })
+        }))
+    }
 
-        let hi = Self {
-            address: unsafe { self.address.byte_add(at.get()) },
-            size: NonZeroUsize::new(self.size.get() - at.get()).unwrap(),
-        };
+    fn unmap(&self) -> io::Result<()> {
+        unsafe { munmap(self.0, Self::SIZE) }
+    }
 
-        (lo, hi)
+    fn start(&self) -> NonNull<Page> {
+        self.0.cast()
+    }
+
+    fn end(&self) -> NonNull<Page> {
+        unsafe { self.0.byte_add(Self::SIZE.get()) }
     }
 }
 
@@ -145,7 +147,7 @@ impl Sequential {
             true => false,
             false => {
                 let file = backend.allocate(id.with_suffix(0), size)?;
-                unsafe { mmap(Some(reservation.address), size, true, &file) }?;
+                unsafe { mmap(Some(reservation.0), size, true, &file) }?;
                 file.clean
             }
         };
@@ -164,7 +166,7 @@ impl Sequential {
 
         unsafe {
             mmap(
-                Some(self.reservation.address.byte_add(self.size.get() * index)),
+                Some(self.reservation.0.byte_add(self.size.get() * index)),
                 self.size,
                 true,
                 &file,
@@ -177,7 +179,7 @@ impl Sequential {
 
 impl Region for Sequential {
     fn address(&self) -> NonNull<Page> {
-        self.reservation.address
+        self.reservation.0
     }
 
     fn is_clean(&self) -> bool {
@@ -190,7 +192,7 @@ impl Region for Sequential {
 
     /// Remove all virtual address space mappings for this region.
     fn unmap(&self) -> io::Result<()> {
-        unsafe { munmap(self.reservation.address, self.reservation.size) }
+        self.reservation.unmap()
     }
 }
 
@@ -200,8 +202,7 @@ impl Random {
     }
 
     pub(crate) fn contains(&self, pointer: NonNull<ffi::c_void>) -> bool {
-        pointer >= self.address().cast()
-            && pointer < unsafe { self.address().byte_add(self.reservation.size.get()) }.cast()
+        (self.reservation.start().cast()..self.reservation.end().cast()).contains(&pointer)
     }
 
     pub(crate) fn map(
@@ -219,7 +220,7 @@ impl Random {
 
 impl Region for Random {
     fn address(&self) -> NonNull<Page> {
-        self.reservation.address
+        self.reservation.start()
     }
 
     fn is_clean(&self) -> bool {
@@ -231,7 +232,7 @@ impl Region for Random {
     }
 
     fn unmap(&self) -> io::Result<()> {
-        unsafe { munmap(self.reservation.address, self.reservation.size) }
+        self.reservation.unmap()
     }
 }
 
