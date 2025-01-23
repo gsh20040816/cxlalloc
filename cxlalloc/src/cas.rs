@@ -82,10 +82,12 @@ impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
 
 pub(crate) struct Help(Atomic<Inner>);
 
-#[ribbit::pack(size = 17)]
+#[ribbit::pack(size = 64)]
 pub(crate) struct Inner {
     #[ribbit(size = 16)]
     version: Version,
+
+    #[ribbit(offset = 32)]
     helped: bool,
 }
 

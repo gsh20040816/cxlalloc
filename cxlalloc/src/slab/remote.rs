@@ -11,22 +11,22 @@ pub(crate) struct Remote<B> {
     pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
 }
 
-#[ribbit::pack(size = 32)]
+#[ribbit::pack(size = 64)]
 #[repr(C)]
 pub(crate) struct Meta {
-    #[ribbit(size = 16)]
+    #[ribbit(size = 32)]
     pub(crate) version: Version,
 
-    #[ribbit(size = 16)]
+    #[ribbit(size = 32)]
     pub(crate) claim: Option<thread::Id>,
 }
 
-#[ribbit::pack(size = 24)]
+#[ribbit::pack(size = 64)]
 #[repr(C)]
 pub(crate) struct Owner<B> {
-    #[ribbit(size = 8)]
+    #[ribbit(size = 32)]
     pub(crate) class: B,
 
-    #[ribbit(size = 16)]
+    #[ribbit(size = 32)]
     pub(crate) id: Option<thread::Id>,
 }
