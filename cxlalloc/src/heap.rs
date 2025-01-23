@@ -394,16 +394,16 @@ where
 
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
-        let count = free.len();
         free.set(block);
+        let count = free.len();
 
         match count {
-            count if count + 1 == class.count() => {
+            count if count == class.count() => {
                 stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned.sized_to_unsized(&self.slabs, class, index);
                 self.unsized_to_global(context);
             }
-            0 => self.attach(class, index),
+            1 => self.attach(class, index),
             _ => (),
         }
     }
