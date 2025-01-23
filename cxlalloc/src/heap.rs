@@ -247,17 +247,27 @@ where
     B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
     recover::State: From<HeapState<B>>,
 {
-    pub(crate) fn checked_pointer_to_offset(
+    pub(crate) fn pointer_to_offset_exact(
         &self,
         help: &help::Array,
         pointer: NonNull<ffi::c_void>,
     ) -> Option<data::Offset<B>> {
         let offset = self.data.pointer_to_offset(pointer)?;
         let len = self.shared.len(help)?;
-
         match offset >= data::Offset::from(len) {
             false => Some(offset),
             true => None,
+        }
+    }
+
+    pub(crate) fn pointer_to_offset_approx(
+        &self,
+        pointer: NonNull<ffi::c_void>,
+    ) -> Option<data::Offset<B>> {
+        let offset = self.data.pointer_to_offset(pointer)?;
+        match (u64::from(offset) as usize) < crate::raw::region::Reservation::TIB.get() {
+            true => Some(offset),
+            false => None,
         }
     }
 
@@ -379,6 +389,7 @@ where
         stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
+    #[inline]
     pub(crate) fn free(&mut self, context: &mut allocator::Context, offset: data::Offset<B>) {
         let index = slab::Index::from(offset);
         let slab = &self.slabs[index];
