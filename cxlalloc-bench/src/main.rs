@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use anyhow::Context;
 use clap::Parser;
-use clap::ValueEnum;
 use duct::cmd;
 
 use cxlalloc_bench::Allocator;
@@ -28,7 +27,7 @@ enum Cli {
         benchmark: Benchmark,
 
         /// Wrapper program
-        #[arg(short, long)]
+        #[command(subcommand)]
         wrapper: Option<Wrapper>,
     },
 
@@ -54,12 +53,24 @@ enum Cli {
     },
 }
 
-#[derive(Copy, Clone, ValueEnum)]
+#[derive(Clone, Parser)]
 enum Wrapper {
     Gdb,
     Rr,
-    PerfRecord,
-    PerfStat,
+
+    PerfRecord {
+        /// CPU mask for taskset
+        #[arg(long, default_value_t = u64::MAX)]
+        cpu: u64,
+
+        #[arg(long, value_delimiter = ',')]
+        bases: Vec<String>,
+    },
+    PerfStat {
+        /// CPU mask for taskset
+        #[arg(short, long, default_value_t = u64::MAX)]
+        cpu: u64,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -122,49 +133,42 @@ fn main() -> anyhow::Result<()> {
             benchmark,
             wrapper,
         } => {
-            let path = root.join(allocator.path());
-            let ld = format!(
+            let path_allocator = root.join(allocator.path());
+            let path_benchmark = root.join(benchmark.path());
+
+            let ld_preload = format!(
                 "LD_PRELOAD={}",
-                path.canonicalize()
-                    .with_context(|| anyhow!("Failed to find path {}", path.display()))?
+                path_allocator
+                    .canonicalize()
+                    .with_context(|| anyhow!("Failed to find path {}", path_allocator.display()))?
                     .display()
             );
 
-            match &wrapper {
-                None => cmd!["env", ld],
-                Some(Wrapper::Rr) => cmd!["rr", "record", format!("--env={}", ld)],
-                Some(Wrapper::Gdb) => cmd!["gdb", "--ex=run", "--args", "env", ld],
-                Some(Wrapper::PerfRecord) => {
-                    cmd![
-                        "perf",
-                        "record",
-                        "--call-graph",
-                        "dwarf",
-                        // "-e",
-                        // "branch-misses:pp",
-                        "-o",
-                        "perf.data",
-                        "env",
-                        ld,
-                    ]
-                }
-                Some(Wrapper::PerfStat) => {
-                    cmd!["perf", "stat", "env", ld]
-                }
-            }
-            .before_spawn(move |command| {
-                command.arg(root.join(benchmark.path()));
-                command.args(benchmark.args(threads));
-                Ok(())
-            })
-            .run()
-            .context("Failed to run command")?;
+            wrapper
+                .as_ref()
+                .map(Wrapper::prefix)
+                .unwrap_or_else(|| cmd!("env", &ld_preload))
+                .before_spawn(move |command| {
+                    command.arg("env");
+                    command.arg(&ld_preload);
+                    command.arg(&path_benchmark);
+                    command.args(benchmark.args(threads));
+                    Ok(())
+                })
+                .run()
+                .context("Failed to run command")?;
 
-            if let Some(Wrapper::PerfRecord) = wrapper {
+            if let Some(Wrapper::PerfRecord { bases, .. }) = wrapper {
                 let home = homedir::my_home()?.expect("No home directory");
+
+                let flamegraph = duct::cmd(
+                    home.join(".cargo/bin/inferno-flamegraph"),
+                    bases.iter().flat_map(|base| ["--base", base]),
+                );
+
                 cmd!["perf", "script", "--input", "perf.data"]
                     .pipe(cmd!(home.join(".cargo/bin/inferno-collapse-perf")))
-                    .pipe(cmd!(home.join(".cargo/bin/inferno-flamegraph")))
+                    .pipe(flamegraph)
                     .stdout_path("out.svg")
                     .run()?;
             }
@@ -172,4 +176,32 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+impl Wrapper {
+    fn prefix(&self) -> duct::Expression {
+        match self {
+            Wrapper::Rr => cmd!["rr", "record"],
+            Wrapper::Gdb => cmd!["gdb", "--ex=run", "--args"],
+            Wrapper::PerfRecord { cpu, bases: _ } => {
+                cmd![
+                    "taskset",
+                    cpu.to_string(),
+                    "perf",
+                    "record",
+                    "--call-graph",
+                    // https://gist.github.com/dlaehnemann/df31787c41bd50c0fe223df07cf6eb89
+                    "dwarf,16384",
+                    "-F",
+                    "9997",
+                    "--strict-freq",
+                    "-o",
+                    "perf.data",
+                ]
+            }
+            Wrapper::PerfStat { cpu } => {
+                cmd!["taskset", cpu.to_string(), "perf", "stat"]
+            }
+        }
+    }
 }
