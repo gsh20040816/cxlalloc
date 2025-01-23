@@ -1,5 +1,4 @@
 use core::ffi;
-use core::fmt::Display;
 use core::ops::Range;
 use core::ptr::NonNull;
 
@@ -50,7 +49,12 @@ pub struct Heap<'raw, L: view::Lens, B: size::Bracket> {
     pub(crate) data: Data<'raw, B>,
 }
 
-impl<'raw, L: view::Lens, B: size::Bracket> Heap<'raw, L, B> {
+impl<'raw, L, B> Heap<'raw, L, B>
+where
+    L: view::Lens,
+    B: size::Bracket,
+    State: From<HeapState<B>>,
+{
     pub(crate) fn new(
         capacity: u32,
         shared: &'raw Shared<B>,
@@ -76,129 +80,18 @@ impl<'raw, L: view::Lens, B: size::Bracket> Heap<'raw, L, B> {
             data: self.data,
         }
     }
-}
 
-#[repr(C)]
-pub(crate) struct Shared<B> {
-    free: slab::stack::Global<B>,
-    bump: cas::Detectable<Option<slab::Index<B>>>,
-}
-
-impl<B> Shared<B>
-where
-    B: ribbit::Pack<Loose = u8>,
-    State: From<HeapState<B>>,
-{
-    fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
-        let start = self
-            .bump
-            .update(context, |old, version| {
-                let new = unsafe { old.unwrap_or(slab::Index::MIN).add(BATCH_BUMP_POP) };
-                Some((Some(new), BumpToLocal::new(old, version).into()))
-            })
-            .unwrap();
-
-        let start = start.unwrap_or(slab::Index::MIN);
-        let end = unsafe { start.add(BATCH_BUMP_POP) };
-        start..end
-    }
-
-    fn len(&self, help: &help::Array) -> Option<slab::Index<B>> {
-        self.bump.load(help)
-    }
-
-    fn push(
+    pub(crate) fn checked_pointer_to_offset(
         &self,
-        context: &mut allocator::Context,
-        slabs: &Slab<B>,
-        head: slab::Index<B>,
-        tail: slab::Index<B>,
-    ) {
-        self.free.push(context, slabs, head, tail);
-    }
-
-    fn pop(&self, context: &mut allocator::Context, slabs: &Slab<B>) -> Option<slab::Index<B>> {
-        if self.free.is_empty(context.help) {
-            return None;
+        pointer: NonNull<ffi::c_void>,
+    ) -> Option<data::Offset<B>> {
+        let offset = self.data.pointer_to_offset(pointer)?;
+        match (u64::from(offset) as usize) < crate::raw::region::Reservation::SIZE.get() {
+            true => Some(offset),
+            false => None,
         }
-
-        self.free.pop(context, slabs)
-    }
-}
-
-pub(crate) struct Owned<B: size::Bracket> {
-    pub(crate) r#unsized: slab::stack::Local<B>,
-    pub(crate) r#sized: size::Array<B, slab::stack::Local<B>>,
-}
-
-impl<B> Owned<B>
-where
-    B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
-    State: From<HeapState<B>>,
-{
-    pub(crate) fn unsized_to_sized(
-        &mut self,
-        context: &mut allocator::Context,
-        slabs: &Slab<B>,
-        class: B,
-    ) -> bool {
-        let Some(index) = self.r#unsized.peek() else {
-            return false;
-        };
-
-        crash::define!(unsized_to_sized_pre_log);
-
-        let slab = &slabs[index];
-        let next = slab.local.next.load();
-
-        context.log(HeapState::from(UnsizedToSized::new(next, class)));
-
-        self.r#sized[class].push(slabs, index);
-        unsafe {
-            (*slab.local.free.get()).fill(class.count());
-        }
-
-        slab.remote
-            .owner
-            .store(slab::remote::Owner::new(class, Some(context.id)));
-        flush(&slab.remote.owner, Invalidate::No);
-
-        let count = self.r#unsized.len();
-        self.r#unsized.set(next, count - 1);
-        true
     }
 
-    #[cold]
-    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
-        let next = slabs[index].local.next.load();
-
-        let mut walk = self.r#sized[class].peek().unwrap();
-
-        if walk == index {
-            let count = self.r#sized[class].len();
-            self.r#sized[class].set(next, count - 1);
-        } else {
-            let prev = loop {
-                match slabs[walk].local.next.load() {
-                    None => panic!("removing non-existent slab {} {}", index, class),
-                    Some(next) if next == index => break walk,
-                    Some(next) => walk = next,
-                }
-            };
-
-            slabs[prev].local.next.store(next);
-            flush(&slabs[prev], Invalidate::No);
-        };
-
-        self.r#unsized.push(slabs, index);
-    }
-}
-
-impl<L, B> Heap<'_, L, B>
-where
-    L: view::Lens,
-    B: size::Bracket + Display + ribbit::Pack<Loose = u8>,
-{
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
         self.slabs[index].remote.owner.load().class()
@@ -212,7 +105,7 @@ where
         help: &help::Array,
         address: NonNull<ffi::c_void>,
     ) -> crate::Result<()> {
-        let Some(len) = self.shared.bump.load(help).map(u32::from) else {
+        let Some(len) = self.shared.len(help).map(u32::from) else {
             return Err(crate::Error::OutOfBounds);
         };
 
@@ -240,24 +133,18 @@ where
         data.map(backend, data_offset)?;
         Ok(())
     }
+
+    #[inline]
+    fn transfer(&self, index: slab::Index<B>, old: Option<thread::Id>, new: Option<thread::Id>) {
+        slab::transfer(&self.slabs, index, old, new);
+    }
 }
 
 impl<B> Heap<'_, view::Focus, B>
 where
-    B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
+    B: size::Bracket,
     recover::State: From<HeapState<B>>,
 {
-    pub(crate) fn checked_pointer_to_offset(
-        &self,
-        pointer: NonNull<ffi::c_void>,
-    ) -> Option<data::Offset<B>> {
-        let offset = self.data.pointer_to_offset(pointer)?;
-        match (u64::from(offset) as usize) < crate::raw::region::Reservation::SIZE.get() {
-            true => Some(offset),
-            false => None,
-        }
-    }
-
     #[inline]
     pub(crate) fn pop(
         &mut self,
@@ -384,7 +271,7 @@ where
         let class = owner.class();
 
         if owner.id() != Some(context.id) {
-            return unsafe { self.free_remote(context, offset, index, class) };
+            return self.free_remote(context, offset, index, class);
         }
 
         stat::inc(&stat::FREE_FAST);
@@ -409,7 +296,7 @@ where
     }
 
     #[cold]
-    pub(crate) unsafe fn free_remote(
+    fn free_remote(
         &mut self,
         context: &mut allocator::Context,
         offset: data::Offset<B>,
@@ -507,9 +394,120 @@ where
         self.owned.r#unsized.set(next, count - BATCH_GLOBAL_PUSH);
         self.shared.push(context, &self.slabs, head, tail);
     }
+}
 
-    #[inline]
-    fn transfer(&self, index: slab::Index<B>, old: Option<thread::Id>, new: Option<thread::Id>) {
-        slab::transfer(&self.slabs, index, old, new);
+#[repr(C)]
+pub(crate) struct Shared<B> {
+    free: slab::stack::Global<B>,
+    bump: cas::Detectable<Option<slab::Index<B>>>,
+}
+
+impl<B> Shared<B>
+where
+    B: size::Bracket,
+    State: From<HeapState<B>>,
+{
+    fn len(&self, help: &help::Array) -> Option<slab::Index<B>> {
+        self.bump.load(help)
+    }
+
+    fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
+        let start = self
+            .bump
+            .update(context, |old, version| {
+                let new = unsafe { old.unwrap_or(slab::Index::MIN).add(BATCH_BUMP_POP) };
+                Some((Some(new), BumpToLocal::new(old, version).into()))
+            })
+            .unwrap();
+
+        let start = start.unwrap_or(slab::Index::MIN);
+        let end = unsafe { start.add(BATCH_BUMP_POP) };
+        start..end
+    }
+
+    fn push(
+        &self,
+        context: &mut allocator::Context,
+        slabs: &Slab<B>,
+        head: slab::Index<B>,
+        tail: slab::Index<B>,
+    ) {
+        self.free.push(context, slabs, head, tail);
+    }
+
+    fn pop(&self, context: &mut allocator::Context, slabs: &Slab<B>) -> Option<slab::Index<B>> {
+        if self.free.is_empty(context.help) {
+            return None;
+        }
+
+        self.free.pop(context, slabs)
+    }
+}
+
+pub(crate) struct Owned<B: size::Bracket> {
+    pub(crate) r#unsized: slab::stack::Local<B>,
+    pub(crate) r#sized: size::Array<B, slab::stack::Local<B>>,
+}
+
+impl<B> Owned<B>
+where
+    B: size::Bracket,
+    State: From<HeapState<B>>,
+{
+    pub(crate) fn unsized_to_sized(
+        &mut self,
+        context: &mut allocator::Context,
+        slabs: &Slab<B>,
+        class: B,
+    ) -> bool {
+        let Some(index) = self.r#unsized.peek() else {
+            return false;
+        };
+
+        crash::define!(unsized_to_sized_pre_log);
+
+        let slab = &slabs[index];
+        let next = slab.local.next.load();
+
+        context.log(HeapState::from(UnsizedToSized::new(next, class)));
+
+        self.r#sized[class].push(slabs, index);
+        unsafe {
+            (*slab.local.free.get()).fill(class.count());
+        }
+
+        slab.remote
+            .owner
+            .store(slab::remote::Owner::new(class, Some(context.id)));
+        flush(&slab.remote.owner, Invalidate::No);
+
+        let count = self.r#unsized.len();
+        self.r#unsized.set(next, count - 1);
+        true
+    }
+
+    #[cold]
+    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
+        let next = slabs[index].local.next.load();
+
+        let mut walk = self.r#sized[class].peek().unwrap();
+
+        if walk == index {
+            let count = self.r#sized[class].len();
+            self.r#sized[class].set(next, count - 1);
+        } else {
+            let prev = loop {
+                match slabs[walk].local.next.load() {
+                    None => panic!("removing non-existent slab {} {}", index, class),
+                    Some(next) if next == index => break walk,
+                    Some(next) => walk = next,
+                }
+            };
+
+            slabs[prev].local.next.store(next);
+            flush(&slabs[prev], Invalidate::No);
+        };
+
+        self.r#unsized.push(slabs, index);
     }
 }

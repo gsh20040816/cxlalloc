@@ -164,14 +164,12 @@ impl<B> core::ops::Index<Index<B>> for Slice<'_, B> {
 }
 
 #[inline]
-pub(crate) fn transfer<B>(
+pub(crate) fn transfer<B: size::Bracket>(
     slabs: &Slice<B>,
     index: Index<B>,
     old: Option<thread::Id>,
     new: Option<thread::Id>,
-) where
-    B: Display + ribbit::Pack<Loose = u8>,
-{
+) {
     if !cfg!(feature = "validate") {
         return;
     }
@@ -206,15 +204,13 @@ pub(crate) fn transfer<B>(
 }
 
 #[inline]
-pub(crate) fn transfer_all<B>(
+pub(crate) fn transfer_all<B: size::Bracket>(
     slabs: &Slice<B>,
     index: Index<B>,
     count: usize,
     old: Option<thread::Id>,
     new: Option<thread::Id>,
-) where
-    B: Display + ribbit::Pack<Loose = u8>,
-{
+) {
     if !cfg!(feature = "validate") {
         return;
     }

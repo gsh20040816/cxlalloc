@@ -8,6 +8,7 @@ use crate::coherence::flush;
 use crate::coherence::Invalidate;
 use crate::recover;
 use crate::recover::HeapState;
+use crate::size;
 use crate::slab::Index;
 use crate::slab::Slice;
 use crate::thread;
@@ -69,7 +70,7 @@ pub(crate) struct Global<B> {
 
 impl<B> Global<B>
 where
-    B: ::ribbit::Pack<Loose = u8>,
+    B: size::Bracket,
     recover::State: From<HeapState<B>>,
 {
     pub(crate) fn push(

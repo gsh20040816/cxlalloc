@@ -8,7 +8,7 @@ use ribbit::private::u6;
 
 use crate::SIZE_BIT_SET;
 
-pub(crate) trait Bracket {
+pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Display {
     const SIZE_SLAB: usize = (crate::SIZE_BIT_SET + crate::SIZE_METADATA) * 64 * Self::SIZE_MIN;
     const SIZE_MIN: usize;
     const SIZE_MAX: usize;
@@ -27,7 +27,7 @@ pub(crate) trait Bracket {
     fn count(&self) -> u64;
 }
 
-#[ribbit::pack(size = 0, eq)]
+#[ribbit::pack(size = 8, eq)]
 #[derive(Default)]
 pub struct Huge;
 
