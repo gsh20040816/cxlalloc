@@ -247,7 +247,7 @@ where
     B: size::Bracket + Default + Display + ribbit::Pack<Loose = u8>,
     recover::State: From<HeapState<B>>,
 {
-    pub(crate) fn pointer_to_offset_approx(
+    pub(crate) fn checked_pointer_to_offset(
         &self,
         pointer: NonNull<ffi::c_void>,
     ) -> Option<data::Offset<B>> {

@@ -149,11 +149,11 @@ where
 
 impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
-        if let Some(offset) = self.small.pointer_to_offset_approx(pointer) {
+        if let Some(offset) = self.small.checked_pointer_to_offset(pointer) {
             return self.small.class(offset).size() as usize;
         }
 
-        if let Some(offset) = self.large.pointer_to_offset_approx(pointer) {
+        if let Some(offset) = self.large.checked_pointer_to_offset(pointer) {
             return self.large.class(offset).size() as usize;
         }
 
@@ -212,7 +212,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         stat::inc(&stat::FREE);
 
-        let Some(offset) = self.small.pointer_to_offset_approx(pointer) else {
+        let Some(offset) = self.small.checked_pointer_to_offset(pointer) else {
             return self.free_large(pointer);
         };
 
@@ -281,7 +281,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
     #[cold]
     fn free_large(&mut self, pointer: NonNull<ffi::c_void>) {
-        let Some(offset) = self.large.pointer_to_offset_approx(pointer) else {
+        let Some(offset) = self.large.checked_pointer_to_offset(pointer) else {
             return self.free_huge(pointer);
         };
 
