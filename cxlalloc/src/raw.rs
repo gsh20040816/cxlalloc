@@ -333,7 +333,7 @@ impl Raw {
         self.regions().any(Region::is_clean)
     }
 
-    fn shared() -> (NonZeroUsize, Vec<usize>) {
+    pub(crate) fn shared() -> (NonZeroUsize, Vec<usize>) {
         layout!(
             allocator::Shared<()>,
             heap::Shared<size::Small>,
@@ -342,7 +342,7 @@ impl Raw {
         )
     }
 
-    fn owned() -> (NonZeroUsize, Vec<usize>) {
+    pub(crate) fn owned() -> (NonZeroUsize, Vec<usize>) {
         layout!(
             thread::Array<UnsafeCell<allocator::Owned<()>>>,
             thread::Array<UnsafeCell<heap::Owned<size::Small>>>,

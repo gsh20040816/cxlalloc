@@ -23,6 +23,7 @@ use crate::raw::Backend;
 use crate::size;
 use crate::size::Bracket;
 use crate::slab;
+use crate::stat;
 use crate::thread;
 use crate::Atomic;
 use crate::Data;
@@ -132,6 +133,7 @@ impl<'raw> Huge<'raw> {
 
     pub(crate) fn free(&self, data: &Data<'raw, size::Small>, offset: data::Offset<size::Huge>) {
         let descriptor = self.find(data, offset).unwrap();
+        stat::record_allocate::<size::Huge>(descriptor.size.get() as u64, false);
         descriptor.free.store(true, Ordering::Relaxed);
         flush(&descriptor.free, Invalidate::Yes);
     }

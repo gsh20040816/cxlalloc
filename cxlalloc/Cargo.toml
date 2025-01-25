@@ -23,7 +23,7 @@ recover-cas = []
 recover-log = []
 
 stat-count = []
-stat-extend = []
+stat-memory = []
 stat-size = ["dep:hdrhistogram"]
 
 validate = []

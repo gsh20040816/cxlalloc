@@ -270,6 +270,8 @@ where
         let owner = slab.remote.owner.load();
         let class = owner.class();
 
+        stat::record_allocate::<B>(class.size(), false);
+
         if owner.id() != Some(context.id) {
             return self.free_remote(context, offset, index, class);
         }

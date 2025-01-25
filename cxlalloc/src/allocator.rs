@@ -75,14 +75,14 @@ pub(crate) struct Context<'raw> {
 #[repr(C)]
 pub(crate) struct Shared<R> {
     root: Atomic<Option<data::Offset<size::Small>>>,
-    _type: PhantomData<R>,
+    _root: PhantomData<R>,
     pub(crate) help: cas::help::Array,
 }
 
 #[repr(C, align(64))]
 pub(crate) struct Owned<R> {
     root: Option<data::Offset<size::Small>>,
-    _type: PhantomData<R>,
+    _root: PhantomData<R>,
     pub(crate) state: Option<recover::State>,
 }
 
@@ -194,6 +194,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         stat::record_small(class);
+        stat::record_allocate::<size::Small>(class.size(), true);
 
         let context = &mut Context {
             id: self.id,
@@ -234,6 +235,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         stat::record_large(class);
+        stat::record_allocate::<size::Large>(class.size(), true);
 
         let context = &mut Context {
             id: self.id,
@@ -261,6 +263,8 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
         let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
         let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
+
+        stat::record_allocate::<size::Huge>(size.get() as u64, true);
 
         let index = self.small.peek(context, class).unwrap();
         let free = unsafe { &mut *self.small.slabs[index].local.free.get() };

@@ -1,11 +1,23 @@
 use core::cell::Cell;
 use core::fmt::Write as _;
+use core::mem;
+use core::sync::atomic::AtomicI64;
+use core::sync::atomic::AtomicIsize;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
+use std::sync::LazyLock;
 use std::thread::LocalKey;
 
+use crate::allocator;
+use crate::heap;
+use crate::huge;
 use crate::size;
 use crate::size::Bracket as _;
+use crate::slab;
+use crate::Raw;
 
 pub fn dump(id: usize) {
+    dump_memory_global(id);
     dump_counters(id);
     dump_sizes(id);
 }
@@ -82,7 +94,32 @@ pub(crate) fn inc(counter: &'static LocalKey<Cell<usize>>) {
     counter.set(counter.get() + 1)
 }
 
+static MEMORY_GLOBAL_SHARED_LOOSE: LazyLock<usize> =
+    LazyLock::new(|| Raw::shared().0.get().next_multiple_of(crate::SIZE_PAGE));
+
+const MEMORY_GLOBAL_SHARED_TIGHT: usize = mem::size_of::<allocator::Shared<()>>()
+    + mem::size_of::<heap::Shared<size::Small>>()
+    + mem::size_of::<heap::Shared<size::Large>>()
+    + mem::size_of::<huge::Shared>();
+
+static MEMORY_GLOBAL_OWNED_LOOSE: LazyLock<usize> =
+    LazyLock::new(|| Raw::owned().0.get().next_multiple_of(crate::SIZE_PAGE));
+
+const MEMORY_GLOBAL_OWNED_TIGHT: usize = mem::size_of::<allocator::Owned<()>>()
+    + mem::size_of::<heap::Owned<size::Small>>()
+    + mem::size_of::<heap::Owned<size::Large>>()
+    + mem::size_of::<huge::Owned>();
+
+static MEMORY_GLOBAL_SLAB_TIGHT: AtomicI64 = AtomicI64::new(0);
+static MEMORY_GLOBAL_SLAB_LOOSE: AtomicUsize = AtomicUsize::new(0);
+
+static MEMORY_GLOBAL_DATA_TIGHT: AtomicI64 = AtomicI64::new(0);
+static MEMORY_GLOBAL_DATA_LOOSE: AtomicUsize = AtomicUsize::new(0);
+
 thread_local! {
+    static MEMORY_LOCAL_SLAB_TIGHT: Cell<i64> = Cell::new(0);
+    static MEMORY_LOCAL_DATA_TIGHT: Cell<i64> = Cell::new(0);
+
     static SMALL: size::Array<size::Small, Cell<usize>> = size::Array::default();
     static LARGE: size::Array<size::Large, Cell<usize>> = size::Array::default();
 
@@ -99,6 +136,64 @@ thread_local! {
     static HUGE: core::mem::ManuallyDrop<core::cell::RefCell<hdrhistogram::Histogram<u64>>>  = core::mem::ManuallyDrop::new(core::cell::RefCell::new(
         hdrhistogram::Histogram::new(3).unwrap()
     ));
+}
+
+#[inline]
+pub(crate) fn record_allocate<B: size::Bracket>(size: u64, allocate: bool) {
+    if !cfg!(feature = "stat-memory") {
+        return;
+    }
+
+    let direction = match allocate {
+        true => 1,
+        false => -1,
+    };
+
+    // Hack: huge allocation
+    if B::COUNT == 1 {
+        MEMORY_LOCAL_DATA_TIGHT.set(
+            MEMORY_LOCAL_DATA_TIGHT.get()
+                + (size as i64 + mem::size_of::<huge::Descriptor>() as i64) * direction,
+        );
+    } else {
+        MEMORY_LOCAL_DATA_TIGHT.set(MEMORY_LOCAL_DATA_TIGHT.get() + size as i64 * direction);
+        MEMORY_LOCAL_SLAB_TIGHT.set(
+            MEMORY_LOCAL_SLAB_TIGHT.get()
+                + mem::size_of::<slab::Descriptor<B>>() as i64 * direction,
+        );
+    }
+
+    if let Some(value) = update(&MEMORY_LOCAL_DATA_TIGHT, &MEMORY_GLOBAL_DATA_TIGHT) {
+        eprintln!("MEMORY_GLOBAL_DATA_TIGHT:{}", value);
+    }
+
+    if let Some(value) = update(&MEMORY_LOCAL_SLAB_TIGHT, &MEMORY_GLOBAL_SLAB_TIGHT) {
+        eprintln!("MEMORY_GLOBAL_SLAB_TIGHT:{}", value);
+    }
+}
+
+pub(crate) fn dump_memory_global(id: usize) {
+    if !cfg!(feature = "stat-memory") || id > 0 {
+        return;
+    }
+
+    eprintln!("MEMORY_GLOBAL_SHARED_TIGHT:{}", MEMORY_GLOBAL_SHARED_TIGHT);
+    eprintln!("MEMORY_GLOBAL_SHARED_LOOSE:{}", *MEMORY_GLOBAL_SHARED_LOOSE);
+
+    eprintln!("MEMORY_GLOBAL_OWNED_TIGHT:{}", MEMORY_GLOBAL_OWNED_TIGHT);
+    eprintln!("MEMORY_GLOBAL_OWNED_LOOSE:{}", *MEMORY_GLOBAL_OWNED_LOOSE);
+}
+
+fn update(local: &'static LocalKey<Cell<i64>>, global: &AtomicI64) -> Option<i64> {
+    const UNCERTAINTY: i64 = 1 << 20;
+    match local.get() {
+        value if value.abs() < UNCERTAINTY => None,
+        value => {
+            let old = global.fetch_add(value, Ordering::Relaxed);
+            local.set(0);
+            Some(old + value)
+        }
+    }
 }
 
 #[inline]

@@ -6,10 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cxlalloc = { path = "../cxlalloc", features = [
-    "backend-shm",
-    "extend",
-    "stat-extend",
-] }
+cxlalloc = { path = "../cxlalloc", features = ["backend-shm", "extend"] }
 clap.workspace = true
 env_logger.workspace = true
