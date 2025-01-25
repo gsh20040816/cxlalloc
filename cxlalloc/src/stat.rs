@@ -1,4 +1,5 @@
 use core::cell::Cell;
+use core::cell::UnsafeCell;
 use core::fmt::Write as _;
 use core::mem;
 use core::sync::atomic::AtomicI64;
@@ -14,6 +15,7 @@ use crate::huge;
 use crate::size;
 use crate::size::Bracket as _;
 use crate::slab;
+use crate::thread;
 use crate::Raw;
 
 pub fn dump(id: usize) {
@@ -105,16 +107,14 @@ const MEMORY_GLOBAL_SHARED_TIGHT: usize = mem::size_of::<allocator::Shared<()>>(
 static MEMORY_GLOBAL_OWNED_LOOSE: LazyLock<usize> =
     LazyLock::new(|| Raw::owned().0.get().next_multiple_of(crate::SIZE_PAGE));
 
-const MEMORY_GLOBAL_OWNED_TIGHT: usize = mem::size_of::<allocator::Owned<()>>()
-    + mem::size_of::<heap::Owned<size::Small>>()
-    + mem::size_of::<heap::Owned<size::Large>>()
-    + mem::size_of::<huge::Owned>();
+const MEMORY_GLOBAL_OWNED_TIGHT: usize = mem::size_of::<thread::Array<allocator::Owned<()>>>()
+    + mem::size_of::<thread::Array<UnsafeCell<heap::Owned<size::Small>>>>()
+    + mem::size_of::<thread::Array<UnsafeCell<heap::Owned<size::Large>>>>()
+    + mem::size_of::<thread::Array<huge::Owned>>();
 
 static MEMORY_GLOBAL_SLAB_TIGHT: AtomicI64 = AtomicI64::new(0);
-static MEMORY_GLOBAL_SLAB_LOOSE: AtomicUsize = AtomicUsize::new(0);
 
 static MEMORY_GLOBAL_DATA_TIGHT: AtomicI64 = AtomicI64::new(0);
-static MEMORY_GLOBAL_DATA_LOOSE: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
     static MEMORY_LOCAL_SLAB_TIGHT: Cell<i64> = Cell::new(0);
