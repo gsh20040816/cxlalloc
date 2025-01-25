@@ -387,8 +387,7 @@ fn on_exit() {
     } else {
         GLOBAL_HI.fetch_or(1 << id, Ordering::AcqRel);
     }
-    cxlalloc::stat::dump_counters(id);
-    cxlalloc::stat::dump_sizes(id);
+    cxlalloc::stat::dump(id);
     stat::dump_counters(id);
     let _ = ALLOCATOR.try_with(|allocator| unsafe { ManuallyDrop::drop(&mut *allocator.get()) });
 }

@@ -172,7 +172,7 @@ pub(crate) fn record_allocate<B: size::Bracket>(size: u64, allocate: bool) {
     }
 }
 
-pub(crate) fn dump_memory_global(id: usize) {
+fn dump_memory_global(id: usize) {
     if !cfg!(feature = "stat-memory") || id > 0 {
         return;
     }
@@ -220,7 +220,7 @@ pub(crate) fn record_huge(_huge: usize) {
     HUGE.with(|histogram| histogram.borrow_mut().record(_huge as u64).unwrap())
 }
 
-pub fn dump_sizes(id: usize) {
+fn dump_sizes(id: usize) {
     if !cfg!(feature = "stat-size") {
         return;
     }
