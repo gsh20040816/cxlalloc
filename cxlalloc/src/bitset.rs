@@ -6,6 +6,7 @@ pub(crate) use hi::HiBitSet;
 
 #[ribbit::pack(size = 12, debug, eq, ord)]
 pub(crate) struct Bit {
+    #[ribbit(offset = 6)]
     row: u6,
     col: u6,
 }

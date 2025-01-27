@@ -7,7 +7,6 @@ use crate::bitset::Bit;
 use crate::coherence::clflush;
 use crate::coherence::sfence;
 use crate::coherence::Invalidate;
-use crate::stat;
 
 /// Fixed-size bitset implementation.
 ///
@@ -28,7 +27,6 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
             .for_each(|row| row.store(0, Ordering::Release));
     }
 
-    // https://stackoverflow.com/questions/45556086/how-to-set-bits-of-a-bit-vector-efficiently-in-parallel
     pub(crate) fn set(&self, bit: Bit) {
         let row = bit.row().value() as usize;
         let col = bit.col().value() as usize;
@@ -36,33 +34,29 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
         let mask = 1 << col;
         let word = &self.0[row];
 
-        let mut prev = word.load(Ordering::Relaxed);
+        let prev = word.load(Ordering::Relaxed);
+        word.store(prev | mask, Ordering::Relaxed);
 
-        loop {
-            word.store(prev | mask, Ordering::Relaxed);
-            // Flush to memory and invalidate our cache so
-            // that we can see writes from other hosts in
-            // a software cache-coherent region.
-            clflush(word as *const _ as _, Invalidate::Yes);
-            sfence();
-            prev = word.load(Ordering::Relaxed);
-            match prev & mask > 0 {
-                true => {
-                    stat::inc(&stat::REMOTE);
-                    break;
-                }
-                false => {
-                    stat::inc(&stat::REMOTE_CONTEND);
-                }
-            }
-        }
+        // Flush to memory and invalidate our cache so
+        // that we can see writes from other hosts in
+        // a software cache-coherent region.
+        clflush(word as *const _ as _, Invalidate::Yes);
+        sfence();
     }
 
     pub(crate) fn is_empty(&self) -> bool {
         self.0.iter().all(|row| row.load(Ordering::Acquire) == 0)
     }
 
-    pub(crate) fn is_full(&self, count: u64) -> bool {
+    pub(crate) fn is_last(&self, bit: Bit, count: u64) -> bool {
+        let row = bit.row().value() as usize;
+
+        match self.0[row].load(Ordering::Relaxed).count_ones() {
+            0..63 => return false,
+            63 => (),
+            64.. => unreachable!(),
+        }
+
         let rows = count as usize / 64;
 
         // Full rows of 1s

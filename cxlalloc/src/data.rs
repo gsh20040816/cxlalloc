@@ -69,7 +69,14 @@ pub(crate) struct Offset<B> {
 
 impl<B: size::Bracket> Offset<B> {
     pub(crate) fn from_block(slab: slab::Index<B>, class: B, block: Bit) -> Self {
-        debug_assert!(u64::from(block) <= class.count(), "{} {:?}", class, block);
+        debug_assert!(
+            u64::from(block) <= class.count(),
+            "{} {:?} {} {}",
+            class,
+            block,
+            u64::from(block),
+            class.count(),
+        );
         NonZeroU64::new(
             NonZeroU32::from(slab).get() as u64 * (B::SIZE_SLAB as u64)
                 + u64::from(block) * class.size(),
@@ -80,7 +87,15 @@ impl<B: size::Bracket> Offset<B> {
 
     pub(crate) fn into_block(self, class: B) -> Bit {
         unsafe {
-            Bit::from_packed((self.value().get() % B::SIZE_SLAB as u64 / class.size()) as u16)
+            let block = self.value().get() % B::SIZE_SLAB as u64 / class.size();
+            debug_assert!(
+                block <= class.count(),
+                "{} {:?} {}",
+                class,
+                block,
+                class.count(),
+            );
+            Bit::from_packed(block as u16)
         }
     }
 

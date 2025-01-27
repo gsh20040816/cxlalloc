@@ -128,8 +128,10 @@ pub(crate) enum HeapState<B> {
         #[ribbit(size = 12)]
         block: Bit,
 
-        #[ribbit(size = 16)]
+        #[ribbit(size = 15)]
         version: Version,
+
+        last: bool,
     },
 }
 

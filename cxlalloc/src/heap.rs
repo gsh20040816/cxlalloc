@@ -7,7 +7,6 @@ use crate::atomic::Version;
 use crate::cas;
 use crate::cas::help;
 use crate::coherence::flush;
-use crate::coherence::sfence;
 use crate::coherence::Invalidate;
 use crate::crash;
 use crate::data;
@@ -309,14 +308,42 @@ where
 
         let slab = &self.slabs[index].remote;
         let block = offset.into_block(class);
-        let version = slab.meta.load().version();
 
-        context.log(HeapState::from(Remote::new(index, block, version)));
+        // FIXME: invalidate
+        let mut before = slab.meta.load();
+        slab.meta.store(before.with_claim(Some(context.id)));
 
-        slab.free.set(block);
+        // FIXME: invalidate
+        let mut last = slab.free.is_last(block, class.count());
 
-        if slab.free.is_full(class.count()) {
-            self.claim(context, index, version);
+        let last = loop {
+            context.log(HeapState::from(Remote::new(
+                index,
+                block,
+                before.version(),
+                last,
+            )));
+
+            slab.free.set(block);
+            let after = slab.meta.load();
+
+            // Freed by another thread
+            if after.version() != before.version() {
+                return;
+            }
+
+            // No other threads raced
+            if after.claim() == Some(context.id) {
+                break last;
+            }
+
+            before = after;
+            slab.meta.store(before.with_claim(Some(context.id)));
+            last = slab.free.is_last(block, class.count());
+        };
+
+        if last {
+            self.claim(context, index, before.version());
         }
     }
 
@@ -325,29 +352,17 @@ where
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
         let slab = &self.slabs[index].remote;
+        let next = slab::remote::Meta::new(version.next(), Some(context.id));
 
-        // Note: must use version from *before* we set our bit,
-        // or else the full slab becomes globally visible and
-        // some other thread can update the version.
-        let old = slab::remote::Meta::new(version, slab.meta.load().claim());
-        let new = slab::remote::Meta::new(version.next(), Some(context.id));
+        loop {
+            slab.meta.store(next);
+            slab.free.clear();
+            flush(&slab.free, Invalidate::No);
 
-        // FIXME: get rid of CAS
-        match slab.meta.compare_exchange(old, new) {
-            Ok(_) => {
-                flush(&slab.meta, Invalidate::No);
-                sfence();
-                stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN);
-            }
-            Err(_) => {
-                flush(&slab.meta, Invalidate::Yes);
-                stat::inc(&stat::FREE_REMOTE_GLOBAL_LOSE);
-                return;
+            if slab.meta.load() == next {
+                break;
             }
         }
-
-        slab.free.clear();
-        flush(&slab.free, Invalidate::No);
 
         if cfg!(feature = "validate") {
             assert!(

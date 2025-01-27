@@ -11,7 +11,7 @@ pub(crate) struct Remote<B> {
     pub(crate) free: AtomicBitSet<SIZE_BIT_SET>,
 }
 
-#[ribbit::pack(size = 64)]
+#[ribbit::pack(size = 64, eq)]
 #[repr(C)]
 pub(crate) struct Meta {
     #[ribbit(size = 32)]
