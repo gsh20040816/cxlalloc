@@ -9,16 +9,14 @@ use std::cell::Cell;
 use std::cell::RefCell;
 use std::ffi;
 use std::ffi::CStr;
-use std::ptr;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 use cxlalloc::raw;
 use cxlalloc::raw::backend;
-use cxlalloc::root;
 use cxlalloc::Allocator;
 
-static RAW: OnceLock<raw::Heap> = OnceLock::new();
+static RAW: OnceLock<raw::Raw> = OnceLock::new();
 static BACKEND: OnceLock<Backend> = OnceLock::new();
 
 enum Backend {
@@ -84,8 +82,7 @@ impl Deref for Id {
 
 impl Drop for Id {
     fn drop(&mut self) {
-        cxlalloc::stat::dump_counters(u16::from(self.id) as usize);
-        cxlalloc::stat::dump_sizes(u16::from(self.id) as usize);
+        cxlalloc::stat::dump(u16::from(self.id) as usize);
 
         if self.pool {
             POOL.fetch_or(1 << u16::from(self.id), Ordering::AcqRel);
@@ -209,8 +206,6 @@ pub unsafe extern "C" fn cxlalloc_init(
             .backend(BACKEND.get_or_init(|| Backend::Mmap).instantiate())
             .size(size)
             .thread_count(thread_count as usize)
-            .process_id(process_id as usize)
-            .process_count(process_count as usize)
             .build(name)
             .unwrap()
     });
@@ -320,42 +315,36 @@ pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mu
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
-    let root = root::Index::new(index);
-    ALLOCATOR.with_borrow(|allocator| {
-        allocator
-            .root_untyped(root)
-            .map(NonNull::as_ptr)
-            .unwrap_or_else(ptr::null_mut)
-            .cast()
-    })
+pub unsafe extern "C" fn cxlalloc_get_root(_index: usize) -> *mut ffi::c_void {
+    todo!()
+    // ALLOCATOR.with_borrow(|allocator| {
+    //     allocator
+    //         .root_untyped(root)
+    //         .map(NonNull::as_ptr)
+    //         .unwrap_or_else(ptr::null_mut)
+    //         .cast()
+    // })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_set_root(index: usize, pointer: *mut ffi::c_void) {
-    let root = root::Index::new(index);
-    ALLOCATOR.with_borrow(|allocator| {
-        allocator.set_root_untyped(root, NonNull::new(pointer.cast()));
-    })
+pub unsafe extern "C" fn cxlalloc_set_root(_index: usize, _pointer: *mut ffi::c_void) {
+    todo!()
+    // let root = root::Index::new(index);
+    // ALLOCATOR.with_borrow(|allocator| {
+    //     allocator.set_root_untyped(root, NonNull::new(pointer.cast()));
+    // })
 }
 
 #[no_mangle]
 pub extern "C" fn cxlalloc_close() {}
 
-/// Convert a pointer into the heap in this process address space to a
-/// persistent offset that can be used by any process.
-///
-/// Returns `true` and writes into `offset` if the pointer points into
-/// the heap, or returns `false` and doesn't touch `offset` otherwise.
-///
-/// SAFETY: `offset` is 8-byte aligned and can be written to.
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     pointer: *const ffi::c_void,
     offset: *mut u64,
 ) -> bool {
     match NonNull::new(pointer as *mut ffi::c_void)
-        .and_then(|pointer| raw().heap().checked_pointer_to_offset(pointer))
+        .map(|pointer| ALLOCATOR.with_borrow(|allocator| allocator.pointer_to_offset(pointer)))
     {
         None => false,
         Some(_offset) => {
@@ -368,14 +357,10 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
 /// Convert a persistent offset into a pointer in this process address space.
 #[no_mangle]
 pub extern "C" fn cxlalloc_offset_to_pointer(offset: u64) -> *mut ffi::c_void {
-    let heap = raw().heap();
-    heap.checked_offset_to_offset(offset as usize)
-        .map(|offset| heap.offset_to_pointer(offset))
-        .map(|pointer| pointer.as_ptr())
-        .unwrap()
+    ALLOCATOR.with_borrow(|allocator| allocator.offset_to_pointer(offset as usize).as_ptr())
 }
 
-fn raw() -> &'static raw::Heap {
+fn raw() -> &'static raw::Raw {
     RAW.get()
         .expect("Uninitialized heap: was cxlalloc_init called?")
 }
