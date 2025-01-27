@@ -30,8 +30,8 @@ impl<const SIZE: usize> AtomicBitSet<SIZE> {
 
     // https://stackoverflow.com/questions/45556086/how-to-set-bits-of-a-bit-vector-efficiently-in-parallel
     pub(crate) fn set(&self, bit: Bit) {
-        let row = bit.row();
-        let col = bit.col();
+        let row = bit.row().value() as usize;
+        let col = bit.col().value() as usize;
 
         let mask = 1 << col;
         let word = &self.0[row];

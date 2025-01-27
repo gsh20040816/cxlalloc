@@ -3,8 +3,6 @@ use core::cell::UnsafeCell;
 use core::fmt::Write as _;
 use core::mem;
 use core::sync::atomic::AtomicI64;
-use core::sync::atomic::AtomicIsize;
-use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::LazyLock;
 use std::thread::LocalKey;

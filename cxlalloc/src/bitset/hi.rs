@@ -1,5 +1,7 @@
 use core::fmt::Debug;
 
+use ribbit::private::u6;
+
 use crate::bitset::Bit;
 use crate::coherence::flush;
 use crate::coherence::Invalidate;
@@ -50,12 +52,12 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
     pub(crate) fn peek(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;
         let col = unsafe { self.dense.get_unchecked(row as usize) }.trailing_zeros() as u8;
-        Bit::from_row_col(row, col)
+        Bit::new(u6::new(row), u6::new(col))
     }
 
     pub(crate) fn set(&mut self, bit: Bit) {
-        let row = bit.row();
-        let col = bit.col();
+        let row = bit.row().value() as usize;
+        let col = bit.col().value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
         if cfg!(feature = "validate") {
@@ -71,8 +73,8 @@ impl<const SIZE: usize> HiBitSet<SIZE> {
     }
 
     pub(crate) fn unset(&mut self, bit: Bit) {
-        let row = bit.row();
-        let col = bit.col();
+        let row = bit.row().value() as usize;
+        let col = bit.col().value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
         if cfg!(feature = "validate") {

@@ -5,27 +5,20 @@ pub(crate) use atomic::AtomicBitSet;
 pub(crate) use hi::HiBitSet;
 
 #[ribbit::pack(size = 12, debug, eq, ord)]
-pub(crate) struct Bit(u12);
+pub(crate) struct Bit {
+    row: u6,
+    col: u6,
+}
 
 impl Bit {
-    fn from_row_col(row: u8, col: u8) -> Self {
-        Self::new(::ribbit::private::u12::new(
-            ((row as u16) << 6) | (col as u16),
-        ))
-    }
-
-    fn row(self) -> usize {
-        (self._0().value() >> 6) as usize
-    }
-
-    fn col(self) -> usize {
-        (self._0().value() & ((1 << 6) - 1)) as usize
+    pub(crate) unsafe fn from_packed(packed: u16) -> Self {
+        ribbit::private::unpack(packed)
     }
 }
 
 impl From<Bit> for u64 {
     fn from(bit: Bit) -> Self {
-        bit._0().value() as u64
+        ribbit::private::pack(bit) as u64
     }
 }
 

@@ -5,8 +5,6 @@ use core::num::NonZeroU32;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
 
-use ribbit::private::u12;
-
 use crate::bitset::Bit;
 use crate::raw::Page;
 use crate::size;
@@ -81,9 +79,9 @@ impl<B: size::Bracket> Offset<B> {
     }
 
     pub(crate) fn into_block(self, class: B) -> Bit {
-        Bit::new(u12::new(
-            (self.value().get() % B::SIZE_SLAB as u64 / class.size()) as u16,
-        ))
+        unsafe {
+            Bit::from_packed((self.value().get() % B::SIZE_SLAB as u64 / class.size()) as u16)
+        }
     }
 
     pub(crate) fn into_index(self) -> slab::Index<B> {
