@@ -85,7 +85,7 @@ impl<'raw> Huge<'raw> {
         out: &mut Descriptor,
     ) -> *mut ffi::c_void {
         loop {
-            match self.next(id, size) {
+            match self.next(size) {
                 None => self.claim(id),
                 Some(descriptor) => {
                     // save record somewhere
@@ -178,7 +178,7 @@ impl<'raw> Huge<'raw> {
         )
     }
 
-    fn next(&mut self, id: thread::Id, size: NonZeroUsize) -> Option<Descriptor> {
+    fn next(&mut self, size: NonZeroUsize) -> Option<Descriptor> {
         let descriptor = self
             .allocator
             .free
@@ -190,7 +190,6 @@ impl<'raw> Huge<'raw> {
             })
             .map(|offset| Descriptor {
                 offset: self.data.offset_to_offset(offset),
-                id,
                 size,
                 index: self.allocator.index,
                 next: None,
@@ -317,7 +316,6 @@ impl Allocator {
 
 #[repr(C, align(64))]
 pub(crate) struct Descriptor {
-    id: thread::Id,
     index: u64,
     offset: data::Offset<size::Huge>,
     size: NonZeroUsize,
