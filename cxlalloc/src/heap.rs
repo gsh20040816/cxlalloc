@@ -6,8 +6,6 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::allocator;
-use crate::atomic::Version;
-use crate::bitset::Bit;
 use crate::cas;
 use crate::cas::help;
 use crate::coherence::flush;
@@ -134,11 +132,6 @@ where
         }
     }
 
-    pub(crate) fn class(&self, help: &help::Array, offset: data::Offset<B>) -> B {
-        let index = offset.into_index();
-        self.slabs.remote(index).load(help).class()
-    }
-
     pub(crate) fn try_map(
         &self,
         backend: &Backend,
@@ -201,6 +194,11 @@ where
     B: size::Bracket,
     recover::State: From<HeapState<B>>,
 {
+    pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
+        let index = offset.into_index();
+        self.slabs.local(index).class.load()
+    }
+
     #[inline]
     pub(crate) fn pop(
         &mut self,
@@ -330,19 +328,17 @@ where
         let index = slab::Index::from(offset);
         let remote = self.slabs.remote(index).load(context.help);
 
-        let class = remote.class();
-        let block = offset.into_block(class);
-
-        stat::record_allocate::<B>(class.size(), false);
-
         if remote.owner() != Some(context.id) {
-            return self.free_remote(context, index, block);
+            return self.free_remote(context, index);
         }
 
         stat::inc(&stat::FREE_FAST);
         let local = self.slabs.local(index);
+        let class = local.class.load();
+        let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
 
+        stat::record_allocate::<B>(class.size(), false);
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
         free.set(block);
@@ -360,23 +356,20 @@ where
     }
 
     #[cold]
-    fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>, block: Bit) {
+    fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
         stat::inc(&stat::FREE_REMOTE);
 
         let remote = self.slabs.remote(index);
         let meta = remote
             .update(context, |meta, version| {
-                let last = meta.free() as u64 + 1 == meta.class().count();
-                let next = meta.with_free(meta.free() + 1);
+                let last = meta.free() as u64 == 1;
+                let next = meta.with_free(meta.free() - 1);
 
-                Some((
-                    next,
-                    recover::Remote::new(index, block, version, last).into(),
-                ))
+                Some((next, recover::Remote::new(index, version, last).into()))
             })
             .unwrap();
 
-        if meta.free() as u64 + 1 == meta.class().count() {
+        if meta.free() == 1 {
             self.claim(context, index, meta.owner());
         }
     }
@@ -506,12 +499,17 @@ where
         context.log(HeapState::from(UnsizedToSized::new(next, class)));
 
         self.r#sized[class].push(slabs, index);
+
+        local.class.store(class);
         unsafe {
             (*local.free.get()).fill(class.count());
         }
 
         let remote = slabs.remote(index);
-        remote.store(context, slab::Remote::new(class, Some(context.id), 0));
+        remote.store(
+            context,
+            slab::Remote::new(Some(context.id), class.count() as u16),
+        );
 
         let count = self.r#unsized.len();
         self.r#unsized.set(next, count - 1);

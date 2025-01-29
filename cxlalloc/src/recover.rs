@@ -121,26 +121,23 @@ pub(crate) enum HeapState<B> {
         index: slab::Index<B>,
     },
 
-    #[ribbit(size = 53, from)]
+    #[ribbit(size = 49, from)]
     Remote {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
 
-        #[ribbit(size = 12)]
-        block: Bit,
-
-        #[ribbit(size = 8)]
+        #[ribbit(size = 16)]
         version: Version,
 
         last: bool,
     },
 
-    #[ribbit(size = 40, from)]
+    #[ribbit(size = 56, from)]
     Detach {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
 
-        #[ribbit(size = 8)]
+        #[ribbit(size = 16)]
         version: Version,
     },
 }

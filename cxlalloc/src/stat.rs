@@ -12,7 +12,6 @@ use crate::heap;
 use crate::huge;
 use crate::size;
 use crate::size::Bracket as _;
-use crate::slab;
 use crate::thread;
 use crate::Raw;
 

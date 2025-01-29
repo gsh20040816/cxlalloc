@@ -16,10 +16,10 @@ pub(crate) struct State<T> {
     #[ribbit(size = 16)]
     id: Option<thread::Id>,
 
-    #[ribbit(size = 8)]
+    #[ribbit(size = 16)]
     version: Version,
 
-    #[ribbit(size = 40)]
+    #[ribbit(size = 32)]
     inner: T,
 }
 

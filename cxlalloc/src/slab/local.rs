@@ -8,6 +8,7 @@ use crate::SIZE_BIT_SET;
 #[repr(C, align(64))]
 pub(crate) struct Local<B> {
     pub(crate) next: Atomic<Option<slab::Index<B>>>,
+    pub(crate) class: Atomic<B>,
     pub(crate) owner: Owner,
     pub(crate) free: UnsafeCell<BitSet<SIZE_BIT_SET>>,
 }
