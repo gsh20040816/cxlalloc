@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 
 use crate::allocator;
 use crate::atomic::Version;
+use crate::bitset::Bit;
 use crate::cas;
 use crate::cas::help;
 use crate::coherence::flush;
@@ -293,9 +294,15 @@ where
             0 => stat::inc(&stat::ALLOCATE_FAST_DETACH),
             _ => {
                 stat::inc(&stat::ALLOCATE_FAST_DISOWN);
-                todo!();
-                // remote.update(context, meta.with_owner(None));
-                // self.transfer(index, Some(context.id), None);
+                remote
+                    .update(context, |meta, version| {
+                        Some((
+                            meta.with_owner(None),
+                            recover::Detach::new(index, version).into(),
+                        ))
+                    })
+                    .unwrap();
+                self.slabs.transfer(context, index, Some(context.id), None);
             }
         }
 
@@ -323,18 +330,17 @@ where
         let index = slab::Index::from(offset);
         let remote = self.slabs.remote(index).load(context.help);
 
-        let owner = remote.owner();
         let class = remote.class();
+        let block = offset.into_block(class);
 
         stat::record_allocate::<B>(class.size(), false);
 
-        if owner != Some(context.id) {
-            return self.free_remote(context, offset, index, class);
+        if remote.owner() != Some(context.id) {
+            return self.free_remote(context, index, block);
         }
 
         stat::inc(&stat::FREE_FAST);
         let local = self.slabs.local(index);
-        let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
 
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
@@ -354,27 +360,35 @@ where
     }
 
     #[cold]
-    fn free_remote(
-        &mut self,
-        context: &mut allocator::Context,
-        offset: data::Offset<B>,
-        index: slab::Index<B>,
-        class: B,
-    ) {
+    fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>, block: Bit) {
         stat::inc(&stat::FREE_REMOTE);
 
         let remote = self.slabs.remote(index);
-        let block = offset.into_block(class);
+        let meta = remote
+            .update(context, |meta, version| {
+                let last = meta.free() as u64 + 1 == meta.class().count();
+                let next = meta.with_free(meta.free() + 1);
 
-        todo!()
-        // self.claim(context, index, before.version());
+                Some((
+                    next,
+                    recover::Remote::new(index, block, version, last).into(),
+                ))
+            })
+            .unwrap();
+
+        if meta.free() as u64 + 1 == meta.class().count() {
+            self.claim(context, index, meta.owner());
+        }
     }
 
     #[cold]
-    fn claim(&mut self, context: &mut allocator::Context, index: slab::Index<B>, version: Version) {
+    fn claim(
+        &mut self,
+        context: &mut allocator::Context,
+        index: slab::Index<B>,
+        victim: Option<thread::Id>,
+    ) {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
-
-        todo!();
 
         if cfg!(feature = "validate") {
             assert!(
@@ -386,9 +400,8 @@ where
             );
         }
 
-        // let victim = slab.owner.load().id();
-
-        // self.transfer(index, victim, Some(context.id));
+        self.slabs
+            .transfer(context, index, victim, Some(context.id));
         self.owned.r#unsized.push(&self.slabs, index);
         self.unsized_to_global(context);
     }

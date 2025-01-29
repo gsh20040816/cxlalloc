@@ -44,6 +44,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
                 HeapStateUnpacked::LocalToGlobalSave(_state) => todo!(),
                 HeapStateUnpacked::Remote(_state) => todo!(),
+                HeapStateUnpacked::Detach(_state) => todo!(),
             },
             StateUnpacked::Large(_) => todo!(),
         }
@@ -52,13 +53,13 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
 #[ribbit::pack(size = 64, nonzero, from)]
 pub(crate) enum State {
-    #[ribbit(size = 63)]
+    #[ribbit(size = 60)]
     Small(HeapState<size::Small>),
-    #[ribbit(size = 63)]
+    #[ribbit(size = 60)]
     Large(HeapState<size::Large>),
 }
 
-#[ribbit::pack(size = 63, from)]
+#[ribbit::pack(size = 60, from)]
 pub(crate) enum HeapState<B> {
     #[ribbit(size = 40, from)]
     UnsizedToSized {
@@ -120,7 +121,7 @@ pub(crate) enum HeapState<B> {
         index: slab::Index<B>,
     },
 
-    #[ribbit(size = 60, from)]
+    #[ribbit(size = 53, from)]
     Remote {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -128,10 +129,19 @@ pub(crate) enum HeapState<B> {
         #[ribbit(size = 12)]
         block: Bit,
 
-        #[ribbit(size = 15)]
+        #[ribbit(size = 8)]
         version: Version,
 
         last: bool,
+    },
+
+    #[ribbit(size = 40, from)]
+    Detach {
+        #[ribbit(size = 32)]
+        index: slab::Index<B>,
+
+        #[ribbit(size = 8)]
+        version: Version,
     },
 }
 

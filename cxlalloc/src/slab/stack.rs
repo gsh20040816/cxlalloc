@@ -11,7 +11,6 @@ use crate::recover::HeapState;
 use crate::size;
 use crate::slab::Index;
 use crate::slab::Slab;
-use crate::slab::Slice;
 use crate::thread;
 
 #[repr(C)]

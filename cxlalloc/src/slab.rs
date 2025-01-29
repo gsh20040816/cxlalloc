@@ -97,7 +97,7 @@ where
             return;
         };
 
-        let remote = self.remotes[index].load(&context.help);
+        let remote = self.remotes[index].load(context.help);
         let local = &self.locals[index];
 
         panic!(
