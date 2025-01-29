@@ -10,6 +10,7 @@ use crate::recover;
 use crate::recover::HeapState;
 use crate::size;
 use crate::slab::Index;
+use crate::slab::Slab;
 use crate::slab::Slice;
 use crate::thread;
 
@@ -35,20 +36,20 @@ impl<B> Local<B> {
         flush(&self, Invalidate::No);
     }
 
-    pub(crate) fn pop(&mut self, slabs: &Slice<B>) -> Option<Index<B>> {
+    pub(crate) fn pop(&mut self, slabs: &Slab<B>) -> Option<Index<B>> {
         let index = self.head?;
         self.count -= 1;
-        self.head = slabs[index].local.next.load();
+        self.head = slabs.locals[index].next.load();
         flush(self, Invalidate::No);
         Some(index)
     }
 
-    pub(crate) fn push(&mut self, slabs: &Slice<B>, index: Index<B>) {
+    pub(crate) fn push(&mut self, slabs: &Slab<B>, index: Index<B>) {
         if self.head == Some(index) {
             return;
         }
 
-        let slab = &slabs[index].local;
+        let slab = &slabs.locals[index];
         slab.next.store(self.head);
         flush(&slab.next, Invalidate::No);
 
@@ -57,7 +58,7 @@ impl<B> Local<B> {
         flush(&self.head, Invalidate::No);
     }
 
-    pub(crate) fn trace<'a>(&self, slabs: &'a Slice<B>) -> impl Iterator<Item = Index<B>> + 'a {
+    pub(crate) fn trace<'a>(&self, slabs: &'a Slab<B>) -> impl Iterator<Item = Index<B>> + 'a {
         slabs.trace(self.head)
     }
 }
@@ -76,14 +77,14 @@ where
     pub(crate) fn push(
         &self,
         context: &mut allocator::Context,
-        slabs: &Slice<B>,
+        slabs: &Slab<B>,
         head: Index<B>,
         tail: Index<B>,
     ) {
         self.head
             .update(context, |old, version| {
-                slabs[tail].local.next.store(old);
-                flush(&slabs[tail].local.next, Invalidate::No);
+                slabs.locals[tail].next.store(old);
+                flush(&slabs.locals[tail].next, Invalidate::No);
                 Some((
                     Some(head),
                     recover::LocalToGlobal::new(head, version).into(),
@@ -95,12 +96,12 @@ where
     pub(crate) fn pop(
         &self,
         context: &mut allocator::Context,
-        slabs: &Slice<B>,
+        slabs: &Slab<B>,
     ) -> Option<Index<B>> {
         self.head
             .update(context, |old, version| {
                 let old = old?;
-                let new = slabs[old].local.next.load();
+                let new = slabs.locals[old].next.load();
                 Some((new, recover::GlobalToLocal::new(old, version).into()))
             })
             .flatten()

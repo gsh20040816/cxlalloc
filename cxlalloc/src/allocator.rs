@@ -150,11 +150,11 @@ where
 impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub fn class_untyped(&self, pointer: NonNull<ffi::c_void>) -> usize {
         if let Some(offset) = self.small.checked_pointer_to_offset(pointer) {
-            return self.small.class(offset).size() as usize;
+            return self.small.class(&self.shared.help, offset).size() as usize;
         }
 
         if let Some(offset) = self.large.checked_pointer_to_offset(pointer) {
-            return self.large.class(offset).size() as usize;
+            return self.large.class(&self.shared.help, offset).size() as usize;
         }
 
         if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
@@ -267,7 +267,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         stat::record_allocate::<size::Huge>(size.get() as u64, true);
 
         let index = self.small.peek(context, class).unwrap();
-        let free = unsafe { &mut *self.small.slabs[index].local.free.get() };
+        let free = unsafe { &mut *self.small.slabs.local(index).free.get() };
         let block = free.peek();
 
         let offset = data::Offset::from_block(index, class, block);

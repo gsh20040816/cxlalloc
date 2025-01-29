@@ -53,8 +53,10 @@ pub struct Raw {
     pub(crate) owned: region::Fixed,
 
     // Slab metadata regions
-    pub(crate) slab_small: region::Sequential,
-    pub(crate) slab_large: region::Sequential,
+    pub(crate) local_small: region::Sequential,
+    pub(crate) local_large: region::Sequential,
+    pub(crate) remote_small: region::Sequential,
+    pub(crate) remote_large: region::Sequential,
 
     // Data regions, must be contiguous
     pub(crate) data_small: region::Sequential,
@@ -127,75 +129,67 @@ impl Raw {
         let (owned_size, _) = Self::owned();
         let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
 
-        const GIB: NonZeroUsize = NonZeroUsize::new(1 << 30).unwrap();
-
-        let (slab_small_lazy, slab_small_size) = match Slab::<size::Small>::layout(slab_count)
-            .ok()
-            .map(|layout| layout.size())
-            .map(NonZeroUsize::new)
-            .unwrap()
+        let (small_lazy, small) = match NonZeroUsize::new(slab_count)
+            .map(|count| Heap::<view::Unfocus, size::Small>::layout(count).unwrap())
         {
-            Some(size) => (false, size),
-            None => (
-                true,
-                NonZeroUsize::new(
-                    (GIB.get() / size::Small::SIZE_SLAB)
-                        * size_of::<slab::Descriptor<size::Small>>(),
-                )
-                .unwrap(),
-            ),
+            None => (true, Default::default()),
+            Some(layout) => (false, layout),
         };
 
-        let slab_small_reservation = Reservation::new()?;
-        let slab_small = region::Sequential::new(
+        let local_small_reservation = Reservation::new()?;
+        let local_small = region::Sequential::new(
             &backend,
-            id.with_suffix("ss"),
-            slab_small_reservation,
-            slab_small_size,
-            slab_small_lazy,
+            id.with_suffix("ls"),
+            local_small_reservation,
+            small.locals,
+            small_lazy,
         )?;
 
-        let slab_large_reservation = Reservation::new()?;
-        let slab_large = region::Sequential::new(
+        let remote_small_reservation = Reservation::new()?;
+        let remote_small = region::Sequential::new(
             &backend,
-            id.with_suffix("sl"),
-            slab_large_reservation,
-            NonZeroUsize::new(
-                (GIB.get() / size::Large::SIZE_SLAB) * size_of::<slab::Descriptor<size::Large>>(),
-            )
-            .unwrap(),
+            id.with_suffix("rs"),
+            remote_small_reservation,
+            small.remotes,
+            small_lazy,
+        )?;
+
+        let large = heap::Layout::<size::Large>::default();
+
+        let local_large_reservation = Reservation::new()?;
+        let local_large = region::Sequential::new(
+            &backend,
+            id.with_suffix("ll"),
+            local_large_reservation,
+            large.locals,
+            true,
+        )?;
+
+        let remote_large_reservation = Reservation::new()?;
+        let remote_large = region::Sequential::new(
+            &backend,
+            id.with_suffix("rl"),
+            remote_large_reservation,
+            large.remotes,
             true,
         )?;
 
         let [data_small_reservation, data_large_reservation, data_huge_reservation] =
             Reservation::new_contiguous()?;
 
-        let (data_small_lazy, data_small_size) = match Data::<size::Small>::layout(slab_count)
-            .ok()
-            .map(|layout| layout.size())
-            .map(NonZeroUsize::new)
-            .unwrap()
-        {
-            Some(size) => (false, size),
-            None => (
-                true,
-                NonZeroUsize::new(GIB.get().next_multiple_of(size::Small::SIZE_SLAB)).unwrap(),
-            ),
-        };
-
         let data_small = region::Sequential::new(
             &backend,
             id.with_suffix("ds"),
             data_small_reservation,
-            data_small_size,
-            data_small_lazy,
+            small.data,
+            small_lazy,
         )?;
 
         let data_large = region::Sequential::new(
             &backend,
             id.with_suffix("dl"),
             data_large_reservation,
-            NonZeroUsize::new(GIB.get().next_multiple_of(size::Large::SIZE_SLAB)).unwrap(),
+            large.data,
             true,
         )?;
 
@@ -205,8 +199,10 @@ impl Raw {
             backend,
             shared,
             owned,
-            slab_small,
-            slab_large,
+            local_small,
+            local_large,
+            remote_small,
+            remote_large,
             data_small,
             data_large,
             data_huge,
@@ -234,7 +230,8 @@ impl Raw {
 
         match allocator.small.try_map(
             &self.backend,
-            &self.slab_small,
+            &self.local_small,
+            &self.remote_small,
             &self.data_small,
             &allocator.shared.help,
             address,
@@ -246,7 +243,8 @@ impl Raw {
 
         match allocator.large.try_map(
             &self.backend,
-            &self.slab_large,
+            &self.local_large,
+            &self.remote_large,
             &self.data_large,
             &allocator.shared.help,
             address,
@@ -292,7 +290,10 @@ impl Raw {
                         .cast::<thread::Array<UnsafeCell<heap::Owned<size::Small>>>>()
                         .as_ref()
                         .unwrap(),
-                    Slab::new(slab::Slice::from_raw(self.slab_small.address().cast())),
+                    Slab::new(
+                        slab::Slice::from_raw(self.local_small.address().cast()),
+                        slab::Slice::from_raw(self.remote_small.address().cast()),
+                    ),
                     Data::<size::Small>::new(self.data_small.address()),
                 ),
                 Heap::<view::Unfocus, size::Large>::new(
@@ -307,7 +308,10 @@ impl Raw {
                         .cast::<thread::Array<UnsafeCell<heap::Owned<size::Large>>>>()
                         .as_ref()
                         .unwrap(),
-                    Slab::new(slab::Slice::from_raw(self.slab_large.address().cast())),
+                    Slab::new(
+                        slab::Slice::from_raw(self.local_large.address().cast()),
+                        slab::Slice::from_raw(self.remote_large.address().cast()),
+                    ),
                     Data::<size::Large>::new(self.data_large.address()),
                 ),
                 Huge::new(
@@ -355,8 +359,10 @@ impl Raw {
         [
             &self.shared as &dyn Region,
             &self.owned,
-            &self.slab_small,
-            &self.slab_large,
+            &self.local_small,
+            &self.local_large,
+            &self.remote_small,
+            &self.remote_large,
             &self.data_small,
             &self.data_large,
             &self.data_huge,

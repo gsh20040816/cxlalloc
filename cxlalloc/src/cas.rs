@@ -1,4 +1,5 @@
 use crate::allocator;
+use crate::atomic::Convert64;
 use crate::atomic::Version;
 use crate::coherence::flush;
 use crate::coherence::sfence;
@@ -7,27 +8,33 @@ use crate::recover;
 use crate::recover::HeapState;
 use crate::thread;
 use crate::Atomic;
-use std::fmt::Debug;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);
 
-#[ribbit::pack(size = 64)]
+#[ribbit::pack(size = 64, debug)]
 pub(crate) struct State<T> {
     #[ribbit(size = 16)]
     id: Option<thread::Id>,
 
-    #[ribbit(size = 16)]
+    #[ribbit(size = 8)]
     version: Version,
 
-    #[ribbit(size = 32)]
+    #[ribbit(size = 40)]
     inner: T,
 }
 
-impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
+impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
     pub(crate) fn load(&self, help: &help::Array) -> T {
         let old = self.0.load();
         self.help(help, old);
         old.inner()
+    }
+
+    pub(crate) fn store(&self, context: &mut allocator::Context, value: T) {
+        let old = self.0.load();
+        self.help(context.help, old);
+        self.0
+            .store(State::new(Some(context.id), Version::default(), value));
     }
 
     pub(crate) fn update<F, B>(&self, context: &mut allocator::Context, mut next: F) -> Option<T>
@@ -82,7 +89,7 @@ impl<T: ribbit::Pack<Loose = u32> + Debug> Detectable<T> {
 
 pub(crate) struct Help(Atomic<Inner>);
 
-#[ribbit::pack(size = 64)]
+#[ribbit::pack(size = 64, debug)]
 pub(crate) struct Inner {
     #[ribbit(size = 16)]
     version: Version,

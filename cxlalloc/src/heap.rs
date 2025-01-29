@@ -1,4 +1,7 @@
 use core::ffi;
+use core::marker::PhantomData;
+use core::mem;
+use core::num::NonZeroUsize;
 use core::ops::Range;
 use core::ptr::NonNull;
 
@@ -17,7 +20,6 @@ use crate::recover::ApplicationToSized;
 use crate::recover::BumpToLocal;
 use crate::recover::HeapState;
 use crate::recover::LocalToGlobalSave;
-use crate::recover::Remote;
 use crate::recover::SizedToApplication;
 use crate::recover::State;
 use crate::recover::UnsizedToSized;
@@ -46,6 +48,46 @@ pub struct Heap<'raw, L: view::Lens, B: size::Bracket> {
 
     pub(crate) slabs: Slab<'raw, B>,
     pub(crate) data: Data<'raw, B>,
+}
+
+pub(crate) struct Layout<B> {
+    pub(crate) locals: NonZeroUsize,
+    pub(crate) remotes: NonZeroUsize,
+    pub(crate) data: NonZeroUsize,
+    _bracket: PhantomData<B>,
+}
+
+impl<B> Default for Layout<B>
+where
+    B: size::Bracket,
+{
+    fn default() -> Self {
+        const SIZE: usize = 1 << 30;
+        Heap::<view::Unfocus, B>::layout(
+            NonZeroUsize::new(SIZE.next_multiple_of(B::SIZE_SLAB) / B::SIZE_SLAB).unwrap(),
+        )
+        .unwrap()
+    }
+}
+
+impl<'raw, L, B> Heap<'raw, L, B>
+where
+    L: view::Lens,
+    B: size::Bracket,
+{
+    pub(crate) fn layout(count: NonZeroUsize) -> Result<Layout<B>, core::alloc::LayoutError> {
+        let count = count.get();
+        Ok(Layout {
+            locals: NonZeroUsize::new(slab::Slice::<B, slab::Local<B>>::layout(count)?.size())
+                .unwrap(),
+            remotes: NonZeroUsize::new(
+                slab::Slice::<B, cas::Detectable<slab::Remote<B>>>::layout(count)?.size(),
+            )
+            .unwrap(),
+            data: NonZeroUsize::new(Data::<B>::layout(count)?.size()).unwrap(),
+            _bracket: PhantomData,
+        })
+    }
 }
 
 impl<'raw, L, B> Heap<'raw, L, B>
@@ -91,15 +133,16 @@ where
         }
     }
 
-    pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
+    pub(crate) fn class(&self, help: &help::Array, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
-        self.slabs[index].remote.owner.load().class()
+        self.slabs.remote(index).load(help).class()
     }
 
     pub(crate) fn try_map(
         &self,
         backend: &Backend,
-        slab: &region::Sequential,
+        local: &region::Sequential,
+        remote: &region::Sequential,
         data: &region::Sequential,
         help: &help::Array,
         address: NonNull<ffi::c_void>,
@@ -108,34 +151,47 @@ where
             return Err(crate::Error::OutOfBounds);
         };
 
+        let size_local = const { mem::size_of::<slab::Local<B>>() };
+        let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote<B>>>() };
+        let size_slab = const { B::SIZE_SLAB };
+
         // Check if within either region
-        let slab_lo = slab.address().as_ptr().cast::<ffi::c_void>();
-        let slab_hi = slab_lo.wrapping_byte_add(len as usize * size_of::<slab::Descriptor<B>>());
+        let local_lo = local.address().as_ptr().cast::<ffi::c_void>();
+        let local_hi = local_lo.wrapping_byte_add(len as usize * size_local);
+
+        let remote_lo = remote.address().as_ptr().cast::<ffi::c_void>();
+        let remote_hi = remote_lo
+            .wrapping_byte_add(len as usize * size_of::<cas::Detectable<slab::Remote<B>>>());
 
         let data_lo = data.address().as_ptr().cast::<ffi::c_void>();
         let data_hi = data_lo.wrapping_byte_add(len as usize * B::SIZE_SLAB);
 
         let address = address.as_ptr();
-        let (slab_offset, data_offset) = if (slab_lo..slab_hi).contains(&address) {
-            let slab_offset = address as usize - slab_lo as usize;
-            let data_offset = slab_offset / size_of::<slab::Descriptor<B>>() * B::SIZE_SLAB;
-            (slab_offset, data_offset)
+
+        let (local_offset, remote_offset, data_offset) = if (local_lo..local_hi).contains(&address)
+        {
+            let local_offset = address as usize - local_lo as usize;
+            let remote_offset = local_offset / size_local * size_remote;
+            let data_offset = local_offset / size_local * size_slab;
+            (local_offset, remote_offset, data_offset)
+        } else if (remote_lo..remote_hi).contains(&address) {
+            let remote_offset = address as usize - remote_lo as usize;
+            let local_offset = remote_offset / size_remote * size_local;
+            let data_offset = remote_offset / size_remote * size_slab;
+            (local_offset, remote_offset, data_offset)
         } else if (data_lo..data_hi).contains(&address) {
             let data_offset = address as usize - data_lo as usize;
-            let slab_offset = data_offset / B::SIZE_SLAB * size_of::<slab::Descriptor<B>>();
-            (slab_offset, data_offset)
+            let local_offset = data_offset / size_slab * size_local;
+            let remote_offset = data_offset / size_slab * size_remote;
+            (local_offset, remote_offset, data_offset)
         } else {
             return Err(crate::Error::OutOfBounds);
         };
 
-        slab.map(backend, slab_offset)?;
+        local.map(backend, local_offset)?;
+        remote.map(backend, remote_offset)?;
         data.map(backend, data_offset)?;
         Ok(())
-    }
-
-    #[inline]
-    fn transfer(&self, index: slab::Index<B>, old: Option<thread::Id>, new: Option<thread::Id>) {
-        slab::transfer(&self.slabs, index, old, new);
     }
 }
 
@@ -151,7 +207,7 @@ where
         class: B,
         index: slab::Index<B>,
     ) -> *mut ffi::c_void {
-        let free = unsafe { &mut *self.slabs[index].local.free.get() };
+        let free = unsafe { &mut *self.slabs.local(index).free.get() };
         let block = free.peek();
 
         context.log(HeapState::from(SizedToApplication::new(index, block)));
@@ -198,7 +254,7 @@ where
         'slow: {
             if let Some(index) = self.shared.pop(context, &self.slabs) {
                 stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
-                slab::transfer(&self.slabs, index, None, Some(context.id));
+                self.slabs.transfer(context, index, None, Some(context.id));
 
                 self.owned.r#unsized.push(&self.slabs, index);
                 break 'slow;
@@ -206,8 +262,8 @@ where
 
             let range = self.shared.bump(context);
             stat::inc(&stat::ALLOCATE_SMALL_BUMP);
-            slab::transfer_all(
-                &self.slabs,
+            self.slabs.transfer_all(
+                context,
                 range.start,
                 BATCH_BUMP_POP as usize,
                 None,
@@ -230,17 +286,17 @@ where
     fn detach(&mut self, context: &mut allocator::Context, class: B) {
         let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
 
-        let slab = &self.slabs[index];
-        if !slab.remote.free.is_empty() {
-            stat::inc(&stat::ALLOCATE_FAST_DISOWN);
-            let owner = slab.remote.owner.load();
-            slab.remote
-                .owner
-                .store(slab::remote::Owner::new(owner.class(), None));
-            flush(&slab.remote.owner, Invalidate::No);
-            self.transfer(index, Some(context.id), None);
-        } else {
-            stat::inc(&stat::ALLOCATE_FAST_DETACH);
+        let remote = &self.slabs.remote(index);
+        let meta = remote.load(context.help);
+
+        match meta.free() {
+            0 => stat::inc(&stat::ALLOCATE_FAST_DETACH),
+            _ => {
+                stat::inc(&stat::ALLOCATE_FAST_DISOWN);
+                todo!();
+                // remote.update(context, meta.with_owner(None));
+                // self.transfer(index, Some(context.id), None);
+            }
         }
 
         if cfg!(feature = "validate") {
@@ -265,20 +321,21 @@ where
     #[inline]
     pub(crate) fn free(&mut self, context: &mut allocator::Context, offset: data::Offset<B>) {
         let index = slab::Index::from(offset);
-        let slab = &self.slabs[index];
-        let owner = slab.remote.owner.load();
-        let class = owner.class();
+        let remote = self.slabs.remote(index).load(context.help);
+
+        let owner = remote.owner();
+        let class = remote.class();
 
         stat::record_allocate::<B>(class.size(), false);
 
-        if owner.id() != Some(context.id) {
+        if owner != Some(context.id) {
             return self.free_remote(context, offset, index, class);
         }
 
         stat::inc(&stat::FREE_FAST);
-        let slab = &self.slabs[index];
+        let local = self.slabs.local(index);
         let block = offset.into_block(class);
-        let free = unsafe { &mut *slab.local.free.get() };
+        let free = unsafe { &mut *local.free.get() };
 
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
@@ -306,63 +363,18 @@ where
     ) {
         stat::inc(&stat::FREE_REMOTE);
 
-        let slab = &self.slabs[index].remote;
+        let remote = self.slabs.remote(index);
         let block = offset.into_block(class);
 
-        // FIXME: invalidate
-        let mut before = slab.meta.load();
-        slab.meta.store(before.with_claim(Some(context.id)));
-
-        // FIXME: invalidate
-        let mut last = slab.free.is_last(block, class.count());
-
-        let last = loop {
-            context.log(HeapState::from(Remote::new(
-                index,
-                block,
-                before.version(),
-                last,
-            )));
-
-            slab.free.set(block);
-            let after = slab.meta.load();
-
-            // Freed by another thread
-            if after.version() != before.version() {
-                return;
-            }
-
-            // No other threads raced
-            if after.claim() == Some(context.id) {
-                break last;
-            }
-
-            before = after;
-            slab.meta.store(before.with_claim(Some(context.id)));
-            last = slab.free.is_last(block, class.count());
-        };
-
-        if last {
-            self.claim(context, index, before.version());
-        }
+        todo!()
+        // self.claim(context, index, before.version());
     }
 
     #[cold]
     fn claim(&mut self, context: &mut allocator::Context, index: slab::Index<B>, version: Version) {
         stat::inc(&stat::FREE_REMOTE_GLOBAL);
 
-        let slab = &self.slabs[index].remote;
-        let next = slab::remote::Meta::new(version.next(), Some(context.id));
-
-        loop {
-            slab.meta.store(next);
-            slab.free.clear();
-            flush(&slab.free, Invalidate::No);
-
-            if slab.meta.load() == next {
-                break;
-            }
-        }
+        todo!();
 
         if cfg!(feature = "validate") {
             assert!(
@@ -374,17 +386,9 @@ where
             );
         }
 
-        let victim = slab.owner.load().id();
+        // let victim = slab.owner.load().id();
 
-        self.transfer(index, victim, Some(context.id));
-
-        if victim.is_some() {
-            stat::inc(&stat::FREE_REMOTE_GLOBAL_WIN_STEAL);
-            slab.owner
-                .store(slab::remote::Owner::new(B::default(), Some(context.id)));
-            flush(&slab.owner, Invalidate::No);
-        }
-
+        // self.transfer(index, victim, Some(context.id));
         self.owned.r#unsized.push(&self.slabs, index);
         self.unsized_to_global(context);
     }
@@ -399,12 +403,12 @@ where
             .owned
             .r#unsized
             .trace(&self.slabs)
-            .inspect(|index| self.transfer(*index, Some(context.id), None))
+            .inspect(|index| self.slabs.transfer(context, *index, Some(context.id), None))
             .take(BATCH_GLOBAL_PUSH);
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap();
-        let next = self.slabs[tail].local.next.load();
+        let next = self.slabs.local(tail).next.load();
 
         context.log(HeapState::from(LocalToGlobalSave::new(head)));
 
@@ -483,20 +487,18 @@ where
 
         crash::define!(unsized_to_sized_pre_log);
 
-        let slab = &slabs[index];
-        let next = slab.local.next.load();
+        let local = slabs.local(index);
+        let next = local.next.load();
 
         context.log(HeapState::from(UnsizedToSized::new(next, class)));
 
         self.r#sized[class].push(slabs, index);
         unsafe {
-            (*slab.local.free.get()).fill(class.count());
+            (*local.free.get()).fill(class.count());
         }
 
-        slab.remote
-            .owner
-            .store(slab::remote::Owner::new(class, Some(context.id)));
-        flush(&slab.remote.owner, Invalidate::No);
+        let remote = slabs.remote(index);
+        remote.store(context, slab::Remote::new(class, Some(context.id), 0));
 
         let count = self.r#unsized.len();
         self.r#unsized.set(next, count - 1);
@@ -505,7 +507,7 @@ where
 
     #[cold]
     pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
-        let next = slabs[index].local.next.load();
+        let next = slabs.local(index).next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
 
@@ -514,15 +516,15 @@ where
             self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
-                match slabs[walk].local.next.load() {
-                    None => panic!("removing non-existent slab {} {}", index, class),
+                match slabs.local(walk).next.load() {
+                    None => panic!("removing non-existent slab {} {:?}", index, class),
                     Some(next) if next == index => break walk,
                     Some(next) => walk = next,
                 }
             };
 
-            slabs[prev].local.next.store(next);
-            flush(&slabs[prev], Invalidate::No);
+            slabs.local(prev).next.store(next);
+            flush(slabs.local(prev), Invalidate::No);
         };
 
         self.r#unsized.push(slabs, index);

@@ -14,10 +14,11 @@ use core::iter;
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
 use core::num::NonZeroU64;
-use core::ops::Deref;
 use core::ops::Range;
 use core::ptr::NonNull;
 
+use crate::allocator;
+use crate::cas::Detectable;
 use crate::coherence::flush;
 use crate::coherence::Invalidate;
 use crate::data;
@@ -25,23 +26,108 @@ use crate::size;
 use crate::thread;
 
 pub(crate) struct Slab<'raw, B> {
-    descriptors: Slice<'raw, B>,
+    locals: Slice<'raw, B, Local<B>>,
+    remotes: Slice<'raw, B, Detectable<Remote<B>>>,
 }
 
 impl<'raw, B> Slab<'raw, B> {
-    pub(crate) fn new(descriptors: Slice<'raw, B>) -> Self {
-        Self { descriptors }
+    pub(crate) fn new(
+        locals: Slice<'raw, B, Local<B>>,
+        remotes: Slice<'raw, B, Detectable<Remote<B>>>,
+    ) -> Self {
+        Self { locals, remotes }
     }
 
-    pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
-        Slice::<B>::layout(count)
+    #[inline]
+    pub(crate) fn local(&self, index: Index<B>) -> &Local<B> {
+        &self.locals[index]
+    }
+
+    #[inline]
+    pub(crate) fn remote(&self, index: Index<B>) -> &Detectable<Remote<B>> {
+        &self.remotes[index]
+    }
+
+    pub(crate) unsafe fn link(&self, range: Range<Index<B>>, head: Option<Index<B>>) {
+        let range = (range.start.value().get()..range.end.value().get())
+            .map(NonZeroU32::new)
+            .map(Option::unwrap)
+            .map(Index::new);
+
+        for (i, j) in iter::zip(
+            range.clone(),
+            range
+                .clone()
+                .skip(1)
+                .map(Option::Some)
+                .chain(iter::once(head)),
+        ) {
+            let next = &self.locals[i].next;
+            next.store(j);
+            flush(next, Invalidate::No);
+        }
+    }
+
+    pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
+        iter::from_fn(move || {
+            let next = head?;
+            head = self.locals[next].next.load();
+            Some(next)
+        })
     }
 }
 
-impl<'raw, B> Deref for Slab<'raw, B> {
-    type Target = Slice<'raw, B>;
-    fn deref(&self) -> &Self::Target {
-        &self.descriptors
+impl<'raw, B> Slab<'raw, B>
+where
+    B: size::Bracket,
+{
+    #[inline]
+    pub(crate) fn transfer(
+        &self,
+        context: &mut allocator::Context,
+        index: Index<B>,
+        old: Option<thread::Id>,
+        new: Option<thread::Id>,
+    ) {
+        if !cfg!(feature = "validate") {
+            return;
+        }
+
+        let Err(actual) = self.locals[index].owner.transfer(old, new) else {
+            return;
+        };
+
+        let remote = self.remotes[index].load(&context.help);
+        let local = &self.locals[index];
+
+        panic!(
+            "Slab {index} transfer failed: \
+            old = {old:?}, \
+            new = {new:?}, \
+            actual = {actual:?}, \
+            remote = {:?}, \
+            local = {:?}",
+            remote,
+            unsafe { &*local.free.get() },
+        );
+    }
+
+    #[inline]
+    pub(crate) fn transfer_all(
+        &self,
+        context: &mut allocator::Context,
+        index: Index<B>,
+        count: usize,
+        old: Option<thread::Id>,
+        new: Option<thread::Id>,
+    ) {
+        if !cfg!(feature = "validate") {
+            return;
+        }
+
+        for i in 0..count {
+            self.transfer(context, unsafe { index.add(i as u32) }, old, new);
+        }
     }
 }
 
@@ -101,121 +187,32 @@ impl<B: size::Bracket> From<data::Offset<B>> for Index<B> {
     }
 }
 
-#[repr(C, align(64))]
-pub(crate) struct Descriptor<B> {
-    pub(crate) local: Local<B>,
-    pub(crate) remote: Remote<B>,
-}
-
-pub(crate) struct Slice<'raw, B> {
-    base: NonNull<Descriptor<B>>,
+pub(crate) struct Slice<'raw, B, T> {
+    base: NonNull<T>,
+    _bracket: PhantomData<B>,
     _raw: PhantomData<&'raw ()>,
 }
 
-impl<B> Slice<'_, B> {
+impl<B, T> Slice<'_, B, T> {
     pub(crate) fn layout(count: usize) -> Result<Layout, LayoutError> {
-        Layout::array::<Descriptor<B>>(count)
+        Layout::array::<T>(count)
     }
 
     // Implementation detail: store minus one
-    pub(crate) unsafe fn from_raw(base: NonNull<Descriptor<B>>) -> Self {
+    pub(crate) unsafe fn from_raw(base: NonNull<T>) -> Self {
         let base = base.as_ptr().wrapping_sub(1);
 
         Self {
             base: NonNull::new(base).unwrap(),
+            _bracket: PhantomData,
             _raw: PhantomData,
         }
     }
-
-    pub(crate) unsafe fn link(&self, range: Range<Index<B>>, head: Option<Index<B>>) {
-        let range = (range.start.value().get()..range.end.value().get())
-            .map(NonZeroU32::new)
-            .map(Option::unwrap)
-            .map(Index::new);
-
-        for (i, j) in iter::zip(
-            range.clone(),
-            range
-                .clone()
-                .skip(1)
-                .map(Option::Some)
-                .chain(iter::once(head)),
-        ) {
-            let next = &self[i].local.next;
-            next.store(j);
-            flush(next, Invalidate::No);
-        }
-    }
-
-    pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
-        iter::from_fn(move || {
-            let next = head?;
-            head = self[next].local.next.load();
-            Some(next)
-        })
-    }
 }
 
-impl<B> core::ops::Index<Index<B>> for Slice<'_, B> {
-    type Output = Descriptor<B>;
+impl<B, T> core::ops::Index<Index<B>> for Slice<'_, B, T> {
+    type Output = T;
     fn index(&self, index: Index<B>) -> &Self::Output {
         unsafe { self.base.add(index.value().get() as usize).as_ref() }
-    }
-}
-
-#[inline]
-pub(crate) fn transfer<B: size::Bracket>(
-    slabs: &Slice<B>,
-    index: Index<B>,
-    old: Option<thread::Id>,
-    new: Option<thread::Id>,
-) {
-    if !cfg!(feature = "validate") {
-        return;
-    }
-
-    let slab = &slabs[index];
-
-    let Err(actual) = slab.local.owner.transfer(old, new) else {
-        return;
-    };
-
-    let meta = slab.remote.meta.load();
-    let owner = slab.remote.owner.load();
-
-    panic!(
-        "Slab {index} transfer failed: \
-        old = {old:?}, \
-        new = {new:?}, \
-        actual = {actual:?}, \
-        version = {:?}, \
-        claim = {:?}, \
-        class = {}, \
-        owner = {:?}, \
-        owned = {:?}, \
-        shared = {:?}",
-        meta.version(),
-        meta.claim(),
-        owner.class(),
-        owner.id(),
-        unsafe { &*slab.local.free.get() },
-        &slab.remote.free,
-    );
-}
-
-#[inline]
-pub(crate) fn transfer_all<B: size::Bracket>(
-    slabs: &Slice<B>,
-    index: Index<B>,
-    count: usize,
-    old: Option<thread::Id>,
-    new: Option<thread::Id>,
-) {
-    if !cfg!(feature = "validate") {
-        return;
-    }
-
-    for i in 0..count {
-        transfer(slabs, unsafe { index.add(i as u32) }, old, new);
     }
 }

@@ -1,5 +1,5 @@
 use core::fmt;
-use core::fmt::Display;
+use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::ops;
 
@@ -8,7 +8,7 @@ use ribbit::private::u6;
 
 use crate::SIZE_BIT_SET;
 
-pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Display {
+pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug {
     const SIZE_SLAB: usize = (crate::SIZE_BIT_SET + crate::SIZE_METADATA) * 64 * Self::SIZE_MIN;
     const SIZE_MIN: usize;
     const SIZE_MAX: usize;
@@ -31,7 +31,7 @@ pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Display {
 #[derive(Default)]
 pub struct Huge;
 
-impl Display for Huge {
+impl Debug for Huge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Huge")
     }
@@ -115,11 +115,11 @@ impl<B: Bracket, T> ops::IndexMut<B> for Array<B, T> {
 }
 
 /// 8B, 16B, 24B, ..., 504B
-#[ribbit::pack(size = 6, debug, new(rename = "new_internal", vis = ""), eq, hash)]
+#[ribbit::pack(size = 6, new(rename = "new_internal", vis = ""), eq, hash)]
 #[derive(Default)]
 pub(crate) struct Small(u6);
 
-impl Display for Small {
+impl Debug for Small {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.size())
     }
@@ -194,11 +194,11 @@ impl Bracket for Small {
 }
 
 /// 512B, 1KiB, 2KiB, ..., 512KiB
-#[ribbit::pack(size = 4, debug, new(rename = "new_internal", vis = ""), eq, hash)]
+#[ribbit::pack(size = 4, new(rename = "new_internal", vis = ""), eq, hash)]
 #[derive(Default)]
 pub(crate) struct Large(u4);
 
-impl Display for Large {
+impl Debug for Large {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         (512 << self._0().value()).fmt(f)
     }

@@ -155,10 +155,6 @@ pub(crate) fn record_allocate<B: size::Bracket>(size: u64, allocate: bool) {
         );
     } else {
         MEMORY_LOCAL_DATA_TIGHT.set(MEMORY_LOCAL_DATA_TIGHT.get() + size as i64 * direction);
-        MEMORY_LOCAL_SLAB_TIGHT.set(
-            MEMORY_LOCAL_SLAB_TIGHT.get()
-                + mem::size_of::<slab::Descriptor<B>>() as i64 * direction,
-        );
     }
 
     if let Some(value) = update(&MEMORY_LOCAL_DATA_TIGHT, &MEMORY_GLOBAL_DATA_TIGHT) {

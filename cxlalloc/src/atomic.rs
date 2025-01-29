@@ -5,8 +5,6 @@ use core::ops::DerefMut;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
-use ribbit::private::u15;
-
 #[repr(C)]
 #[derive(Debug)]
 pub struct Atomic<T> {
@@ -80,12 +78,13 @@ macro_rules! impl_convert64 {
 impl_convert64!(u8, u16, u32, u64);
 
 #[repr(C)]
-#[ribbit::pack(size = 15, debug, eq, hash)]
-pub struct Version(u15);
+#[ribbit::pack(size = 8, debug, eq, hash)]
+#[derive(Default)]
+pub struct Version(u8);
 
 impl Version {
     pub fn next(&self) -> Self {
-        Self::new(self._0().wrapping_add(u15::new(1)))
+        Self::new(self._0().wrapping_add(1))
     }
 }
 
