@@ -49,8 +49,8 @@ pub(crate) const SIZE_BIT_SET: usize = (SIZE_CACHE_LINE * 8) / 8 - SIZE_METADATA
 
 pub(crate) const COUNT_THREAD: usize = 96;
 
-pub(crate) const COUNT_CACHE_SLAB: usize = 32;
-pub(crate) const BATCH_GLOBAL_PUSH: usize = 24;
+pub(crate) const COUNT_CACHE_SLAB: usize = 8;
+pub(crate) const BATCH_GLOBAL_PUSH: usize = 4;
 pub(crate) const BATCH_BUMP_POP: u32 = 16;
 
 pub struct Allocator<'raw, S: 'raw = (), O: 'raw = ()>(

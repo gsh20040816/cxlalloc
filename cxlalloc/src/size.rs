@@ -17,6 +17,8 @@ pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug {
 
     type Array<T>: AsRef<[T]> + AsMut<[T]>;
 
+    fn new(size: usize) -> Option<Self>;
+
     fn array<T: Default>() -> Self::Array<T>;
 
     fn pack(self) -> u8;
@@ -46,6 +48,10 @@ impl Bracket for Huge {
     const INDEX: usize = 2;
 
     type Array<T> = [T; 0];
+
+    fn new(_: usize) -> Option<Self> {
+        None
+    }
 
     fn array<T: Default>() -> Self::Array<T> {
         []
@@ -180,6 +186,11 @@ impl Bracket for Small {
     type Array<T> = [T; 1 + Self::COUNT];
 
     #[inline]
+    fn new(size: usize) -> Option<Self> {
+        Self::new(size)
+    }
+
+    #[inline]
     fn array<T: Default>() -> Self::Array<T> {
         core::array::from_fn(|_| T::default())
     }
@@ -243,6 +254,11 @@ impl Bracket for Large {
     const INDEX: usize = 1;
 
     type Array<T> = [T; Self::COUNT];
+
+    #[inline]
+    fn new(size: usize) -> Option<Self> {
+        Self::new(size)
+    }
 
     #[inline]
     fn array<T: Default>() -> Self::Array<T> {

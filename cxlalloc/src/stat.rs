@@ -2,6 +2,7 @@ use core::cell::Cell;
 use core::cell::UnsafeCell;
 use core::fmt::Display;
 use core::fmt::Write as _;
+use core::iter;
 use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::AtomicI64;
@@ -13,6 +14,7 @@ use crate::heap;
 use crate::huge;
 use crate::size;
 use crate::size::Bracket as _;
+use crate::slab;
 use crate::thread;
 use crate::Raw;
 use crate::COUNT_THREAD;
@@ -47,8 +49,6 @@ struct Sloppy {
     name: &'static str,
     size: Option<u64>,
     buffer: thread::Array<Counter>,
-    local: thread::Array<Counter>,
-    global: AtomicI64,
 }
 
 impl Sloppy {
@@ -58,8 +58,6 @@ impl Sloppy {
             name,
             size,
             buffer: thread::Array([const { Counter(AtomicI64::new(0)) }; COUNT_THREAD + 1]),
-            local: thread::Array([const { Counter(AtomicI64::new(0)) }; COUNT_THREAD + 1]),
-            global: AtomicI64::new(0),
         }
     }
 
@@ -79,8 +77,6 @@ impl Sloppy {
         }
 
         self.buffer[id].reset();
-        let local = self.local[id].update(value);
-        let global = self.global.fetch_add(value, Ordering::Relaxed) + value;
         let size = self.size.as_ref();
         let size = match size {
             None => &"" as &dyn Display,
@@ -90,11 +86,7 @@ impl Sloppy {
         let now = now();
         eprintln!(
             "{},{},{},{},{},{}",
-            now, self.bracket, self.name, id, size, local
-        );
-        eprintln!(
-            "{},{},{},,{},{}",
-            now, self.bracket, self.name, size, global
+            now, self.bracket, self.name, id, size, value
         );
     }
 }
@@ -153,19 +145,27 @@ pub(crate) enum Event<B: size::Bracket> {
 }
 
 struct Heap<B: size::Bracket> {
-    application: Sloppy,
+    application: size::Array<B, Sloppy>,
     global_unsized: Sloppy,
     local_unsized: Sloppy,
     local_sized: size::Array<B, Sloppy>,
     detached: size::Array<B, Sloppy>,
+
+    data: Sloppy,
+    slab_local: Sloppy,
+    slab_remote: Sloppy,
 }
 
 static HEAP_SMALL: Heap<size::Small> = Heap {
-    application: Sloppy::new("small", "application", None),
+    application: small_by_size("application"),
     global_unsized: Sloppy::new("small", "global_unsized", None),
     local_unsized: Sloppy::new("small", "local_unsized", None),
     local_sized: small_by_size("local_sized"),
     detached: small_by_size("detached"),
+
+    data: Sloppy::new("small", "data", None),
+    slab_local: Sloppy::new("small", "slab_local", None),
+    slab_remote: Sloppy::new("small", "slab_remote", None),
 };
 
 const fn small_by_size(name: &'static str) -> size::Array<size::Small, Sloppy> {
@@ -183,11 +183,15 @@ const fn small_by_size(name: &'static str) -> size::Array<size::Small, Sloppy> {
 }
 
 static HEAP_LARGE: Heap<size::Large> = Heap {
-    application: Sloppy::new("large", "application", None),
+    application: large_by_size("application"),
     global_unsized: Sloppy::new("large", "global_unsized", None),
     local_unsized: Sloppy::new("large", "local_unsized", None),
     local_sized: large_by_size("local_sized"),
     detached: large_by_size("detached"),
+
+    data: Sloppy::new("large", "data", None),
+    slab_local: Sloppy::new("large", "slab_local", None),
+    slab_remote: Sloppy::new("large", "slab_remote", None),
 };
 
 const fn large_by_size(name: &'static str) -> size::Array<size::Large, Sloppy> {
@@ -208,19 +212,22 @@ static HEAP_HUGE: Sloppy = Sloppy::new("huge", "application", None);
 
 trait Record {
     fn finalize(&self, id: thread::Id);
-    fn application(&self) -> &Sloppy;
+    fn application(&self, class: u8) -> &Sloppy;
     fn global_unsized(&self) -> &Sloppy;
     fn local_unsized(&self) -> &Sloppy;
     fn local_sized(&self, class: u8) -> &Sloppy;
     fn detached(&self, class: u8) -> &Sloppy;
+    fn data(&self) -> &Sloppy;
+    fn slab_local(&self) -> &Sloppy;
+    fn slab_remote(&self) -> &Sloppy;
 }
 
 impl Record for Sloppy {
     fn finalize(&self, id: thread::Id) {
-        self.application().finalize(id)
+        self.application(0).finalize(id)
     }
 
-    fn application(&self) -> &Sloppy {
+    fn application(&self, _: u8) -> &Sloppy {
         &HEAP_HUGE
     }
 
@@ -239,20 +246,37 @@ impl Record for Sloppy {
     fn detached(&self, _: u8) -> &Sloppy {
         unreachable!()
     }
+
+    fn data(&self) -> &Sloppy {
+        unreachable!()
+    }
+
+    fn slab_local(&self) -> &Sloppy {
+        unreachable!()
+    }
+
+    fn slab_remote(&self) -> &Sloppy {
+        unreachable!()
+    }
 }
 
 impl<B: size::Bracket> Record for Heap<B> {
     fn finalize(&self, id: thread::Id) {
-        core::iter::once(&self.application)
-            .chain(core::iter::once(&self.global_unsized))
-            .chain(core::iter::once(&self.local_unsized))
+        self.application
+            .iter()
+            .map(|(_, counter)| counter)
+            .chain(iter::once(&self.global_unsized))
+            .chain(iter::once(&self.local_unsized))
             .chain(self.local_sized.iter().map(|(_, counter)| counter))
             .chain(self.detached.iter().map(|(_, counter)| counter))
+            .chain(iter::once(&self.data))
+            .chain(iter::once(&self.slab_remote))
+            .chain(iter::once(&self.slab_local))
             .for_each(|counter| counter.finalize(id))
     }
 
-    fn application(&self) -> &Sloppy {
-        &self.application
+    fn application(&self, class: u8) -> &Sloppy {
+        &self.application.inner.as_ref()[class as usize]
     }
 
     fn global_unsized(&self) -> &Sloppy {
@@ -270,6 +294,18 @@ impl<B: size::Bracket> Record for Heap<B> {
     fn detached(&self, class: u8) -> &Sloppy {
         &self.detached.inner.as_ref()[class as usize]
     }
+
+    fn data(&self) -> &Sloppy {
+        &self.data
+    }
+
+    fn slab_local(&self) -> &Sloppy {
+        &self.slab_local
+    }
+
+    fn slab_remote(&self) -> &Sloppy {
+        &self.slab_remote
+    }
 }
 
 #[inline]
@@ -285,12 +321,24 @@ pub(crate) fn record<B: size::Bracket>(id: thread::Id, event: Event<B>) {
 
     match event {
         Event::Allocate { size } => {
-            recorder.application().update(id, size as i64);
+            match B::new(size as usize) {
+                None => recorder.application(0),
+                Some(class) => recorder.application(class.pack()),
+            }
+            .update(id, size as i64);
         }
         Event::Bump => {
-            recorder
-                .local_unsized()
-                .update(id, slab * crate::BATCH_BUMP_POP as i64);
+            let size = slab * crate::BATCH_BUMP_POP as i64;
+            recorder.local_unsized().update(id, size);
+            recorder.data().update(id, size);
+            recorder.slab_local().update(
+                id,
+                mem::size_of::<slab::Local<B>>() as i64 * crate::BATCH_BUMP_POP as i64,
+            );
+            recorder.slab_remote().update(
+                id,
+                mem::size_of::<slab::Remote<B>>() as i64 * crate::BATCH_BUMP_POP as i64,
+            );
         }
         Event::GlobalToUnsized => {
             recorder.global_unsized().update(id, -slab);
@@ -302,7 +350,11 @@ pub(crate) fn record<B: size::Bracket>(id: thread::Id, event: Event<B>) {
         }
 
         Event::Free { size } => {
-            recorder.application().update(id, -(size as i64));
+            match B::new(size as usize) {
+                None => recorder.application(0),
+                Some(class) => recorder.application(class.pack()),
+            }
+            .update(id, -(size as i64));
         }
         Event::SizedToUnsized { class } => {
             recorder.local_sized(class.pack()).update(id, -slab);

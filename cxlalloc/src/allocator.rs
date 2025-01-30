@@ -14,8 +14,6 @@ use crate::huge;
 use crate::recover;
 use crate::recover::State;
 use crate::size;
-use crate::size::Bracket as _;
-use crate::stat;
 use crate::thread;
 use crate::view;
 use crate::Atomic;
