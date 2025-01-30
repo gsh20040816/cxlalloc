@@ -209,6 +209,10 @@ where
         let free = unsafe { &mut *self.slabs.local(index).free.get() };
         let block = free.peek();
 
+        stat::record(
+            context.id,
+            stat::Event::<B>::Allocate { size: class.size() },
+        );
         context.log(HeapState::from(SizedToApplication::new(index, block)));
 
         free.unset(block);
@@ -246,14 +250,14 @@ where
         }
 
         if let Some(index) = self.shared.pop(context, &self.slabs) {
-            stat::record(stat::Event::<B>::GlobalToUnsized);
+            stat::record(context.id, stat::Event::<B>::GlobalToUnsized);
             self.slabs.transfer(context, index, None, Some(context.id));
 
             self.owned.r#unsized.push(&self.slabs, index);
         } else {
             let range = self.shared.bump(context);
 
-            stat::record(stat::Event::<B>::Bump);
+            stat::record(context.id, stat::Event::<B>::Bump);
             self.slabs.transfer_all(
                 context,
                 range.start,
@@ -296,7 +300,7 @@ where
             }
         }
 
-        stat::record(stat::Event::Detach { class });
+        stat::record(context.id, stat::Event::Detach { class });
 
         if cfg!(feature = "validate") {
             assert!(self.owned.r#sized[class]
@@ -306,14 +310,14 @@ where
     }
 
     #[cold]
-    fn attach(&mut self, class: B, index: slab::Index<B>) {
+    fn attach(&mut self, context: &mut allocator::Context, class: B, index: slab::Index<B>) {
         if cfg!(feature = "validate") {
             assert!(self.owned.r#sized[class]
                 .trace(&self.slabs)
                 .all(|other| other != index));
         }
 
-        stat::record(stat::Event::Attach { class });
+        stat::record(context.id, stat::Event::Attach { class });
 
         self.owned.r#sized[class].push(&self.slabs, index);
     }
@@ -332,7 +336,7 @@ where
         let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
 
-        stat::record(stat::Event::<B>::Free { size: class.size() });
+        stat::record(context.id, stat::Event::<B>::Free { size: class.size() });
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
         free.set(block);
@@ -340,18 +344,20 @@ where
 
         match count {
             count if count == class.count() => {
-                self.owned.sized_to_unsized(&self.slabs, class, index);
+                self.owned
+                    .sized_to_unsized(context, &self.slabs, class, index);
                 self.unsized_to_global(context);
             }
-            1 => self.attach(class, index),
+            1 => self.attach(context, class, index),
             _ => (),
         }
     }
 
     #[cold]
     fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
+        // FIXME: not correct to load in production, only for metrics
         let class = self.slabs.local(index).class.load();
-        stat::record(stat::Event::<B>::Free { size: class.size() });
+        stat::record(context.id, stat::Event::<B>::Free { size: class.size() });
 
         let remote = self.slabs.remote(index);
         let meta = remote
@@ -364,7 +370,7 @@ where
             .unwrap();
 
         if meta.free() == 1 {
-            self.claim(context, index, meta.owner());
+            self.claim(context, meta.owner(), class, index);
         }
     }
 
@@ -372,8 +378,9 @@ where
     fn claim(
         &mut self,
         context: &mut allocator::Context,
-        index: slab::Index<B>,
         victim: Option<thread::Id>,
+        class: B,
+        index: slab::Index<B>,
     ) {
         if cfg!(feature = "validate") {
             assert!(
@@ -385,7 +392,7 @@ where
             );
         }
 
-        stat::record(stat::Event::<B>::Claim);
+        stat::record(context.id, stat::Event::<B>::Claim { class });
         self.slabs
             .transfer(context, index, victim, Some(context.id));
         self.owned.r#unsized.push(&self.slabs, index);
@@ -398,14 +405,14 @@ where
             return;
         }
 
+        stat::record(context.id, stat::Event::<B>::UnsizedToGlobal);
+
         let mut iter = self
             .owned
             .r#unsized
             .trace(&self.slabs)
             .inspect(|index| self.slabs.transfer(context, *index, Some(context.id), None))
             .take(BATCH_GLOBAL_PUSH);
-
-        stat::record(stat::Event::<B>::UnsizedToGlobal);
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap();
@@ -486,7 +493,7 @@ where
             return false;
         };
 
-        stat::record(stat::Event::UnsizedToSized { class });
+        stat::record(context.id, stat::Event::UnsizedToSized { class });
 
         crash::define!(unsized_to_sized_pre_log);
 
@@ -514,7 +521,13 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
+    pub(crate) fn sized_to_unsized(
+        &mut self,
+        context: &mut allocator::Context,
+        slabs: &Slab<B>,
+        class: B,
+        index: slab::Index<B>,
+    ) {
         let next = slabs.local(index).next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
@@ -535,7 +548,7 @@ where
             flush(slabs.local(prev), Invalidate::No);
         };
 
-        stat::record(stat::Event::SizedToUnsized { class });
+        stat::record(context.id, stat::Event::SizedToUnsized { class });
 
         self.r#unsized.push(slabs, index);
     }

@@ -1,4 +1,3 @@
-use crate::stat;
 use crate::SIZE_CACHE_LINE;
 
 #[derive(Copy, Clone, Debug)]

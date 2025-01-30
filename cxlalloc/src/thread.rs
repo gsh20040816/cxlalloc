@@ -35,7 +35,7 @@ impl Display for Id {
 }
 
 #[repr(C, align(64))]
-pub struct Array<T>([T; COUNT_THREAD + 1]);
+pub struct Array<T>(pub(crate) [T; COUNT_THREAD + 1]);
 
 impl<T> Index<Id> for Array<T> {
     type Output = T;

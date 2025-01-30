@@ -1,11 +1,12 @@
 use core::cell::Cell;
 use core::cell::UnsafeCell;
+use core::fmt::Display;
 use core::fmt::Write as _;
+use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::AtomicI64;
 use core::sync::atomic::Ordering;
 use std::sync::LazyLock;
-use std::thread::LocalKey;
 
 use crate::allocator;
 use crate::heap;
@@ -14,132 +15,88 @@ use crate::size;
 use crate::size::Bracket as _;
 use crate::thread;
 use crate::Raw;
+use crate::COUNT_THREAD;
 
 pub fn dump(id: usize) {
+    let thread = unsafe { thread::Id::new(id as u16) };
+    HEAP_SMALL.finalize(thread);
+    HEAP_LARGE.finalize(thread);
+    HEAP_HUGE.finalize(thread);
     dump_memory_global(id);
-    dump_counters(id);
     dump_sizes(id);
 }
 
-struct Sloppy {
-    name: &'static str,
-    local: &'static LocalKey<Cell<i64>>,
-    global: &'static AtomicI64,
+#[repr(align(64))]
+struct Counter(AtomicI64);
+
+impl Counter {
+    fn update(&self, delta: i64) -> i64 {
+        let prev = self.0.load(Ordering::Relaxed);
+        let next = prev + delta;
+        self.0.store(next, Ordering::Relaxed);
+        next
+    }
+
+    fn reset(&self) {
+        self.0.store(0, Ordering::Relaxed);
+    }
 }
 
-macro_rules! define_sloppy {
-    ($($name:ident),* $(,)?) => {
-        $(
-            #[allow(non_snake_case)]
-            fn $name(&self) -> &'static Sloppy {
-                thread_local! {
-                    static LOCAL: Cell<i64> = const { Cell::new(0) };
-                }
-                static GLOBAL: AtomicI64 = AtomicI64::new(0);
-                static SLOPPY: Sloppy = Sloppy {
-                    name: stringify!($name),
-                    local: &LOCAL,
-                    global: &GLOBAL,
-                };
-                &SLOPPY
-            }
-        )*
-    };
+struct Sloppy {
+    bracket: &'static str,
+    name: &'static str,
+    size: Option<u64>,
+    buffer: thread::Array<Counter>,
+    local: thread::Array<Counter>,
+    global: AtomicI64,
 }
 
 impl Sloppy {
-    fn update(&self, value: i64) {
-        const THRESHOLD: i64 = 1 << 3;
-        self.local.set(self.local.get() + value);
-        if self.local.get().abs() < THRESHOLD {
+    const fn new(bracket: &'static str, name: &'static str, size: Option<u64>) -> Self {
+        Self {
+            bracket,
+            name,
+            size,
+            buffer: thread::Array([const { Counter(AtomicI64::new(0)) }; COUNT_THREAD + 1]),
+            local: thread::Array([const { Counter(AtomicI64::new(0)) }; COUNT_THREAD + 1]),
+            global: AtomicI64::new(0),
+        }
+    }
+
+    fn update(&self, id: thread::Id, delta: i64) {
+        self.apply::<{ 1 << 12 }>(id, delta)
+    }
+
+    fn finalize(&self, id: thread::Id) {
+        self.apply::<0>(id, 0)
+    }
+
+    #[inline]
+    fn apply<const THRESHOLD: i64>(&self, id: thread::Id, delta: i64) {
+        let value = self.buffer[id].update(delta);
+        if value.abs() < THRESHOLD {
             return;
         }
 
-        let local = self.local.get();
-        let global = self.global.fetch_add(local, Ordering::Relaxed);
-        self.local.set(0);
-        let now = std::time::SystemTime::now();
+        self.buffer[id].reset();
+        let local = self.local[id].update(value);
+        let global = self.global.fetch_add(value, Ordering::Relaxed) + value;
+        let size = self.size.as_ref();
+        let size = match size {
+            None => &"" as &dyn Display,
+            Some(size) => size,
+        };
+
+        let now = now();
         eprintln!(
-            "{}:{}={}",
-            self.name,
-            now.duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
-            global + local
+            "{},{},{},{},{},{}",
+            now, self.bracket, self.name, id, size, local
+        );
+        eprintln!(
+            "{},{},{},,{},{}",
+            now, self.bracket, self.name, size, global
         );
     }
-}
-
-macro_rules! define_counter {
-    ($($name:ident),* $(,)?) => {
-        thread_local! {
-            $(
-                pub(crate) static $name: Cell<usize> = const { Cell::new(0) };
-            )*
-        }
-
-        pub fn dump_counters(id: usize) {
-            if !cfg!(feature = "stat-count") {
-                return;
-            }
-
-            $(
-                eprintln!("{},{},{}", id, stringify!($name), $name.get());
-                $name.set(0);
-            )*
-        }
-
-    };
-}
-
-define_counter![
-    ALLOCATE,
-    ALLOCATE_FAST,
-    ALLOCATE_FAST_DETACH,
-    ALLOCATE_FAST_DISOWN,
-    ALLOCATE_LARGE,
-    ALLOCATE_SMALL,
-    ALLOCATE_SMALL_ZERO,
-    ALLOCATE_SMALL_UNSIZED,
-    ALLOCATE_SMALL_GLOBAL,
-    ALLOCATE_SMALL_BUMP,
-    FREE,
-    FREE_FAST,
-    FREE_FAST_ATTACH,
-    FREE_FAST_UNSIZED,
-    FREE_LARGE,
-    FREE_REMOTE,
-    FREE_REMOTE_GLOBAL,
-    FREE_REMOTE_GLOBAL_WIN,
-    FREE_REMOTE_GLOBAL_WIN_STEAL,
-    FREE_REMOTE_GLOBAL_LOSE,
-    BUMP,
-    BUMP_ALLOCATE,
-    BUMP_ALLOCATE_CONTEND,
-    BUMP_ALLOCATE_CONTEND_INTERLEAVE,
-    BUMP_ALLOCATE_CONTEND_HELP,
-    GLOBAL,
-    GLOBAL_PUSH,
-    GLOBAL_PUSH_CONTEND,
-    GLOBAL_PUSH_CONTEND_INTERLEAVE,
-    GLOBAL_PUSH_CONTEND_HELP,
-    GLOBAL_POP,
-    GLOBAL_POP_CONTEND,
-    GLOBAL_POP_CONTEND_INTERLEAVE,
-    GLOBAL_POP_CONTEND_HELP,
-    FLUSH,
-    FENCE,
-    REMOTE,
-    REMOTE_CONTEND,
-];
-
-#[inline]
-fn inc(counter: &'static LocalKey<Cell<usize>>) {
-    if !cfg!(feature = "stat-count") {
-        return;
-    }
-
-    counter.set(counter.get() + 1)
 }
 
 static MEMORY_GLOBAL_SHARED_LOOSE: LazyLock<usize> =
@@ -192,80 +149,194 @@ pub(crate) enum Event<B: size::Bracket> {
 
     Detach { class: B },
     Attach { class: B },
-    Claim,
+    Claim { class: B },
 }
 
-struct Global;
-
-impl Global {
-    define_sloppy![APPLICATION];
+struct Heap<B: size::Bracket> {
+    application: Sloppy,
+    global_unsized: Sloppy,
+    local_unsized: Sloppy,
+    local_sized: size::Array<B, Sloppy>,
+    detached: size::Array<B, Sloppy>,
 }
 
-trait Heap {
-    define_sloppy![GLOBAL_UNSIZED, LOCAL_UNSIZED, LOCAL_SIZED, DETACHED];
+static HEAP_SMALL: Heap<size::Small> = Heap {
+    application: Sloppy::new("small", "application", None),
+    global_unsized: Sloppy::new("small", "global_unsized", None),
+    local_unsized: Sloppy::new("small", "local_unsized", None),
+    local_sized: small_by_size("local_sized"),
+    detached: small_by_size("detached"),
+};
+
+const fn small_by_size(name: &'static str) -> size::Array<size::Small, Sloppy> {
+    let mut counters = [const { Sloppy::new("small", "", None) }; size::Small::COUNT + 1];
+    let mut i = 0;
+    while i < counters.len() {
+        counters[i].name = name;
+        counters[i].size = Some(size::Small::from_index(i).size());
+        i += 1;
+    }
+    size::Array {
+        inner: counters,
+        _bracket: PhantomData,
+    }
 }
 
-struct Small;
-struct Large;
+static HEAP_LARGE: Heap<size::Large> = Heap {
+    application: Sloppy::new("large", "application", None),
+    global_unsized: Sloppy::new("large", "global_unsized", None),
+    local_unsized: Sloppy::new("large", "local_unsized", None),
+    local_sized: large_by_size("local_sized"),
+    detached: large_by_size("detached"),
+};
 
-impl Heap for Small {}
-impl Heap for Large {}
+const fn large_by_size(name: &'static str) -> size::Array<size::Large, Sloppy> {
+    let mut counters = [const { Sloppy::new("large", "", None) }; size::Large::COUNT];
+    let mut i = 0;
+    while i < counters.len() {
+        counters[i].name = name;
+        counters[i].size = Some(size::Large::from_index(i).size());
+        i += 1;
+    }
+    size::Array {
+        inner: counters,
+        _bracket: PhantomData,
+    }
+}
+
+static HEAP_HUGE: Sloppy = Sloppy::new("huge", "application", None);
+
+trait Record {
+    fn finalize(&self, id: thread::Id);
+    fn application(&self) -> &Sloppy;
+    fn global_unsized(&self) -> &Sloppy;
+    fn local_unsized(&self) -> &Sloppy;
+    fn local_sized(&self, class: u8) -> &Sloppy;
+    fn detached(&self, class: u8) -> &Sloppy;
+}
+
+impl Record for Sloppy {
+    fn finalize(&self, id: thread::Id) {
+        self.application().finalize(id)
+    }
+
+    fn application(&self) -> &Sloppy {
+        &HEAP_HUGE
+    }
+
+    fn global_unsized(&self) -> &Sloppy {
+        unreachable!()
+    }
+
+    fn local_unsized(&self) -> &Sloppy {
+        unreachable!()
+    }
+
+    fn local_sized(&self, _: u8) -> &Sloppy {
+        unreachable!()
+    }
+
+    fn detached(&self, _: u8) -> &Sloppy {
+        unreachable!()
+    }
+}
+
+impl<B: size::Bracket> Record for Heap<B> {
+    fn finalize(&self, id: thread::Id) {
+        core::iter::once(&self.application)
+            .chain(core::iter::once(&self.global_unsized))
+            .chain(core::iter::once(&self.local_unsized))
+            .chain(self.local_sized.iter().map(|(_, counter)| counter))
+            .chain(self.detached.iter().map(|(_, counter)| counter))
+            .for_each(|counter| counter.finalize(id))
+    }
+
+    fn application(&self) -> &Sloppy {
+        &self.application
+    }
+
+    fn global_unsized(&self) -> &Sloppy {
+        &self.global_unsized
+    }
+
+    fn local_unsized(&self) -> &Sloppy {
+        &self.local_unsized
+    }
+
+    fn local_sized(&self, class: u8) -> &Sloppy {
+        &self.local_sized.inner.as_ref()[class as usize]
+    }
+
+    fn detached(&self, class: u8) -> &Sloppy {
+        &self.detached.inner.as_ref()[class as usize]
+    }
+}
 
 #[inline]
-pub(crate) fn record<B: size::Bracket>(event: Event<B>) {
-    let heap = match core::any::type_name::<B>() {
-        name if name.contains("Small") => &Small as &dyn Heap,
-        name if name.contains("Large") => &Large,
-        _ => todo!(),
+pub(crate) fn record<B: size::Bracket>(id: thread::Id, event: Event<B>) {
+    let recorder: &dyn Record = match B::INDEX {
+        0 => &HEAP_SMALL,
+        1 => &HEAP_LARGE,
+        2 => &HEAP_HUGE,
+        _ => unreachable!(),
     };
+
+    let slab = B::SIZE_SLAB as i64;
 
     match event {
         Event::Allocate { size } => {
-            inc(&ALLOCATE);
-            Global.APPLICATION().update(size as i64);
+            recorder.application().update(id, size as i64);
         }
         Event::Bump => {
-            inc(&BUMP);
-            heap.LOCAL_UNSIZED()
-                .update(B::SIZE_SLAB as i64 * crate::BATCH_BUMP_POP as i64);
+            recorder
+                .local_unsized()
+                .update(id, slab * crate::BATCH_BUMP_POP as i64);
         }
         Event::GlobalToUnsized => {
-            heap.GLOBAL_UNSIZED().update(-(B::SIZE_SLAB as i64));
-            heap.LOCAL_UNSIZED().update(B::SIZE_SLAB as i64);
+            recorder.global_unsized().update(id, -slab);
+            recorder.local_unsized().update(id, slab);
         }
-        Event::UnsizedToSized { class: _ } => {
-            heap.LOCAL_UNSIZED().update(-(B::SIZE_SLAB as i64));
-            heap.LOCAL_SIZED().update(B::SIZE_SLAB as i64);
+        Event::UnsizedToSized { class } => {
+            recorder.local_unsized().update(id, -slab);
+            recorder.local_sized(class.pack()).update(id, slab);
         }
 
         Event::Free { size } => {
-            inc(&FREE);
-            Global.APPLICATION().update(-(size as i64));
+            recorder.application().update(id, -(size as i64));
         }
-        Event::SizedToUnsized { class: _ } => {
-            heap.LOCAL_SIZED().update(-(B::SIZE_SLAB as i64));
-            heap.LOCAL_UNSIZED().update(B::SIZE_SLAB as i64);
+        Event::SizedToUnsized { class } => {
+            recorder.local_sized(class.pack()).update(id, -slab);
+            recorder.local_unsized().update(id, slab);
         }
         Event::UnsizedToGlobal => {
-            heap.LOCAL_UNSIZED()
-                .update(-(B::SIZE_SLAB as i64 * crate::BATCH_GLOBAL_PUSH as i64));
-            heap.GLOBAL_UNSIZED()
-                .update(B::SIZE_SLAB as i64 * crate::BATCH_GLOBAL_PUSH as i64);
+            recorder
+                .local_unsized()
+                .update(id, -slab * crate::BATCH_GLOBAL_PUSH as i64);
+            recorder
+                .global_unsized()
+                .update(id, slab * crate::BATCH_GLOBAL_PUSH as i64);
         }
 
         Event::Detach { class } => {
-            heap.LOCAL_SIZED().update(-(B::SIZE_SLAB as i64));
-            heap.DETACHED().update(B::SIZE_SLAB as i64);
+            recorder.local_sized(class.pack()).update(id, -slab);
+            recorder.detached(class.pack()).update(id, slab);
         }
         Event::Attach { class } => {
-            heap.DETACHED().update(-(B::SIZE_SLAB as i64));
-            heap.LOCAL_SIZED().update(B::SIZE_SLAB as i64);
+            recorder.detached(class.pack()).update(id, -slab);
+            recorder.local_sized(class.pack()).update(id, slab);
         }
-        Event::Claim => {
-            heap.DETACHED().update(-(B::SIZE_SLAB as i64));
-            heap.LOCAL_UNSIZED().update(B::SIZE_SLAB as i64);
+        Event::Claim { class } => {
+            recorder.detached(class.pack()).update(id, -slab);
+            recorder.local_unsized().update(id, slab);
         }
     }
+}
+
+fn now() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros()
 }
 
 fn dump_memory_global(id: usize) {

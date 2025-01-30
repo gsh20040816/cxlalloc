@@ -13,6 +13,7 @@ pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug {
     const SIZE_MIN: usize;
     const SIZE_MAX: usize;
     const COUNT: usize;
+    const INDEX: usize;
 
     type Array<T>: AsRef<[T]> + AsMut<[T]>;
 
@@ -42,6 +43,7 @@ impl Bracket for Huge {
     const SIZE_MIN: usize = 4096;
     const SIZE_MAX: usize = 4096;
     const COUNT: usize = 1;
+    const INDEX: usize = 2;
 
     type Array<T> = [T; 0];
 
@@ -72,8 +74,8 @@ impl Bracket for Huge {
 #[repr(transparent)]
 #[derive(Debug)]
 pub(crate) struct Array<B: Bracket, T> {
-    inner: B::Array<T>,
-    _bracket: PhantomData<B>,
+    pub(crate) inner: B::Array<T>,
+    pub(crate) _bracket: PhantomData<B>,
 }
 
 impl<B: Bracket, T> Array<B, T> {
@@ -136,6 +138,16 @@ impl Small {
         }
     }
 
+    #[inline]
+    pub(crate) const fn from_index(index: usize) -> Self {
+        Small::new_internal(u6::new(index as u8))
+    }
+
+    #[inline]
+    pub(crate) const fn size(&self) -> u64 {
+        self._0().value() as u64 * 8
+    }
+
     const fn counts() -> Array<Small, u16> {
         let mut counts = [0u16; Small::COUNT + 1];
 
@@ -163,6 +175,7 @@ impl Bracket for Small {
     const SIZE_MIN: usize = 8;
     const SIZE_MAX: usize = 504;
     const COUNT: usize = 63;
+    const INDEX: usize = 0;
 
     type Array<T> = [T; 1 + Self::COUNT];
 
@@ -183,7 +196,7 @@ impl Bracket for Small {
 
     #[inline]
     fn size(&self) -> u64 {
-        self._0().value() as u64 * 8
+        self.size()
     }
 
     #[inline]
@@ -205,7 +218,7 @@ impl Debug for Large {
 }
 
 impl Large {
-    pub(crate) fn new(size: usize) -> Option<Self> {
+    pub(crate) const fn new(size: usize) -> Option<Self> {
         match size <= Self::SIZE_MAX {
             true => Some(Self::new_internal(u4::new(
                 (size.next_power_of_two() >> 9).trailing_zeros() as u8,
@@ -213,12 +226,21 @@ impl Large {
             false => None,
         }
     }
+
+    pub(crate) const fn from_index(index: usize) -> Self {
+        Self::new_internal(u4::new(index as u8))
+    }
+
+    pub(crate) const fn size(&self) -> u64 {
+        512 << self._0().value()
+    }
 }
 
 impl Bracket for Large {
     const SIZE_MIN: usize = 1 << 9;
     const SIZE_MAX: usize = 1 << 19;
     const COUNT: usize = 11;
+    const INDEX: usize = 1;
 
     type Array<T> = [T; Self::COUNT];
 
@@ -239,7 +261,7 @@ impl Bracket for Large {
 
     #[inline]
     fn size(&self) -> u64 {
-        512 << self._0().value()
+        self.size()
     }
 
     #[inline]

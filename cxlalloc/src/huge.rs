@@ -14,6 +14,7 @@ use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
+use crate::allocator;
 use crate::coherence::flush;
 use crate::coherence::sfence;
 use crate::coherence::Invalidate;
@@ -106,6 +107,13 @@ impl<'raw> Huge<'raw> {
                     // - secondary link record
                     // - hard-code dedicated spot for huge
 
+                    stat::record(
+                        id,
+                        stat::Event::<size::Huge>::Allocate {
+                            size: size.get() as u64,
+                        },
+                    );
+
                     *out = descriptor;
 
                     // point at previous head in data region
@@ -131,11 +139,19 @@ impl<'raw> Huge<'raw> {
         }
     }
 
-    pub(crate) fn free(&self, data: &Data<'raw, size::Small>, offset: data::Offset<size::Huge>) {
+    pub(crate) fn free(
+        &self,
+        context: &mut allocator::Context,
+        data: &Data<'raw, size::Small>,
+        offset: data::Offset<size::Huge>,
+    ) {
         let descriptor = self.find(data, offset).unwrap();
-        stat::record(stat::Event::<size::Huge>::Free {
-            size: descriptor.size.get() as u64,
-        });
+        stat::record(
+            context.id,
+            stat::Event::<size::Huge>::Free {
+                size: descriptor.size.get() as u64,
+            },
+        );
         descriptor.free.store(true, Ordering::Relaxed);
         flush(&descriptor.free, Invalidate::Yes);
     }
