@@ -133,7 +133,9 @@ impl<'raw> Huge<'raw> {
 
     pub(crate) fn free(&self, data: &Data<'raw, size::Small>, offset: data::Offset<size::Huge>) {
         let descriptor = self.find(data, offset).unwrap();
-        stat::record_allocate::<size::Huge>(descriptor.size.get() as u64, false);
+        stat::record(stat::Event::<size::Huge>::Free {
+            size: descriptor.size.get() as u64,
+        });
         descriptor.free.store(true, Ordering::Relaxed);
         flush(&descriptor.free, Invalidate::Yes);
     }

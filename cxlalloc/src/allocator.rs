@@ -187,15 +187,11 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
     #[inline]
     pub fn allocate_untyped(&mut self, size: usize) -> *mut ffi::c_void {
-        stat::inc(&stat::ALLOCATE);
-
         let Some(class) = size::Small::new(size) else {
             return self.allocate_large(size);
         };
 
-        stat::record_small(class);
-        stat::record_allocate::<size::Small>(class.size(), true);
-
+        stat::record(stat::Event::<size::Small>::Allocate { size: class.size() });
         let context = &mut Context {
             id: self.id,
             log: &mut self.owned.state,
@@ -211,8 +207,6 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
     #[inline]
     pub fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
-        stat::inc(&stat::FREE);
-
         let Some(offset) = self.small.checked_pointer_to_offset(pointer) else {
             return self.free_large(pointer);
         };
@@ -234,9 +228,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return self.allocate_huge(size);
         };
 
-        stat::record_large(class);
-        stat::record_allocate::<size::Large>(class.size(), true);
-
+        stat::record(stat::Event::<size::Large>::Allocate { size: class.size() });
         let context = &mut Context {
             id: self.id,
             log: &mut self.owned.state,
@@ -247,14 +239,11 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return ptr::null_mut();
         };
 
-        stat::inc(&stat::ALLOCATE_LARGE);
         self.large.pop(context, class, index)
     }
 
     #[cold]
     fn allocate_huge(&mut self, size: usize) -> *mut ffi::c_void {
-        stat::record_huge(size);
-
         let context = &mut Context {
             id: self.id,
             log: &mut self.owned.state,
@@ -262,9 +251,11 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
+        stat::record(stat::Event::<size::Huge>::Allocate {
+            size: size.get() as u64,
+        });
 
-        stat::record_allocate::<size::Huge>(size.get() as u64, true);
+        let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
 
         let index = self.small.peek(context, class).unwrap();
         let free = unsafe { &mut *self.small.slabs.local(index).free.get() };
@@ -305,7 +296,6 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     #[cold]
     fn free_huge(&mut self, pointer: NonNull<ffi::c_void>) {
         if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
-            stat::inc(&stat::FREE_LARGE);
             self.huge.free(&self.small.data, offset);
         }
     }

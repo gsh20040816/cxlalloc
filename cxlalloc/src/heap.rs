@@ -228,7 +228,6 @@ where
         class: B,
     ) -> Option<slab::Index<B>> {
         if let Some(index) = self.owned.r#sized[class].peek() {
-            stat::inc(&stat::ALLOCATE_FAST);
             return Some(index);
         };
 
@@ -237,30 +236,24 @@ where
 
     #[cold]
     fn allocate(&mut self, context: &mut allocator::Context, class: B) -> Option<slab::Index<B>> {
-        stat::inc(&stat::ALLOCATE_SMALL);
-
         if class.is_zero() {
-            stat::inc(&stat::ALLOCATE_SMALL_ZERO);
             return None;
         }
 
         // Fast path: local unsized
         if self.owned.unsized_to_sized(context, &self.slabs, class) {
-            stat::inc(&stat::ALLOCATE_SMALL_UNSIZED);
             return self.owned.r#sized[class].peek();
         }
 
-        'slow: {
-            if let Some(index) = self.shared.pop(context, &self.slabs) {
-                stat::inc(&stat::ALLOCATE_SMALL_GLOBAL);
-                self.slabs.transfer(context, index, None, Some(context.id));
+        if let Some(index) = self.shared.pop(context, &self.slabs) {
+            stat::record(stat::Event::<B>::GlobalToUnsized);
+            self.slabs.transfer(context, index, None, Some(context.id));
 
-                self.owned.r#unsized.push(&self.slabs, index);
-                break 'slow;
-            }
-
+            self.owned.r#unsized.push(&self.slabs, index);
+        } else {
             let range = self.shared.bump(context);
-            stat::inc(&stat::ALLOCATE_SMALL_BUMP);
+
+            stat::record(stat::Event::<B>::Bump);
             self.slabs.transfer_all(
                 context,
                 range.start,
@@ -289,9 +282,8 @@ where
         let meta = remote.load(context.help);
 
         match meta.free() {
-            0 => stat::inc(&stat::ALLOCATE_FAST_DETACH),
+            0 => (),
             _ => {
-                stat::inc(&stat::ALLOCATE_FAST_DISOWN);
                 remote
                     .update(context, |meta, version| {
                         Some((
@@ -303,6 +295,8 @@ where
                 self.slabs.transfer(context, index, Some(context.id), None);
             }
         }
+
+        stat::record(stat::Event::Detach { class });
 
         if cfg!(feature = "validate") {
             assert!(self.owned.r#sized[class]
@@ -319,8 +313,9 @@ where
                 .all(|other| other != index));
         }
 
+        stat::record(stat::Event::Attach { class });
+
         self.owned.r#sized[class].push(&self.slabs, index);
-        stat::inc(&stat::FREE_FAST_ATTACH);
     }
 
     #[inline]
@@ -332,13 +327,12 @@ where
             return self.free_remote(context, index);
         }
 
-        stat::inc(&stat::FREE_FAST);
         let local = self.slabs.local(index);
         let class = local.class.load();
         let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
 
-        stat::record_allocate::<B>(class.size(), false);
+        stat::record(stat::Event::<B>::Free { size: class.size() });
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
         free.set(block);
@@ -346,7 +340,6 @@ where
 
         match count {
             count if count == class.count() => {
-                stat::inc(&stat::FREE_FAST_UNSIZED);
                 self.owned.sized_to_unsized(&self.slabs, class, index);
                 self.unsized_to_global(context);
             }
@@ -357,7 +350,8 @@ where
 
     #[cold]
     fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
-        stat::inc(&stat::FREE_REMOTE);
+        let class = self.slabs.local(index).class.load();
+        stat::record(stat::Event::<B>::Free { size: class.size() });
 
         let remote = self.slabs.remote(index);
         let meta = remote
@@ -381,8 +375,6 @@ where
         index: slab::Index<B>,
         victim: Option<thread::Id>,
     ) {
-        stat::inc(&stat::FREE_REMOTE_GLOBAL);
-
         if cfg!(feature = "validate") {
             assert!(
                 self.owned
@@ -393,6 +385,7 @@ where
             );
         }
 
+        stat::record(stat::Event::<B>::Claim);
         self.slabs
             .transfer(context, index, victim, Some(context.id));
         self.owned.r#unsized.push(&self.slabs, index);
@@ -411,6 +404,8 @@ where
             .trace(&self.slabs)
             .inspect(|index| self.slabs.transfer(context, *index, Some(context.id), None))
             .take(BATCH_GLOBAL_PUSH);
+
+        stat::record(stat::Event::<B>::UnsizedToGlobal);
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap();
@@ -491,6 +486,8 @@ where
             return false;
         };
 
+        stat::record(stat::Event::UnsizedToSized { class });
+
         crash::define!(unsized_to_sized_pre_log);
 
         let local = slabs.local(index);
@@ -537,6 +534,8 @@ where
             slabs.local(prev).next.store(next);
             flush(slabs.local(prev), Invalidate::No);
         };
+
+        stat::record(stat::Event::SizedToUnsized { class });
 
         self.r#unsized.push(slabs, index);
     }

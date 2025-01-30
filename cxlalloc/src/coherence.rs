@@ -23,7 +23,6 @@ pub(crate) fn flush<T>(address: &T, invalidate: Invalidate) {
     }
 
     for line in 0..size_of::<T>().next_multiple_of(SIZE_CACHE_LINE) / SIZE_CACHE_LINE {
-        stat::inc(&stat::FLUSH);
         clflush(
             (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
             invalidate,
@@ -59,7 +58,6 @@ pub(crate) fn sfence() {
         feature = "arch-clflushopt"
     )) {
         unsafe {
-            stat::inc(&stat::FENCE);
             core::arch::x86_64::_mm_sfence();
         }
     }
