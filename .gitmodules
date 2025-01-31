@@ -7,3 +7,6 @@
 [submodule "extern/memento"]
 	path = extern/memento
 	url = https://github.com/nwtnni/memento.git
+[submodule "extern/lightning"]
+	path = extern/lightning
+	url = git@github.com:nwtnni/lightning.git
