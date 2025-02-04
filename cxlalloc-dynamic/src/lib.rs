@@ -64,7 +64,7 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
     }
 
     let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
-    action.sa_sigaction = handle as usize;
+    action.sa_sigaction = handle_sigsegv as _;
     action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
 
     unsafe {
@@ -78,7 +78,7 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
         .expect("Heap creation failed")
 });
 
-fn handle(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
+fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
 
     if RAW.map(address) {

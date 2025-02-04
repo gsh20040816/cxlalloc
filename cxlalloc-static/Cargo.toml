@@ -21,4 +21,5 @@ recover = ["cxlalloc/recover"]
 [dependencies]
 cxlalloc = { path = "../cxlalloc", default-features = false }
 env_logger.workspace = true
+libc.workspace = true
 log.workspace = true

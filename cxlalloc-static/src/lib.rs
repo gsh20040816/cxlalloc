@@ -1,6 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
+use core::mem;
 use core::ops::Deref;
+use core::ptr;
 use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -18,6 +20,20 @@ use cxlalloc::Allocator;
 
 static RAW: OnceLock<raw::Raw> = OnceLock::new();
 static BACKEND: OnceLock<Backend> = OnceLock::new();
+
+fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
+    let address = unsafe { info.read().si_addr() };
+
+    if raw().map(address) {
+        return;
+    }
+
+    unsafe {
+        let mut action = mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = libc::SIG_DFL;
+        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
+    }
+}
 
 enum Backend {
     Mmap,
@@ -202,6 +218,13 @@ pub unsafe extern "C" fn cxlalloc_init(
             .unwrap()
             .trim_start_matches("/dev/shm/");
 
+        let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
+        action.sa_sigaction = handle_sigsegv as _;
+        action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
+        unsafe {
+            libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
+        }
+
         raw::Builder::default()
             .backend(BACKEND.get_or_init(|| Backend::Mmap).instantiate())
             .size(size)
@@ -348,7 +371,7 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     {
         None => false,
         Some(_offset) => {
-            offset.write_volatile(usize::from(_offset) as u64);
+            offset.write_volatile(_offset as u64);
             true
         }
     }
