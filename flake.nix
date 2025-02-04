@@ -9,12 +9,18 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
+    cxlmalloc = {
+      url = "github:nwtnni/sosp-paper19-ae";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, cxlmalloc }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
+        overlays = [
+          (import rust-overlay)
+          (_: _: { libcxlmalloc = cxlmalloc.packages.${system}.default; })
+        ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
@@ -23,16 +29,24 @@
       with pkgs; {
         devShells.default = mkShell {
           nativeBuildInputs = [
+            clang
+            libcxlmalloc
+            gdb
+            libndctl
+            linuxPackages_latest.perf
             numactl
             pkg-config
             rust-cbindgen
             rustToolchain
+            rr
             taplo
           ];
 
           buildInputs = [
             (python3.withPackages (python-pkgs: with python-pkgs; [
+              matplotlib
               plotly
+              polars
               python-lsp-ruff
               python-lsp-server
             ]))
