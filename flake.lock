@@ -6,11 +6,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1738693504,
-        "narHash": "sha256-XE/G3BcDbT+uIq0rPgE/Bi5RgLkct9giAePJeeldH9k=",
+        "lastModified": 1738698669,
+        "narHash": "sha256-l2v/qZbarE+b9AcgyiwyZ+Cj4+JPYa3caq7YETK758k=",
         "owner": "nwtnni",
         "repo": "sosp-paper19-ae",
-        "rev": "1514587961e9550cc6eb1cf8d223c625bb649f85",
+        "rev": "c97ad86706a35c22130b1cb0cfca0135270a7548",
         "type": "github"
       },
       "original": {

@@ -37,6 +37,8 @@
             numactl
             pkg-config
             rust-cbindgen
+            # https://gist.github.com/yihuang/b874efb97e99d4b6d12bf039f98ae31e?permalink_comment_id=4311076#gistcomment-4311076
+            rustPlatform.bindgenHook
             rustToolchain
             rr
             taplo
