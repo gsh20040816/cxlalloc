@@ -71,6 +71,10 @@ impl Sloppy {
 
     #[inline]
     fn apply<const THRESHOLD: i64>(&self, id: thread::Id, delta: i64) {
+        if !cfg!(feature = "stat-memory") {
+            return;
+        }
+
         let value = self.buffer[id].update(delta);
         if value.abs() < THRESHOLD {
             return;
@@ -310,6 +314,10 @@ impl<B: size::Bracket> Record for Heap<B> {
 
 #[inline]
 pub(crate) fn record<B: size::Bracket>(id: thread::Id, event: Event<B>) {
+    if !cfg!(feature = "stat-memory") {
+        return;
+    }
+
     let recorder: &dyn Record = match B::INDEX {
         0 => &HEAP_SMALL,
         1 => &HEAP_LARGE,
