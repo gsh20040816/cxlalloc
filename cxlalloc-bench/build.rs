@@ -11,6 +11,7 @@ fn main() {
 
 fn cxlmalloc() {
     let cxlmalloc = pkg_config::probe_library("cxlmalloc").unwrap();
+    println!("cargo:rustc-link-lib=atomic");
     bindgen::Builder::default()
         .header(
             cxlmalloc.include_paths[0]

@@ -9,7 +9,7 @@ mod sys {
 pub struct Boost(sys::wrap_rbtree);
 
 impl process_bench::Allocator for Boost {
-    fn open(name: &str, size: usize) -> Self {
+    fn open(name: &str, size: usize, _: u64) -> Self {
         unsafe {
             let name = CString::new(name).unwrap();
             Self(sys::wrap_open(name.as_ptr(), size))

@@ -13,7 +13,9 @@ anyhow.workspace = true
 clap.workspace = true
 duct.workspace = true
 homedir.workspace = true
+libc.workspace = true
 process-bench.path = "../process-bench"
+cxlalloc-static = { path = "../cxlalloc-static", features = ["backend-shm"] }
 
 [build-dependencies]
 bindgen.workspace = true

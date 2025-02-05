@@ -31,5 +31,21 @@ fn main() {
                 cli.barrier,
             );
         }
+        Allocator::Cxlalloc => {
+            process_bench::worker::run::<cxlalloc_bench::process::Cxlalloc>(
+                &cli.name,
+                cli.size,
+                cli.process_id,
+                cli.barrier,
+            );
+        }
+        Allocator::Cxlmalloc => {
+            process_bench::worker::run::<cxlalloc_bench::process::Cxlmalloc>(
+                &cli.name,
+                cli.size,
+                cli.process_id,
+                cli.barrier,
+            );
+        }
     }
 }

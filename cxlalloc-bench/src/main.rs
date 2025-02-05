@@ -202,7 +202,23 @@ fn main() -> anyhow::Result<()> {
         } => {
             let barrier = match allocator {
                 process::Allocator::Boost => {
-                    let mut shm = cxlalloc_bench::process::Boost::open(&name, size);
+                    let mut shm = process::Boost::open(&name, size, 0);
+                    let pointer = shm.allocate(64);
+                    unsafe {
+                        AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
+                        shm.address_to_offset(pointer)
+                    }
+                }
+                process::Allocator::Cxlalloc => {
+                    let mut shm = process::Cxlalloc::open(&name, size, 0);
+                    let pointer = shm.allocate(64);
+                    unsafe {
+                        AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
+                        shm.address_to_offset(pointer)
+                    }
+                }
+                process::Allocator::Cxlmalloc => {
+                    let mut shm = process::Cxlmalloc::open(&name, size, 0);
                     let pointer = shm.allocate(64);
                     unsafe {
                         AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);

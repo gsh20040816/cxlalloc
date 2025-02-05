@@ -434,8 +434,10 @@ dependencies = [
  "anyhow",
  "bindgen",
  "clap",
+ "cxlalloc-static",
  "duct",
  "homedir",
+ "libc",
  "pkg-config",
  "process-bench",
 ]
