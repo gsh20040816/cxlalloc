@@ -1,12 +1,16 @@
+use core::sync::atomic::AtomicU64;
+use core::sync::atomic::Ordering;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
 use anyhow::Context;
 use clap::Parser;
+use cxlalloc_bench::ProcessAllocator;
 use duct::cmd;
 
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Benchmark;
+use process_bench::Allocator as _;
 
 #[derive(Parser)]
 enum Cli {
@@ -50,6 +54,20 @@ enum Cli {
 
         #[arg(short, long)]
         output: String,
+    },
+
+    Process {
+        #[arg(short, long)]
+        allocator: ProcessAllocator,
+
+        #[arg(short, long)]
+        name: String,
+
+        #[arg(short, long)]
+        size: usize,
+
+        #[arg(short, long)]
+        processes: u64,
     },
 }
 
@@ -175,6 +193,47 @@ fn main() -> anyhow::Result<()> {
                     .stdout_path("out.svg")
                     .run()?;
             }
+        }
+        Cli::Process {
+            allocator,
+            name,
+            size,
+            processes,
+        } => {
+            let barrier = match allocator {
+                ProcessAllocator::Boost => {
+                    let mut shm = cxlalloc_bench::boost::Boost::open(&name, size);
+                    let pointer = shm.allocate(64);
+                    unsafe {
+                        AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
+                        shm.address_to_offset(pointer)
+                    }
+                }
+            };
+
+            (0..processes)
+                .map(|process| {
+                    cmd![
+                        "target/release/cxlalloc-bench-worker",
+                        "--allocator",
+                        allocator.to_string(),
+                        "--name",
+                        &name,
+                        "--size",
+                        size.to_string(),
+                        "--process-id",
+                        process.to_string(),
+                        "--barrier",
+                        barrier.to_string(),
+                    ]
+                    .start()
+                    .unwrap()
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .for_each(|handle| {
+                    handle.wait().unwrap();
+                })
         }
     }
 

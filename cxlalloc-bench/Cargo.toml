@@ -2,12 +2,18 @@
 name = "cxlalloc-bench"
 version = "0.1.0"
 edition = "2021"
+default-run = "cxlalloc-bench"
+
+[[bin]]
+name = "cxlalloc-bench-worker"
+path = "src/worker.rs"
 
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
 duct.workspace = true
 homedir.workspace = true
+process-bench.path = "../process-bench"
 
 [build-dependencies]
 bindgen.workspace = true

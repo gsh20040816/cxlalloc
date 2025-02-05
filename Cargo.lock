@@ -437,6 +437,7 @@ dependencies = [
  "duct",
  "homedir",
  "pkg-config",
+ "process-bench",
 ]
 
 [[package]]
