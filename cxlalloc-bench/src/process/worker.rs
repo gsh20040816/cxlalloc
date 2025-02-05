@@ -1,10 +1,10 @@
 use clap::Parser;
-use cxlalloc_bench::ProcessAllocator;
+use cxlalloc_bench::process::Allocator;
 
 #[derive(Parser)]
 struct Cli {
     #[arg(short, long)]
-    allocator: ProcessAllocator,
+    allocator: Allocator,
 
     #[arg(short, long)]
     name: String,
@@ -23,8 +23,8 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.allocator {
-        ProcessAllocator::Boost => {
-            process_bench::worker::run::<cxlalloc_bench::boost::Boost>(
+        Allocator::Boost => {
+            process_bench::worker::run::<cxlalloc_bench::process::Boost>(
                 &cli.name,
                 cli.size,
                 cli.process_id,

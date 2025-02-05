@@ -6,7 +6,7 @@ default-run = "cxlalloc-bench"
 
 [[bin]]
 name = "cxlalloc-bench-worker"
-path = "src/worker.rs"
+path = "src/process/worker.rs"
 
 [dependencies]
 anyhow.workspace = true

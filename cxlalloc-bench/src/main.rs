@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use anyhow::Context;
 use clap::Parser;
-use cxlalloc_bench::ProcessAllocator;
+use cxlalloc_bench::process;
 use duct::cmd;
 
 use cxlalloc_bench::Allocator;
@@ -58,7 +58,7 @@ enum Cli {
 
     Process {
         #[arg(short, long)]
-        allocator: ProcessAllocator,
+        allocator: process::Allocator,
 
         #[arg(short, long)]
         name: String,
@@ -201,8 +201,8 @@ fn main() -> anyhow::Result<()> {
             processes,
         } => {
             let barrier = match allocator {
-                ProcessAllocator::Boost => {
-                    let mut shm = cxlalloc_bench::boost::Boost::open(&name, size);
+                process::Allocator::Boost => {
+                    let mut shm = cxlalloc_bench::process::Boost::open(&name, size);
                     let pointer = shm.allocate(64);
                     unsafe {
                         AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
