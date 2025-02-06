@@ -1,4 +1,8 @@
+use core::cell::UnsafeCell;
+use core::ffi;
+use core::ptr::NonNull;
 use std::ffi::CString;
+use std::sync::Arc;
 
 #[expect(dead_code)]
 #[expect(non_camel_case_types)]
@@ -6,29 +10,44 @@ mod sys {
     include!(concat!(env!("OUT_DIR"), "/bind-boost.rs"));
 }
 
-pub struct Boost(sys::wrap_rbtree);
+pub struct Boost(Arc<UnsafeCell<sys::wrap_rbtree>>);
 
-impl process_bench::Allocator for Boost {
-    fn open(name: &str, size: usize, _: u64) -> Self {
+unsafe impl Send for Boost {}
+unsafe impl Sync for Boost {}
+
+impl process_bench::Backend for Boost {
+    type Allocator = Self;
+    fn open(name: &str, size: usize) -> Self {
         unsafe {
             let name = CString::new(name).unwrap();
-            Self(sys::wrap_open(name.as_ptr(), size))
+            Self(Arc::new(UnsafeCell::new(sys::wrap_open(
+                name.as_ptr(),
+                size,
+            ))))
         }
     }
 
-    fn allocate(&mut self, size: usize) -> *mut core::ffi::c_void {
-        unsafe { sys::wrap_allocate(&mut self.0, size) }
+    fn allocator(&self, _: usize) -> Self::Allocator {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl process_bench::Allocator for Boost {
+    type Ptr = NonNull<ffi::c_void>;
+
+    fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {
+        unsafe { NonNull::new(sys::wrap_allocate(self.0.get(), size)) }
     }
 
-    unsafe fn deallocate(&mut self, pointer: *mut core::ffi::c_void) {
-        sys::wrap_deallocate(&mut self.0, pointer)
+    unsafe fn deallocate(&mut self, pointer: NonNull<ffi::c_void>) {
+        sys::wrap_deallocate(self.0.get(), pointer.as_ptr())
     }
 
-    unsafe fn address_to_offset(&mut self, address: *mut core::ffi::c_void) -> u64 {
-        sys::wrap_address_to_handle(&mut self.0, address)
+    unsafe fn pointer_to_offset(&mut self, pointer: NonNull<ffi::c_void>) -> u64 {
+        sys::wrap_address_to_handle(self.0.get(), pointer.as_ptr())
     }
 
-    fn offset_to_address(&mut self, offset: u64) -> *mut core::ffi::c_void {
-        unsafe { sys::wrap_handle_to_address(&mut self.0, offset) }
+    fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
+        unsafe { NonNull::new(sys::wrap_handle_to_address(self.0.get(), offset)) }
     }
 }

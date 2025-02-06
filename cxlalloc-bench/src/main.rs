@@ -1,5 +1,3 @@
-use core::sync::atomic::AtomicU64;
-use core::sync::atomic::Ordering;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -10,7 +8,7 @@ use duct::cmd;
 
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Benchmark;
-use process_bench::Allocator as _;
+use process_bench::Barrier;
 
 #[derive(Parser)]
 enum Cli {
@@ -67,7 +65,14 @@ enum Cli {
         size: usize,
 
         #[arg(short, long)]
-        processes: u64,
+        process_count: usize,
+
+        /// Number of threads per process
+        #[arg(short, long)]
+        thread_count: usize,
+
+        #[command(subcommand)]
+        benchmark: process_bench::Benchmark,
     },
 }
 
@@ -198,52 +203,35 @@ fn main() -> anyhow::Result<()> {
             allocator,
             name,
             size,
-            processes,
+            process_count,
+            thread_count,
+            benchmark,
         } => {
-            let barrier = match allocator {
-                process::Allocator::Boost => {
-                    let mut shm = process::Boost::open(&name, size, 0);
-                    let pointer = shm.allocate(64);
-                    unsafe {
-                        AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
-                        shm.address_to_offset(pointer)
-                    }
-                }
-                process::Allocator::Cxlalloc => {
-                    let mut shm = process::Cxlalloc::open(&name, size, 0);
-                    let pointer = shm.allocate(64);
-                    unsafe {
-                        AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
-                        shm.address_to_offset(pointer)
-                    }
-                }
-                process::Allocator::Cxlmalloc => {
-                    let mut shm = process::Cxlmalloc::open(&name, size, 0);
-                    let pointer = shm.allocate(64);
-                    unsafe {
-                        AtomicU64::from_ptr(pointer.cast()).store(processes, Ordering::Relaxed);
-                        shm.address_to_offset(pointer)
-                    }
-                }
-            };
+            let barrier = Barrier::open(c"/barrier")?;
+            barrier.init((process_count * thread_count) as u64);
 
-            (0..processes)
-                .map(|process| {
-                    cmd![
-                        "target/release/cxlalloc-bench-worker",
-                        "--allocator",
+            (0..process_count)
+                .map(|process_id| {
+                    let mut command = vec![
+                        "--allocator".to_string(),
                         allocator.to_string(),
-                        "--name",
-                        &name,
-                        "--size",
+                        "--name".to_string(),
+                        name.to_string(),
+                        "--size".to_string(),
                         size.to_string(),
-                        "--process-id",
-                        process.to_string(),
-                        "--barrier",
-                        barrier.to_string(),
-                    ]
-                    .start()
-                    .unwrap()
+                        "--process-count".to_string(),
+                        process_count.to_string(),
+                        "--process-id".to_string(),
+                        process_id.to_string(),
+                        "--thread-count".to_string(),
+                        thread_count.to_string(),
+                    ];
+
+                    command.extend(benchmark.args());
+
+                    duct::cmd("target/release/cxlalloc-bench-worker", command)
+                        .start()
+                        .unwrap()
                 })
                 .collect::<Vec<_>>()
                 .into_iter()

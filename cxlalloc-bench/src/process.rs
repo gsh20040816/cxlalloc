@@ -4,7 +4,7 @@ use clap::ValueEnum;
 
 mod boost;
 mod cxlalloc;
-mod cxlmalloc;
+pub mod cxlmalloc;
 
 pub use boost::Boost;
 pub use cxlalloc::Cxlalloc;

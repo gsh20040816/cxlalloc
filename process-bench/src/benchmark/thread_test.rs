@@ -7,15 +7,15 @@ use crate::Backend;
 use crate::benchmark;
 
 #[derive(Clone, Parser)]
-pub(crate) struct ThreadTest {
+pub struct ThreadTest {
     #[arg(short, long, default_value_t = 50)]
-    iteration_count: usize,
+    pub(crate) iteration_count: usize,
 
     #[arg(short = 'n', long, default_value_t = 30_000)]
-    object_count: usize,
+    pub(crate) object_count: usize,
 
     #[arg(short = 's', long, default_value_t = 8)]
-    object_size: usize,
+    pub(crate) object_size: usize,
 }
 
 impl<B: Backend> benchmark::Interface<B> for ThreadTest {

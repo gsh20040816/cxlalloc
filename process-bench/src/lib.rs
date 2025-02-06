@@ -1,12 +1,14 @@
-pub(crate) mod benchmark;
+pub mod barrier;
+pub mod benchmark;
 pub mod process;
 
-pub(crate) use benchmark::Benchmark;
+pub use barrier::Barrier;
+pub use benchmark::Benchmark;
 
-pub trait Backend {
-    type Allocator: Allocator + Send;
+pub trait Backend: Send + Sync {
+    type Allocator: Allocator;
     fn open(name: &str, size: usize) -> Self;
-    fn allocator(&mut self, thread_id: usize) -> Self::Allocator;
+    fn allocator(&self, thread_id: usize) -> Self::Allocator;
 }
 
 pub trait Allocator: Sized {
@@ -14,7 +16,7 @@ pub trait Allocator: Sized {
     fn allocate(&mut self, size: usize) -> Option<Self::Ptr>;
     unsafe fn deallocate(&mut self, pointer: Self::Ptr);
     unsafe fn pointer_to_offset(&mut self, pointer: Self::Ptr) -> u64;
-    fn offset_to_pointer(&mut self, pointer: u64) -> Self::Ptr;
+    fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr>;
 }
 
 pub struct Timer {}
