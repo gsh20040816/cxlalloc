@@ -12,7 +12,7 @@ use cxlalloc_static::cxlalloc_pointer_to_offset;
 
 pub struct Cxlalloc;
 
-impl process_bench::Backend for Cxlalloc {
+impl allocator_bench::Backend for Cxlalloc {
     type Allocator = Self;
 
     fn open(name: &str, size: usize) -> Self {
@@ -32,7 +32,7 @@ impl process_bench::Backend for Cxlalloc {
     }
 }
 
-impl process_bench::Allocator for Cxlalloc {
+impl allocator_bench::Allocator for Cxlalloc {
     type Ptr = NonNull<ffi::c_void>;
 
     fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {

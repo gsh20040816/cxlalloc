@@ -7,8 +7,7 @@ members = [
     "cxlalloc-recover",
     "cxlalloc-static",
     "cxlalloc-test",
-    "kvs-bench",
-    "process-bench",
+    "allocator-bench",
 ]
 exclude = ["extern"]
 resolver = "2"

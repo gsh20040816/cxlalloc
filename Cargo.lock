@@ -27,6 +27,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-bench"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "libc",
+]
+
+[[package]]
 name = "anstream"
 version = "0.6.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -431,6 +439,7 @@ dependencies = [
 name = "cxlalloc-bench"
 version = "0.1.0"
 dependencies = [
+ "allocator-bench",
  "anyhow",
  "bindgen",
  "clap",
@@ -439,7 +448,6 @@ dependencies = [
  "homedir",
  "libc",
  "pkg-config",
- "process-bench",
 ]
 
 [[package]]
@@ -799,10 +807,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kvs-bench"
-version = "0.1.0"
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1055,13 +1059,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60946a68e5f9d28b0dc1c21bb8a97ee7d018a8b322fa57838ba31cc878e22d99"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "process-bench"
-version = "0.1.0"
-dependencies = [
- "clap",
 ]
 
 [[package]]

@@ -18,7 +18,7 @@ pub struct Backend {
 
 pub struct Cxlmalloc(sys::cxl_shm);
 
-impl process_bench::Backend for Backend {
+impl allocator_bench::Backend for Backend {
     type Allocator = Cxlmalloc;
 
     fn open(name: &str, size: usize) -> Self {
@@ -43,7 +43,7 @@ impl process_bench::Backend for Backend {
     }
 }
 
-impl process_bench::Allocator for Cxlmalloc {
+impl allocator_bench::Allocator for Cxlmalloc {
     type Ptr = sys::CXLRef;
 
     fn allocate(&mut self, size: usize) -> Option<Self::Ptr> {

@@ -6,9 +6,9 @@ use clap::Parser;
 use cxlalloc_bench::process;
 use duct::cmd;
 
+use allocator_bench::Barrier;
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Benchmark;
-use process_bench::Barrier;
 
 #[derive(Parser)]
 enum Cli {
@@ -72,7 +72,7 @@ enum Cli {
         thread_count: usize,
 
         #[command(subcommand)]
-        benchmark: process_bench::Benchmark,
+        benchmark: allocator_bench::Benchmark,
     },
 }
 

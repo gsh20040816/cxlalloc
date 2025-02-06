@@ -1,6 +1,6 @@
+use allocator_bench::Backend;
 use clap::Parser;
 use cxlalloc_bench::process::Allocator;
-use process_bench::Backend;
 
 #[derive(Parser)]
 struct Cli {
@@ -14,14 +14,14 @@ struct Cli {
     size: usize,
 
     #[command(flatten)]
-    bench: process_bench::process::Cli,
+    bench: allocator_bench::process::Cli,
 }
 
 impl Cli {
     fn run<B: Backend>(&self) {
         match &self.bench.benchmark {
-            process_bench::Benchmark::ThreadTest(thread_test) => {
-                <_ as process_bench::benchmark::Interface<B>>::run_process(
+            allocator_bench::Benchmark::ThreadTest(thread_test) => {
+                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
                     thread_test,
                     self.bench.process_count,
                     self.bench.process_id,

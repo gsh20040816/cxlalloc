@@ -15,7 +15,7 @@ pub struct Boost(Arc<UnsafeCell<sys::wrap_rbtree>>);
 unsafe impl Send for Boost {}
 unsafe impl Sync for Boost {}
 
-impl process_bench::Backend for Boost {
+impl allocator_bench::Backend for Boost {
     type Allocator = Self;
     fn open(name: &str, size: usize) -> Self {
         unsafe {
@@ -32,7 +32,7 @@ impl process_bench::Backend for Boost {
     }
 }
 
-impl process_bench::Allocator for Boost {
+impl allocator_bench::Allocator for Boost {
     type Ptr = NonNull<ffi::c_void>;
 
     fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {
