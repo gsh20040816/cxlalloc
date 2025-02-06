@@ -36,13 +36,18 @@ impl<B: Backend> benchmark::Interface<B> for ThreadTest {
         (0..*object_count).map(|_| None).collect()
     }
 
-    fn run_thread(&self, _: &Self::Global, mut pointers: Self::Local, mut allocator: B::Allocator) {
+    fn run_thread(
+        &self,
+        _: &Self::Global,
+        pointers: &mut Self::Local,
+        allocator: &mut B::Allocator,
+    ) {
         for _ in 0..self.iteration_count {
-            for pointer in &mut pointers {
+            for pointer in &mut *pointers {
                 *pointer = allocator.allocate(self.object_size);
             }
 
-            for pointer in &mut pointers {
+            for pointer in &mut *pointers {
                 let pointer = pointer.take().unwrap();
                 unsafe {
                     allocator.deallocate(pointer);

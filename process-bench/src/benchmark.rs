@@ -3,7 +3,7 @@ use std::thread;
 use clap::Parser;
 
 use crate::Backend;
-use crate::Barrier;
+use crate::Timer;
 
 mod thread_test;
 
@@ -20,7 +20,12 @@ pub trait Interface<B: Backend>: Sync {
 
     fn setup_thread(&self, global: &Self::Global, thread_id: usize) -> Self::Local;
 
-    fn run_thread(&self, global: &Self::Global, local: Self::Local, allocator: B::Allocator);
+    fn run_thread(
+        &self,
+        global: &Self::Global,
+        local: &mut Self::Local,
+        allocator: &mut B::Allocator,
+    );
 
     fn run_process(
         &self,
@@ -31,7 +36,7 @@ pub trait Interface<B: Backend>: Sync {
         size: usize,
     ) {
         let backend = &B::open(name, size);
-        let barrier = &Barrier::open(c"barrier").unwrap();
+        let timer = &Timer::new();
         let global = &self.setup_process(process_count, process_id, thread_count);
 
         thread::scope(|scope| {
@@ -39,10 +44,13 @@ pub trait Interface<B: Backend>: Sync {
                 .take(thread_count)
                 .map(|thread_id| {
                     scope.spawn(move || {
-                        let allocator = backend.allocator(thread_id);
-                        let local = self.setup_thread(global, thread_id);
-                        barrier.wait();
-                        self.run_thread(global, local, allocator)
+                        let mut allocator = backend.allocator(thread_id);
+                        let mut local = self.setup_thread(global, thread_id);
+                        timer.start();
+                        self.run_thread(global, &mut local, &mut allocator);
+                        timer.stop(thread_id);
+                        drop(allocator);
+                        drop(local);
                     })
                 })
                 .collect::<Vec<_>>();
