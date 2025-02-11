@@ -30,6 +30,16 @@ impl Cli {
                     self.size,
                 )
             }
+            allocator_bench::Benchmark::Ycsb(ycsb) => {
+                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
+                    ycsb,
+                    self.bench.process_count,
+                    self.bench.process_id,
+                    self.bench.thread_count,
+                    &self.name,
+                    self.size,
+                )
+            }
         }
     }
 }

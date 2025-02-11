@@ -68,6 +68,7 @@ pub trait Interface<B: Backend>: Sync {
 #[derive(Clone, Parser)]
 pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),
+    Ycsb(ycsb::Ycsb),
 }
 
 impl Benchmark {
@@ -82,6 +83,7 @@ impl Benchmark {
                 "--object-size".to_string(),
                 thread_test.object_size.to_string(),
             ],
+            Benchmark::Ycsb(_) => vec!["ycsb".to_string()],
         }
     }
 }
