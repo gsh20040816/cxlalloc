@@ -6,6 +6,7 @@ use crate::Backend;
 use crate::Timer;
 
 mod thread_test;
+mod ycsb;
 
 pub trait Interface<B: Backend>: Sync {
     type Global: Sync;
