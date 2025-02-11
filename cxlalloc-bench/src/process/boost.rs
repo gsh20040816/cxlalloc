@@ -4,7 +4,6 @@ use core::ptr::NonNull;
 use std::ffi::CString;
 use std::sync::Arc;
 
-#[expect(dead_code)]
 #[expect(non_camel_case_types)]
 mod sys {
     include!(concat!(env!("OUT_DIR"), "/bind-boost.rs"));
@@ -52,10 +51,10 @@ impl allocator_bench::Allocator for Boost {
     }
 
     fn set_root(&mut self, pointer: Self::Ptr) {
-        todo!()
+        unsafe { sys::wrap_set_root(self.0.get(), pointer.as_ptr()) };
     }
 
     fn get_root(&mut self) -> Option<Self::Ptr> {
-        todo!()
+        unsafe { NonNull::new(sys::wrap_get_root(self.0.get())) }
     }
 }

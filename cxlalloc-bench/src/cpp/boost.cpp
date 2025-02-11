@@ -3,10 +3,6 @@
 
 using namespace boost::interprocess;
 
-typedef basic_managed_shared_memory<char, rbtree_best_fit<mutex_family>,
-                                    null_index>
-    wrap_rbtree;
-
 wrap_rbtree wrap_open(const char *name, size_t size) {
   return wrap_rbtree(open_or_create_t{}, name, size);
 }
@@ -25,4 +21,14 @@ void *wrap_handle_to_address(wrap_rbtree *shm, wrap_rbtree::handle_t handle) {
 
 wrap_rbtree::handle_t wrap_address_to_handle(wrap_rbtree *shm, void *address) {
   return shm->get_handle_from_address(address);
+}
+
+void *wrap_set_root(wrap_rbtree *shm, void *pointer) {
+  auto handle = wrap_address_to_handle(shm, pointer);
+  return shm->construct<wrap_rbtree::handle_t>("root")(handle);
+}
+
+void *wrap_get_root(wrap_rbtree *shm) {
+  auto handle = shm->find<wrap_rbtree::handle_t>("root").first;
+  return wrap_handle_to_address(handle);
 }
