@@ -3,12 +3,14 @@ use core::ptr::NonNull;
 use std::ffi::CString;
 
 use cxlalloc_static::cxlalloc_free;
+use cxlalloc_static::cxlalloc_get_root;
 use cxlalloc_static::cxlalloc_init;
 use cxlalloc_static::cxlalloc_init_backend;
 use cxlalloc_static::cxlalloc_init_thread;
 use cxlalloc_static::cxlalloc_malloc;
 use cxlalloc_static::cxlalloc_offset_to_pointer;
 use cxlalloc_static::cxlalloc_pointer_to_offset;
+use cxlalloc_static::cxlalloc_set_root;
 
 pub struct Cxlalloc;
 
@@ -51,5 +53,15 @@ impl allocator_bench::Allocator for Cxlalloc {
 
     fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         NonNull::new(cxlalloc_offset_to_pointer(offset))
+    }
+
+    fn set_root(&mut self, pointer: Self::Ptr) {
+        unsafe {
+            cxlalloc_set_root(0, pointer.as_ptr());
+        }
+    }
+
+    fn get_root(&mut self) -> Option<Self::Ptr> {
+        unsafe { NonNull::new(cxlalloc_get_root(0)) }
     }
 }

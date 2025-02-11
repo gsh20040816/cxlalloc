@@ -5,6 +5,7 @@ use std::hash::DefaultHasher;
 
 use sys::cxl_shm_cxl_shm1;
 use sys::cxl_shm_thread_init;
+use sys::CXLRef_s_get_addr;
 
 #[expect(non_camel_case_types)]
 mod sys {
@@ -59,6 +60,28 @@ impl allocator_bench::Allocator for Cxlmalloc {
     }
 
     fn offset_to_pointer(&mut self, _: u64) -> Option<Self::Ptr> {
+        todo!()
+    }
+
+    fn set_root(&mut self, pointer: Self::Ptr) {
+        todo!()
+    }
+
+    fn get_root(&mut self) -> Option<Self::Ptr> {
+        todo!()
+    }
+}
+
+impl allocator_bench::Pointer for sys::CXLRef {
+    fn as_ptr(&self) -> *mut core::ffi::c_void {
+        unsafe { CXLRef_s_get_addr(self as *const _ as *mut _) }
+    }
+
+    fn as_u64(&self) -> u64 {
+        todo!()
+    }
+
+    fn from_u64(pointer: u64) -> Self {
         todo!()
     }
 }

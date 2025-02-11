@@ -50,4 +50,12 @@ impl allocator_bench::Allocator for Boost {
     fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         unsafe { NonNull::new(sys::wrap_handle_to_address(self.0.get(), offset)) }
     }
+
+    fn set_root(&mut self, pointer: Self::Ptr) {
+        todo!()
+    }
+
+    fn get_root(&mut self) -> Option<Self::Ptr> {
+        todo!()
+    }
 }

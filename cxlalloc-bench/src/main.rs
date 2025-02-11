@@ -229,9 +229,16 @@ fn main() -> anyhow::Result<()> {
 
                     command.extend(benchmark.args());
 
-                    duct::cmd("target/release/cxlalloc-bench-worker", command)
-                        .start()
-                        .unwrap()
+                    duct::cmd(
+                        if cfg!(debug_assertions) {
+                            "target/debug/cxlalloc-bench-worker"
+                        } else {
+                            "target/release/cxlalloc-bench-worker"
+                        },
+                        command,
+                    )
+                    .start()
+                    .unwrap()
                 })
                 .collect::<Vec<_>>()
                 .into_iter()

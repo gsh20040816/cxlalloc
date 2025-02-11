@@ -19,7 +19,12 @@ pub trait Interface<B: Backend>: Sync {
         thread_count: usize,
     ) -> Self::Global;
 
-    fn setup_thread(&self, global: &Self::Global, thread_id: usize) -> Self::Local;
+    fn setup_thread(
+        &self,
+        global: &Self::Global,
+        thread_id: usize,
+        allocator: &mut B::Allocator,
+    ) -> Self::Local;
 
     fn run_thread(
         &self,
@@ -46,7 +51,7 @@ pub trait Interface<B: Backend>: Sync {
                 .map(|thread_id| {
                     scope.spawn(move || {
                         let mut allocator = backend.allocator(thread_id);
-                        let mut local = self.setup_thread(global, thread_id);
+                        let mut local = self.setup_thread(global, thread_id, &mut allocator);
                         timer.start();
                         self.run_thread(global, &mut local, &mut allocator);
                         timer.stop(thread_id);

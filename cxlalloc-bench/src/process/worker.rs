@@ -3,6 +3,7 @@ use clap::Parser;
 use cxlalloc_bench::process::Allocator;
 
 #[derive(Parser)]
+#[group(skip)]
 struct Cli {
     #[arg(short, long)]
     allocator: Allocator,

@@ -3,6 +3,8 @@ pub mod benchmark;
 pub mod process;
 
 use core::cell::Cell;
+use core::ffi;
+use core::ptr::NonNull;
 use std::time::Instant;
 
 pub use barrier::Barrier;
@@ -15,11 +17,47 @@ pub trait Backend: Send + Sync {
 }
 
 pub trait Allocator: Sized {
-    type Ptr;
+    type Ptr: Pointer;
     fn allocate(&mut self, size: usize) -> Option<Self::Ptr>;
     unsafe fn deallocate(&mut self, pointer: Self::Ptr);
     unsafe fn pointer_to_offset(&mut self, pointer: Self::Ptr) -> u64;
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr>;
+    fn set_root(&mut self, pointer: Self::Ptr);
+    fn get_root(&mut self) -> Option<Self::Ptr>;
+}
+
+pub trait Pointer {
+    fn as_ptr(&self) -> *mut ffi::c_void;
+    fn as_u64(&self) -> u64;
+    fn from_u64(pointer: u64) -> Self;
+}
+
+impl Pointer for *mut ffi::c_void {
+    fn as_ptr(&self) -> *mut ffi::c_void {
+        *self
+    }
+
+    fn as_u64(&self) -> u64 {
+        *self as u64
+    }
+
+    fn from_u64(pointer: u64) -> Self {
+        pointer as Self
+    }
+}
+
+impl Pointer for NonNull<ffi::c_void> {
+    fn as_ptr(&self) -> *mut ffi::c_void {
+        (*self).as_ptr()
+    }
+
+    fn as_u64(&self) -> u64 {
+        self.as_ptr() as u64
+    }
+
+    fn from_u64(pointer: u64) -> Self {
+        NonNull::new(pointer as *mut ffi::c_void).unwrap()
+    }
 }
 
 pub struct Timer {
