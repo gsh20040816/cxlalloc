@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 #[expect(non_camel_case_types)]
 mod sys {
-    include!(concat!(env!("OUT_DIR"), "/bind-boost.rs"));
+    include!(concat!(env!("OUT_DIR"), "/bind_boost.rs"));
 }
 
 pub struct Boost(Arc<UnsafeCell<sys::wrap_rbtree>>);

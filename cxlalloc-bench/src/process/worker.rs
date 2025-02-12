@@ -51,6 +51,6 @@ fn main() {
     match cli.allocator {
         Allocator::Boost => cli.run::<cxlalloc_bench::process::Boost>(),
         Allocator::Cxlalloc => cli.run::<cxlalloc_bench::process::Cxlalloc>(),
-        Allocator::Cxlmalloc => cli.run::<cxlalloc_bench::process::cxlmalloc::Backend>(),
+        Allocator::CxlShm => cli.run::<cxlalloc_bench::process::cxl_shm::Backend>(),
     }
 }

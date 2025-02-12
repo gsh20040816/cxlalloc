@@ -24,7 +24,7 @@ fn cxlmalloc() {
         .allowlist_item("cxl_shm")
         .generate()
         .unwrap()
-        .write_to_file(OUT.join("bind-cxlmalloc.rs"))
+        .write_to_file(OUT.join("bind_cxl_shm.rs"))
         .unwrap();
 }
 
@@ -69,6 +69,6 @@ fn boost() {
         .opaque_type("boost.*")
         .generate()
         .unwrap()
-        .write_to_file(OUT.join("bind-boost.rs"))
+        .write_to_file(OUT.join("bind_boost.rs"))
         .unwrap();
 }

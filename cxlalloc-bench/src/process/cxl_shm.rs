@@ -9,7 +9,7 @@ use sys::CXLRef_s_get_addr;
 
 #[expect(non_camel_case_types)]
 mod sys {
-    include!(concat!(env!("OUT_DIR"), "/bind-cxlmalloc.rs"));
+    include!(concat!(env!("OUT_DIR"), "/bind_cxl_shm.rs"));
 }
 
 pub struct Backend {
@@ -17,10 +17,10 @@ pub struct Backend {
     size: usize,
 }
 
-pub struct Cxlmalloc(sys::cxl_shm);
+pub struct CxlShm(sys::cxl_shm);
 
 impl allocator_bench::Backend for Backend {
-    type Allocator = Cxlmalloc;
+    type Allocator = CxlShm;
 
     fn open(name: &str, size: usize) -> Self {
         let mut hasher = DefaultHasher::new();
@@ -39,12 +39,12 @@ impl allocator_bench::Backend for Backend {
             let mut cxl_shm: MaybeUninit<sys::cxl_shm> = MaybeUninit::uninit();
             cxl_shm_cxl_shm1(cxl_shm.as_mut_ptr(), self.size as u64, self.id);
             cxl_shm_thread_init(cxl_shm.as_mut_ptr());
-            Cxlmalloc(cxl_shm.assume_init())
+            CxlShm(cxl_shm.assume_init())
         }
     }
 }
 
-impl allocator_bench::Allocator for Cxlmalloc {
+impl allocator_bench::Allocator for CxlShm {
     type Ptr = sys::CXLRef;
 
     fn allocate(&mut self, size: usize) -> Option<Self::Ptr> {
