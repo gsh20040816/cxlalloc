@@ -3,6 +3,7 @@ use core::hash::Hasher;
 use core::mem::MaybeUninit;
 use std::hash::DefaultHasher;
 
+use allocator_bench::Pointer as _;
 use sys::cxl_shm_cxl_shm1;
 use sys::cxl_shm_thread_init;
 use sys::CXLRef_s_get_addr;
@@ -60,15 +61,22 @@ impl allocator_bench::Allocator for CxlShm {
     }
 
     fn offset_to_pointer(&mut self, _: u64) -> Option<Self::Ptr> {
-        todo!()
+        unimplemented!()
     }
 
     fn set_root(&mut self, pointer: Self::Ptr) {
-        todo!()
+        unsafe {
+            sys::cxl_shm_set_root(&mut self.0, pointer);
+        }
     }
 
     fn get_root(&mut self) -> Option<Self::Ptr> {
-        todo!()
+        unsafe {
+            match sys::cxl_shm_get_root(&mut self.0) {
+                null if null.as_ptr().is_null() => None,
+                pointer => Some(pointer),
+            }
+        }
     }
 }
 
@@ -78,10 +86,10 @@ impl allocator_bench::Pointer for sys::CXLRef {
     }
 
     fn as_u64(&self) -> u64 {
-        todo!()
+        (*self).as_ptr() as u64
     }
 
-    fn from_u64(pointer: u64) -> Self {
-        todo!()
+    fn from_u64(_pointer: u64) -> Self {
+        unimplemented!()
     }
 }

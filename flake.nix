@@ -29,6 +29,7 @@
       with pkgs; {
         devShells.default = mkShell {
           nativeBuildInputs = [
+            boost
             clang
             libcxlmalloc
             gdb

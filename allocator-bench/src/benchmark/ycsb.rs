@@ -23,6 +23,9 @@ pub struct Insert {
     record: &'static str,
 }
 
+// HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
+const MAX_SIZE: usize = 1_000;
+
 impl<B: Backend> benchmark::Interface<B> for Ycsb {
     type Global = (Vec<Insert>, usize);
     type Local = (*mut ffi::c_void, Range<usize>);
@@ -62,7 +65,19 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         allocator: &mut B::Allocator,
     ) -> Self::Local {
         let map = if thread_id == 0 {
-            let pointer = allocator.allocate(std::mem::size_of::<FlatMap>()).unwrap();
+            let pointer = if std::any::type_name::<B::Allocator>().contains("cxl_shm") {
+                // HACK: relies on CXL-SHM allocating contiguous memory for consecutive requests
+                // for the same size class
+                let count = std::mem::size_of::<FlatMap>().next_multiple_of(MAX_SIZE) / MAX_SIZE;
+                let head = allocator.allocate(MAX_SIZE).unwrap();
+                for _ in 1..count {
+                    allocator.allocate(MAX_SIZE).unwrap();
+                }
+                head
+            } else {
+                allocator.allocate(std::mem::size_of::<FlatMap>()).unwrap()
+            };
+
             allocator.set_root(pointer);
             allocator.get_root().unwrap()
         } else {
@@ -88,9 +103,10 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         let map = unsafe { map.cast::<FlatMap>().as_ref().unwrap() };
 
         for insert in &commands[range.clone()] {
-            let pointer = allocator
-                .allocate(insert.key.len() + insert.record.len())
-                .unwrap();
+            // HACK: shrink record for CXL-SHM
+            let record_len = 1_000 - insert.key.len();
+
+            let pointer = allocator.allocate(insert.key.len() + record_len).unwrap();
 
             unsafe {
                 // Copy key
@@ -105,8 +121,8 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                     .cast::<u8>()
                     .byte_add(insert.key.len())
                     .copy_from_nonoverlapping(
-                        insert.record.as_bytes().as_ptr(),
-                        insert.record.len(),
+                        insert.record[..record_len].as_bytes().as_ptr(),
+                        record_len,
                     );
             }
 
