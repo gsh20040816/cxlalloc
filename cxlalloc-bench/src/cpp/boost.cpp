@@ -1,3 +1,4 @@
+#include "boost.hpp"
 #include <boost/interprocess/indexes/null_index.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 
@@ -29,6 +30,9 @@ void *wrap_set_root(wrap_rbtree *shm, void *pointer) {
 }
 
 void *wrap_get_root(wrap_rbtree *shm) {
-  auto handle = shm->find<wrap_rbtree::handle_t>("root").first;
-  return wrap_handle_to_address(handle);
+  wrap_rbtree::handle_t *root = shm->find<wrap_rbtree::handle_t>("root").first;
+  if (root == nullptr) {
+    return nullptr;
+  }
+  return wrap_handle_to_address(shm, *root);
 }
