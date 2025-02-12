@@ -76,7 +76,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
 
         let len = commands.len() / thread_count;
         let start = thread_id * len;
-        (map.as_ptr(), start..len)
+        (map.as_ptr(), start..start + len)
     }
 
     fn run_thread(
