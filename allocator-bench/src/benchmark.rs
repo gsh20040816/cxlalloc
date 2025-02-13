@@ -52,7 +52,7 @@ pub trait Interface<B: Backend>: Sync {
             let handles = (process_id * thread_count..)
                 .take(thread_count)
                 .map(|thread_id| {
-                    scope.spawn(move || {
+                    let handle = scope.spawn(move || {
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(global, thread_id, &mut allocator);
 
@@ -63,24 +63,28 @@ pub trait Interface<B: Backend>: Sync {
                         drop(allocator);
                         drop(local);
 
-                        let mut stdout = std::io::stdout().lock();
-                        serde_json::ser::to_writer(&mut stdout, &Metrics {
-                            process_id,
-                            thread_id,
-                            time,
-                        })
-                        .unwrap();
-                        stdout.write_all(b"\n").unwrap();
-                        stdout.flush().unwrap();
-                    })
+                        time
+                    });
+                    (thread_id, handle)
                 })
                 .collect::<Vec<_>>();
 
             handles
                 .into_iter()
-                .map(|handle| handle.join())
+                .map(|(thread_id, handle)| handle.join().map(|output| (thread_id, output)))
                 .collect::<Result<Vec<_>, _>>()
-                .unwrap();
+                .unwrap()
+                .into_iter()
+                .for_each(|(thread_id, time)| {
+                    let mut stdout = std::io::stdout().lock();
+                    serde_json::ser::to_writer(&mut stdout, &Metrics {
+                        process_id,
+                        thread_id,
+                        time,
+                    })
+                    .unwrap();
+                    stdout.write_all(b"\n").unwrap();
+                });
         });
     }
 }
