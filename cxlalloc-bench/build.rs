@@ -63,6 +63,7 @@ fn boost() {
     println!("cargo:rustc-link-lib=dylib=stdc++");
 
     std::process::Command::new("clang++")
+        .arg("-O3")
         .arg("-c")
         .arg("-o")
         .arg(&object)
