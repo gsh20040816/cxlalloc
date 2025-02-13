@@ -1,0 +1,102 @@
+use core::ffi;
+use core::mem::MaybeUninit;
+use core::ops::Deref;
+use core::ptr::NonNull;
+use std::ffi::CString;
+use std::sync::Arc;
+
+use sys::LightningAllocator_Free;
+use sys::LightningAllocator_GetRoot;
+use sys::LightningAllocator_Initialize;
+use sys::LightningAllocator_Malloc;
+use sys::LightningAllocator_OffsetToPointer;
+use sys::LightningAllocator_PointerToOffset;
+use sys::LightningAllocator_SetRoot;
+
+#[expect(unused)]
+#[expect(non_camel_case_types)]
+#[expect(non_snake_case)]
+mod sys {
+    include!(concat!(env!("OUT_DIR"), "/bind_lightning.rs"));
+}
+
+pub struct Backend(Arc<sys::LightningAllocator>);
+
+pub struct Lightning {
+    id: usize,
+    store: Arc<sys::LightningAllocator>,
+}
+
+unsafe impl Send for sys::LightningAllocator {}
+unsafe impl Sync for sys::LightningAllocator {}
+
+impl allocator_bench::Backend for Backend {
+    type Allocator = Lightning;
+
+    fn open(name: &str, size: usize) -> Self {
+        let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
+        let name = CString::new(name).unwrap();
+        unsafe {
+            sys::LightningAllocator_LightningAllocator(
+                store.as_mut_ptr(),
+                name.as_ptr(),
+                size as _,
+            );
+            Self(Arc::new(store.assume_init()))
+        }
+    }
+
+    fn allocator(&self, id: usize) -> Self::Allocator {
+        if id == 0 {
+            unsafe { LightningAllocator_Initialize(self.0.deref() as *const _ as *mut _, 1) }
+        }
+        Lightning {
+            id,
+            store: Arc::clone(&self.0),
+        }
+    }
+}
+
+impl Lightning {
+    fn as_ptr(&self) -> *mut sys::LightningAllocator {
+        self.store.deref() as *const _ as *mut _
+    }
+}
+
+impl allocator_bench::Allocator for Lightning {
+    type Ptr = NonNull<ffi::c_void>;
+
+    fn allocate(&mut self, size: usize) -> Option<Self::Ptr> {
+        let store = self.as_ptr();
+        unsafe {
+            let offset = LightningAllocator_Malloc(store, self.id as u64, size);
+            let pointer = LightningAllocator_OffsetToPointer(store, offset);
+            NonNull::new(pointer)
+        }
+    }
+
+    unsafe fn deallocate(&mut self, pointer: Self::Ptr) {
+        let store = self.as_ptr();
+        unsafe {
+            let offset = LightningAllocator_PointerToOffset(store, pointer.as_ptr());
+            LightningAllocator_Free(store, self.id as u64, offset);
+        }
+    }
+
+    unsafe fn pointer_to_offset(&mut self, pointer: Self::Ptr) -> u64 {
+        LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr()) as u64
+    }
+
+    fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {
+        NonNull::new(unsafe { LightningAllocator_OffsetToPointer(self.as_ptr(), offset as i64) })
+    }
+
+    fn set_root(&mut self, pointer: Self::Ptr) {
+        eprintln!("set root {:x?}", pointer);
+        unsafe { LightningAllocator_SetRoot(self.as_ptr(), pointer.as_ptr()) }
+    }
+
+    fn get_root(&mut self) -> Option<Self::Ptr> {
+        dbg!(unsafe { NonNull::new(LightningAllocator_GetRoot(self.as_ptr())) })
+    }
+}

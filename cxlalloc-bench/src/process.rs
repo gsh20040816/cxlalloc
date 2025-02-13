@@ -5,6 +5,7 @@ use clap::ValueEnum;
 mod boost;
 pub mod cxl_shm;
 mod cxlalloc;
+pub mod lightning;
 
 pub use boost::Boost;
 pub use cxl_shm::CxlShm;
@@ -15,6 +16,7 @@ pub enum Allocator {
     Boost,
     Cxlalloc,
     CxlShm,
+    Lightning,
 }
 
 impl Display for Allocator {
@@ -23,6 +25,7 @@ impl Display for Allocator {
             Allocator::Boost => "boost",
             Allocator::Cxlalloc => "cxlalloc",
             Allocator::CxlShm => "cxl-shm",
+            Allocator::Lightning => "lightning",
         };
 
         write!(f, "{}", name)

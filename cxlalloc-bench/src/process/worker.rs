@@ -52,5 +52,6 @@ fn main() {
         Allocator::Boost => cli.run::<cxlalloc_bench::process::Boost>(),
         Allocator::Cxlalloc => cli.run::<cxlalloc_bench::process::Cxlalloc>(),
         Allocator::CxlShm => cli.run::<cxlalloc_bench::process::cxl_shm::Backend>(),
+        Allocator::Lightning => cli.run::<cxlalloc_bench::process::lightning::Backend>(),
     }
 }

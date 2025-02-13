@@ -6,6 +6,7 @@ static OUT: LazyLock<PathBuf> = LazyLock::new(|| env::var("OUT_DIR").map(PathBuf
 
 fn main() {
     cxlmalloc();
+    lightning();
     boost();
 }
 
@@ -25,6 +26,25 @@ fn cxlmalloc() {
         .generate()
         .unwrap()
         .write_to_file(OUT.join("bind_cxl_shm.rs"))
+        .unwrap();
+}
+
+fn lightning() {
+    let lightning = pkg_config::probe_library("lightning").unwrap();
+    bindgen::Builder::default()
+        .header(
+            lightning.include_paths[0]
+                .join("allocator.h")
+                .to_str()
+                .unwrap(),
+        )
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .clang_args(["-x", "c++"])
+        .allowlist_item("LightningAllocator")
+        .opaque_type("std.*")
+        .generate()
+        .unwrap()
+        .write_to_file(OUT.join("bind_lightning.rs"))
         .unwrap();
 }
 
