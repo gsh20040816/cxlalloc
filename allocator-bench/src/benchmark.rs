@@ -1,8 +1,11 @@
+use std::io::Write as _;
 use std::thread;
 
 use clap::Parser;
+use serde::Serialize;
 
 use crate::Backend;
+use crate::Metrics;
 use crate::Timer;
 
 mod thread_test;
@@ -52,11 +55,23 @@ pub trait Interface<B: Backend>: Sync {
                     scope.spawn(move || {
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(global, thread_id, &mut allocator);
+
                         timer.start();
                         self.run_thread(global, &mut local, &mut allocator);
-                        timer.stop(thread_id);
+                        let time = timer.stop(thread_id);
+
                         drop(allocator);
                         drop(local);
+
+                        let mut stdout = std::io::stdout().lock();
+                        serde_json::ser::to_writer(&mut stdout, &Metrics {
+                            process_id,
+                            thread_id,
+                            time,
+                        })
+                        .unwrap();
+                        stdout.write_all(b"\n").unwrap();
+                        stdout.flush().unwrap();
                     })
                 })
                 .collect::<Vec<_>>();
@@ -70,7 +85,8 @@ pub trait Interface<B: Backend>: Sync {
     }
 }
 
-#[derive(Clone, Parser)]
+#[derive(Clone, Parser, Serialize)]
+#[serde(tag = "benchmark")]
 pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),

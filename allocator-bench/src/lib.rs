@@ -9,6 +9,8 @@ use std::time::Instant;
 
 pub use barrier::Barrier;
 pub use benchmark::Benchmark;
+use serde::Deserialize;
+use serde::Serialize;
 
 pub trait Backend: Send + Sync {
     type Allocator: Allocator;
@@ -64,6 +66,13 @@ pub struct Timer {
     barrier: Barrier,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct Metrics {
+    process_id: usize,
+    thread_id: usize,
+    time: u128,
+}
+
 thread_local! {
     static START: Cell<Option<Instant>> = const { Cell::new(None) };
 }
@@ -80,13 +89,11 @@ impl Timer {
         START.set(Some(Instant::now()));
     }
 
-    fn stop(&self, thread_id: usize) {
-        let time = START
+    fn stop(&self, thread_id: usize) -> u128 {
+        START
             .get()
             .map(|start| start.elapsed())
             .unwrap_or_default()
-            .as_micros();
-
-        eprintln!("{},{}", thread_id, time);
+            .as_micros()
     }
 }

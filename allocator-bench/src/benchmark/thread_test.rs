@@ -1,12 +1,13 @@
 // https://github.com/emeryberger/Hoard/blob/f021bdb810332c9c9f5a11ae5404aaa38fe129c0/benchmarks/threadtest/threadtest.cpp
 
 use clap::Parser;
+use serde::Serialize;
 
 use crate::Allocator;
 use crate::Backend;
 use crate::benchmark;
 
-#[derive(Clone, Parser)]
+#[derive(Clone, Parser, Serialize)]
 pub struct ThreadTest {
     #[arg(short, long, default_value_t = 50)]
     pub(crate) iteration_count: usize,

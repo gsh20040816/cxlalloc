@@ -8,13 +8,14 @@ use core::sync::atomic::Ordering;
 use std::hash::DefaultHasher;
 
 use clap::Parser;
+use serde::Serialize;
 
 use crate::Allocator;
 use crate::Backend;
 use crate::Pointer as _;
 use crate::benchmark;
 
-#[derive(Clone, Parser)]
+#[derive(Clone, Parser, Serialize)]
 pub struct Ycsb {}
 
 #[derive(Debug)]

@@ -1,3 +1,4 @@
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -9,8 +10,9 @@ use duct::cmd;
 use allocator_bench::Barrier;
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Benchmark;
+use serde::Serialize;
 
-#[derive(Parser)]
+#[derive(Parser, Serialize)]
 enum Cli {
     Run {
         /// Root of mimalloc-bench directory
@@ -55,28 +57,39 @@ enum Cli {
     },
 
     Process {
-        #[arg(short, long)]
-        allocator: process::Allocator,
+        #[arg(long)]
+        pretty: bool,
 
-        #[arg(short, long)]
-        name: String,
-
-        #[arg(short, long)]
-        size: usize,
-
-        #[arg(short, long)]
-        process_count: usize,
-
-        /// Number of threads per process
-        #[arg(short, long)]
-        thread_count: usize,
-
-        #[command(subcommand)]
-        benchmark: allocator_bench::Benchmark,
+        #[command(flatten)]
+        process: Process,
     },
 }
 
-#[derive(Clone, Parser)]
+#[derive(Clone, Parser, Serialize)]
+#[group(skip)]
+struct Process {
+    #[arg(short, long)]
+    allocator: process::Allocator,
+
+    #[arg(short, long)]
+    name: String,
+
+    #[arg(short, long)]
+    size: usize,
+
+    #[arg(short, long)]
+    process_count: usize,
+
+    /// Number of threads per process
+    #[arg(short, long)]
+    thread_count: usize,
+
+    #[serde(flatten)]
+    #[command(subcommand)]
+    benchmark: allocator_bench::Benchmark,
+}
+
+#[derive(Clone, Parser, Serialize)]
 enum Wrapper {
     Gdb,
     Rr,
@@ -199,35 +212,28 @@ fn main() -> anyhow::Result<()> {
                     .run()?;
             }
         }
-        Cli::Process {
-            allocator,
-            name,
-            size,
-            process_count,
-            thread_count,
-            benchmark,
-        } => {
+        Cli::Process { pretty, process } => {
             let barrier = Barrier::open(c"/barrier")?;
-            barrier.init((process_count * thread_count) as u64);
+            barrier.init((process.process_count * process.thread_count) as u64);
 
-            (0..process_count)
+            let outputs = (0..process.process_count)
                 .map(|process_id| {
                     let mut command = vec![
                         "--allocator".to_string(),
-                        allocator.to_string(),
+                        process.allocator.to_string(),
                         "--name".to_string(),
-                        name.to_string(),
+                        process.name.to_string(),
                         "--size".to_string(),
-                        size.to_string(),
+                        process.size.to_string(),
                         "--process-count".to_string(),
-                        process_count.to_string(),
+                        process.process_count.to_string(),
                         "--process-id".to_string(),
                         process_id.to_string(),
                         "--thread-count".to_string(),
-                        thread_count.to_string(),
+                        process.thread_count.to_string(),
                     ];
 
-                    command.extend(benchmark.args());
+                    command.extend(process.benchmark.args());
 
                     duct::cmd(
                         if cfg!(debug_assertions) {
@@ -237,18 +243,46 @@ fn main() -> anyhow::Result<()> {
                         },
                         command,
                     )
+                    .stdout_capture()
                     .start()
                     .unwrap()
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
-                .for_each(|handle| {
-                    handle.wait().unwrap();
+                .map(|handle| handle.into_output().unwrap().stdout)
+                .flat_map(|stdout| {
+                    stdout
+                        .trim_ascii()
+                        .split(|byte| *byte == b'\n')
+                        .map(serde_json::from_slice::<allocator_bench::Metrics>)
+                        .collect::<Vec<_>>()
                 })
+                .map(Result::unwrap)
+                .map(|outputs| Metrics {
+                    inputs: &process,
+                    outputs,
+                })
+                .for_each(|output| {
+                    let mut stdout = std::io::stdout().lock();
+                    let write = match pretty {
+                        true => serde_json::to_writer_pretty,
+                        false => serde_json::to_writer,
+                    };
+                    write(&mut stdout, &output).unwrap();
+                    stdout.write_all(b"\n").unwrap();
+                });
         }
     }
 
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct Metrics<'a> {
+    #[serde(flatten)]
+    inputs: &'a Process,
+    #[serde(flatten)]
+    outputs: allocator_bench::Metrics,
 }
 
 impl Wrapper {

@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use clap::ValueEnum;
+use serde::Serialize;
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, ValueEnum, Serialize)]
 pub enum Benchmark {
     Cfrac,
     Espresso,

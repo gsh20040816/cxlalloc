@@ -10,8 +10,9 @@ pub mod lightning;
 pub use boost::Boost;
 pub use cxl_shm::CxlShm;
 pub use cxlalloc::Cxlalloc;
+use serde::Serialize;
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, ValueEnum, Serialize)]
 pub enum Allocator {
     Boost,
     Cxlalloc,
