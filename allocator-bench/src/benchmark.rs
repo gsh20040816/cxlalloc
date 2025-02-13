@@ -58,7 +58,7 @@ pub trait Interface<B: Backend>: Sync {
 
                         timer.start();
                         self.run_thread(global, &mut local, &mut allocator);
-                        let time = timer.stop(thread_id);
+                        let time = timer.stop();
 
                         drop(allocator);
                         drop(local);

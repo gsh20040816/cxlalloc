@@ -12,8 +12,13 @@ pub struct Barrier(&'static AtomicU64);
 
 impl Barrier {
     const PAGE: usize = 4096;
+    const PATH: &CStr = c"/barrier";
 
-    pub fn open(path: &CStr) -> io::Result<Self> {
+    pub fn new() -> io::Result<Self> {
+        Self::open(Self::PATH)
+    }
+
+    fn open(path: &CStr) -> io::Result<Self> {
         unsafe {
             let shm = match libc::shm_open(path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) {
                 -1 => return Err(io::Error::last_os_error()),

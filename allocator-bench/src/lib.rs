@@ -80,7 +80,7 @@ thread_local! {
 impl Timer {
     fn new() -> Self {
         Self {
-            barrier: Barrier::open(c"barrier").unwrap(),
+            barrier: Barrier::new().unwrap(),
         }
     }
 
@@ -89,7 +89,7 @@ impl Timer {
         START.set(Some(Instant::now()));
     }
 
-    fn stop(&self, thread_id: usize) -> u128 {
+    fn stop(&self) -> u128 {
         START
             .get()
             .map(|start| start.elapsed())

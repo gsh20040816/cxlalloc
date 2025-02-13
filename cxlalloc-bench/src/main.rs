@@ -213,10 +213,10 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cli::Process { pretty, process } => {
-            let barrier = Barrier::open(c"/barrier")?;
+            let barrier = Barrier::new()?;
             barrier.init((process.process_count * process.thread_count) as u64);
 
-            let outputs = (0..process.process_count)
+            (0..process.process_count)
                 .map(|process_id| {
                     let mut command = vec![
                         "--allocator".to_string(),
