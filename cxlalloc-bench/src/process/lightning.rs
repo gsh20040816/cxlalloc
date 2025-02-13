@@ -92,11 +92,10 @@ impl allocator_bench::Allocator for Lightning {
     }
 
     fn set_root(&mut self, pointer: Self::Ptr) {
-        eprintln!("set root {:x?}", pointer);
         unsafe { LightningAllocator_SetRoot(self.as_ptr(), pointer.as_ptr()) }
     }
 
     fn get_root(&mut self) -> Option<Self::Ptr> {
-        dbg!(unsafe { NonNull::new(LightningAllocator_GetRoot(self.as_ptr())) })
+        unsafe { NonNull::new(LightningAllocator_GetRoot(self.as_ptr())) }
     }
 }
