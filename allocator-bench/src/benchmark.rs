@@ -47,12 +47,16 @@ pub trait Interface<B: Backend>: Sync {
         let backend = &B::open(name, size);
         let timer = &Timer::new();
         let global = &self.setup_process(process_count, process_id, thread_count);
+        let cores = &core_affinity::get_core_ids().unwrap_or_default();
 
         thread::scope(|scope| {
             let handles = (process_id * thread_count..)
                 .take(thread_count)
                 .map(|thread_id| {
                     let handle = scope.spawn(move || {
+                        let core = thread_id % cores.len();
+                        core_affinity::set_for_current(cores[core]);
+
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(global, thread_id, &mut allocator);
 
