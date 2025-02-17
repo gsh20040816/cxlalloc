@@ -20,7 +20,10 @@ mod sys {
     include!(concat!(env!("OUT_DIR"), "/bind_lightning.rs"));
 }
 
-pub struct Backend(Arc<sys::LightningAllocator>);
+pub struct Backend {
+    name: CString,
+    inner: Arc<sys::LightningAllocator>,
+}
 
 pub struct Lightning {
     id: usize,
@@ -36,23 +39,30 @@ impl allocator_bench::Backend for Backend {
     fn open(name: &str, size: usize) -> Self {
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
         let name = CString::new(name).unwrap();
-        unsafe {
+        let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(
                 store.as_mut_ptr(),
                 name.as_ptr(),
                 size as _,
             );
-            Self(Arc::new(store.assume_init()))
-        }
+            store.assume_init()
+        });
+        Self { name, inner }
     }
 
     fn allocator(&self, id: usize) -> Self::Allocator {
         if id == 0 {
-            unsafe { LightningAllocator_Initialize(self.0.deref() as *const _ as *mut _, 1) }
+            unsafe { LightningAllocator_Initialize(self.inner.deref() as *const _ as *mut _, 1) }
         }
         Lightning {
             id,
-            store: Arc::clone(&self.0),
+            store: Arc::clone(&self.inner),
+        }
+    }
+
+    fn unlink(self) {
+        unsafe {
+            libc::shm_unlink(self.name.as_ptr());
         }
     }
 }

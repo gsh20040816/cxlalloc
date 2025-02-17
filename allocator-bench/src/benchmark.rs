@@ -44,7 +44,7 @@ pub trait Interface<B: Backend>: Sync {
         name: &str,
         size: usize,
     ) {
-        let backend = &B::open(name, size);
+        let backend = B::open(name, size);
         let timer = &Timer::new();
         let global = &self.setup_process(process_count, process_id, thread_count);
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
@@ -53,6 +53,7 @@ pub trait Interface<B: Backend>: Sync {
             let handles = (process_id * thread_count..)
                 .take(thread_count)
                 .map(|thread_id| {
+                    let backend = &backend;
                     let handle = scope.spawn(move || {
                         let core = thread_id % cores.len();
                         core_affinity::set_for_current(cores[core]);
@@ -90,6 +91,8 @@ pub trait Interface<B: Backend>: Sync {
                     stdout.write_all(b"\n").unwrap();
                 });
         });
+
+        backend.unlink();
     }
 }
 

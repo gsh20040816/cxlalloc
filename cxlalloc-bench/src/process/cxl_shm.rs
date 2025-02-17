@@ -35,6 +35,16 @@ impl allocator_bench::Backend for Backend {
         }
     }
 
+    fn unlink(self) {
+        unsafe {
+            libc::shmctl(
+                self.id,
+                libc::IPC_RMID,
+                &mut std::mem::zeroed::<libc::shmid_ds>(),
+            );
+        }
+    }
+
     fn allocator(&self, _: usize) -> Self::Allocator {
         unsafe {
             let mut cxl_shm: MaybeUninit<sys::cxl_shm> = MaybeUninit::uninit();

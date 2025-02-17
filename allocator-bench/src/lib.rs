@@ -15,6 +15,7 @@ use serde::Serialize;
 pub trait Backend: Send + Sync {
     type Allocator: Allocator;
     fn open(name: &str, size: usize) -> Self;
+    fn unlink(self);
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
 }
 

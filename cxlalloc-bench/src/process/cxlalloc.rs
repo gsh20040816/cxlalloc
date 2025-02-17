@@ -12,25 +12,38 @@ use cxlalloc_static::cxlalloc_offset_to_pointer;
 use cxlalloc_static::cxlalloc_pointer_to_offset;
 use cxlalloc_static::cxlalloc_set_root;
 
+pub struct Backend(String);
+
 pub struct Cxlalloc;
 
-impl allocator_bench::Backend for Cxlalloc {
-    type Allocator = Self;
+impl allocator_bench::Backend for Backend {
+    type Allocator = Cxlalloc;
 
     fn open(name: &str, size: usize) -> Self {
         unsafe {
             let name = CString::new(name).unwrap();
             cxlalloc_init_backend(c"shm".as_ptr());
             cxlalloc_init(name.as_ptr(), size, 0, 255, 0, 0);
-            Self
         }
+        Self(name.to_owned())
     }
 
-    fn allocator(&self, thread_id: usize) -> Self::Allocator {
+    fn allocator(&self, thread_id: usize) -> Cxlalloc {
         unsafe {
             cxlalloc_init_thread(thread_id);
         }
-        Self
+        Cxlalloc
+    }
+
+    fn unlink(self) {
+        for entry in std::fs::read_dir("/dev/shm").unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let path = path.to_str().unwrap();
+            if path.starts_with(&self.0) {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
     }
 }
 

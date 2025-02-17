@@ -4,12 +4,12 @@ use clap::ValueEnum;
 
 mod boost;
 pub mod cxl_shm;
-mod cxlalloc;
+pub mod cxlalloc;
 pub mod lightning;
 
 pub use boost::Boost;
 pub use cxl_shm::CxlShm;
-pub use cxlalloc::Cxlalloc;
+pub use cxlalloc::Backend;
 use serde::Serialize;
 
 #[derive(Clone, ValueEnum, Serialize)]
