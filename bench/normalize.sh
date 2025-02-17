@@ -7,6 +7,9 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+readonly cxl_numa_node=${CXL_NUMA_NODE}
+readonly cpu_numa_node=${CPU_NUMA_NODE}
+
 readonly kernel="/proc/sys/kernel";
 
 # Disable NMI watchdog
@@ -50,14 +53,16 @@ if test -d "$cpu/smt"; then
 fi
 
 # Disable CPUs on NUMA node 0
-echo 0 | sudo tee $system/node/node0/cpu*{0..9}*/online
+echo 0 | sudo tee ${system}/node/node${cxl_numa_node}/cpu*{0..9}*/online
 
 # Set up CXL device
-sudo daxctl reconfigure-device --mode=system-ram dax0.0 --force
+if [[ $(daxctl list) ]]; then
+    sudo daxctl reconfigure-device --mode=system-ram dax0.0 --force
+fi
 
 # Restrict system threads
 # https://documentation.suse.com/sle-rt/15-SP6/html/SLE-RT-all/cha-shielding-with-systemd.html
-sudo systemctl set-property --runtime init.scope AllowedCPUs=0 AllowedMemoryNodes=0
-sudo systemctl set-property --runtime system.slice AllowedCPUs=0 AllowedMemoryNodes=0
-echo "[Slice]\nAllowedCpus=40-79" | sudo tee /etc/systemd/system/workload.slice
+# sudo systemctl set-property --runtime init.scope AllowedCPUs=0 AllowedMemoryNodes=0
+# sudo systemctl set-property --runtime system.slice AllowedCPUs=0 AllowedMemoryNodes=0
+# echo "[Slice]\nAllowedCpus=40-79" | sudo tee /etc/systemd/system/workload.slice
 
