@@ -1,10 +1,9 @@
-use core::hash::Hash as _;
-use core::hash::Hasher;
+use core::ffi;
 use core::mem::MaybeUninit;
-use std::hash::DefaultHasher;
+use std::ffi::CString;
 
 use allocator_bench::Pointer as _;
-use sys::cxl_shm_cxl_shm1;
+use sys::cxl_shm_cxl_shm2;
 use sys::cxl_shm_thread_init;
 use sys::CXLRef_s_get_addr;
 
@@ -14,41 +13,37 @@ mod sys {
 }
 
 pub struct Backend {
-    id: i32,
+    name: CString,
     size: usize,
+    address: *mut ffi::c_void,
 }
+
+unsafe impl Send for Backend {}
+unsafe impl Sync for Backend {}
 
 pub struct CxlShm(sys::cxl_shm);
 
 impl allocator_bench::Backend for Backend {
     type Allocator = CxlShm;
 
-    fn open(name: &str, size: usize) -> Self {
-        let mut hasher = DefaultHasher::new();
-        name.hash(&mut hasher);
-        let key = hasher.finish() % 64;
-        unsafe {
-            Self {
-                id: libc::shmget(key as i32, size, libc::IPC_CREAT | 0o666),
-                size,
-            }
+    fn open(node: usize, name: &str, size: usize) -> Self {
+        let name = CString::new(name).unwrap();
+        let address = super::open(node, &name, size).unwrap();
+        Self {
+            name: name.to_owned(),
+            size,
+            address,
         }
     }
 
     fn unlink(self) {
-        unsafe {
-            libc::shmctl(
-                self.id,
-                libc::IPC_RMID,
-                &mut std::mem::zeroed::<libc::shmid_ds>(),
-            );
-        }
+        super::unlink(&self.name).unwrap();
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {
         unsafe {
             let mut cxl_shm: MaybeUninit<sys::cxl_shm> = MaybeUninit::uninit();
-            cxl_shm_cxl_shm1(cxl_shm.as_mut_ptr(), self.size as u64, self.id);
+            cxl_shm_cxl_shm2(cxl_shm.as_mut_ptr(), self.size as u64, self.address);
             cxl_shm_thread_init(cxl_shm.as_mut_ptr());
             CxlShm(cxl_shm.assume_init())
         }

@@ -19,7 +19,8 @@ pub struct Cxlalloc;
 impl allocator_bench::Backend for Backend {
     type Allocator = Cxlalloc;
 
-    fn open(name: &str, size: usize) -> Self {
+    // FIXME: implicitly passed through `CXL_NUMA_NODE` environment variable
+    fn open(_: usize, name: &str, size: usize) -> Self {
         unsafe {
             let name = CString::new(name).unwrap();
             cxlalloc_init_backend(c"shm".as_ptr());
@@ -41,7 +42,7 @@ impl allocator_bench::Backend for Backend {
             let path = entry.path();
             let path = path.to_str().unwrap();
             if path.starts_with(&self.0) {
-                std::fs::remove_file(path).unwrap();
+                let _ = std::fs::remove_file(path);
             }
         }
     }

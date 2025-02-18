@@ -13,6 +13,7 @@ allocator-bench.path = "../allocator-bench"
 anyhow.workspace = true
 clap.workspace = true
 cxlalloc-static = { path = "../cxlalloc-static", features = ["backend-shm"] }
+cxx.workspace = true
 duct.workspace = true
 homedir.workspace = true
 libc.workspace = true
@@ -21,4 +22,5 @@ serde_json.workspace = true
 
 [build-dependencies]
 bindgen.workspace = true
+cxx-build.workspace = true
 pkg-config.workspace = true

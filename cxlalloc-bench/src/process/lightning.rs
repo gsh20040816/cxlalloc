@@ -36,13 +36,14 @@ unsafe impl Sync for sys::LightningAllocator {}
 impl allocator_bench::Backend for Backend {
     type Allocator = Lightning;
 
-    fn open(name: &str, size: usize) -> Self {
+    fn open(node: usize, name: &str, size: usize) -> Self {
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
         let name = CString::new(name).unwrap();
+        let address = super::open(node, &name, size).unwrap();
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(
                 store.as_mut_ptr(),
-                name.as_ptr(),
+                address.cast(),
                 size as _,
             );
             store.assume_init()
@@ -61,9 +62,7 @@ impl allocator_bench::Backend for Backend {
     }
 
     fn unlink(self) {
-        unsafe {
-            libc::shm_unlink(self.name.as_ptr());
-        }
+        super::unlink(&self.name).unwrap();
     }
 }
 

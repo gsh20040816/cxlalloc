@@ -45,11 +45,11 @@ impl Barrier {
         }
     }
 
-    pub fn init(&self, total: u64) {
-        self.0.store(total, Ordering::Relaxed);
-    }
+    pub fn wait(&self, count: u64) {
+        let _ = self
+            .0
+            .compare_exchange(0, count, Ordering::AcqRel, Ordering::Acquire);
 
-    pub fn wait(&self) {
         if self.0.fetch_sub(1, Ordering::Relaxed) == 1 {
             return;
         }

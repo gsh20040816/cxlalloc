@@ -1,38 +1,34 @@
 #include "boost.hpp"
-#include <boost/interprocess/indexes/null_index.hpp>
-#include <boost/interprocess/managed_shared_memory.hpp>
 
 using namespace boost::interprocess;
 
-wrap_rbtree wrap_open(const char *name, size_t size) {
-  return wrap_rbtree(open_or_create_t{}, name, size);
+std::shared_ptr<ManagedExternalBuffer> managed_open(char *buffer, size_t size) {
+  return std::shared_ptr<ManagedExternalBuffer>(
+      new ManagedExternalBuffer(open_only_t{}, buffer, size));
 }
 
-void *wrap_allocate(wrap_rbtree *shm, size_t size) {
-  return shm->allocate(size);
+std::shared_ptr<ManagedExternalBuffer> managed_create(char *buffer,
+                                                      size_t size) {
+  return std::shared_ptr<ManagedExternalBuffer>(
+      new ManagedExternalBuffer(create_only_t{}, buffer, size));
 }
 
-void wrap_deallocate(wrap_rbtree *shm, void *pointer) {
-  shm->deallocate(pointer);
+char *managed_allocate(ManagedExternalBuffer *buffer, size_t size) {
+  return (char *)buffer->inner.allocate(size);
 }
 
-void *wrap_handle_to_address(wrap_rbtree *shm, wrap_rbtree::handle_t handle) {
-  return shm->get_address_from_handle(handle);
+void managed_deallocate(ManagedExternalBuffer *buffer, char *pointer) {
+  return buffer->inner.deallocate((void *)pointer);
 }
 
-wrap_rbtree::handle_t wrap_address_to_handle(wrap_rbtree *shm, void *address) {
-  return shm->get_handle_from_address(address);
+char *managed_handle_to_address(ManagedExternalBuffer *buffer,
+                                uint64_t handle) {
+  return (char *)buffer->inner.get_address_from_handle(
+      static_cast<ManagedExternalBuffer::Backend::handle_t>(handle));
 }
 
-void *wrap_set_root(wrap_rbtree *shm, void *pointer) {
-  auto handle = wrap_address_to_handle(shm, pointer);
-  return shm->construct<wrap_rbtree::handle_t>("root")(handle);
-}
-
-void *wrap_get_root(wrap_rbtree *shm) {
-  wrap_rbtree::handle_t *root = shm->find<wrap_rbtree::handle_t>("root").first;
-  if (root == nullptr) {
-    return nullptr;
-  }
-  return wrap_handle_to_address(shm, *root);
+uint64_t managed_address_to_handle(ManagedExternalBuffer *buffer,
+                                   char *address) {
+  return static_cast<uint64_t>(
+      buffer->inner.get_handle_from_address((void *)address));
 }

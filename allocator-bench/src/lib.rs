@@ -14,7 +14,13 @@ use serde::Serialize;
 
 pub trait Backend: Send + Sync {
     type Allocator: Allocator;
-    fn open(name: &str, size: usize) -> Self;
+    fn create(node: usize, name: &str, size: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::open(node, name, size)
+    }
+    fn open(node: usize, name: &str, size: usize) -> Self;
     fn unlink(self);
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
 }
@@ -63,9 +69,7 @@ impl Pointer for NonNull<ffi::c_void> {
     }
 }
 
-pub struct Timer {
-    barrier: Barrier,
-}
+pub struct Timer {}
 
 #[derive(Deserialize, Serialize)]
 pub struct Metrics {
@@ -80,13 +84,10 @@ thread_local! {
 
 impl Timer {
     fn new() -> Self {
-        Self {
-            barrier: Barrier::new().unwrap(),
-        }
+        Self {}
     }
 
     fn start(&self) {
-        self.barrier.wait();
         START.set(Some(Instant::now()));
     }
 

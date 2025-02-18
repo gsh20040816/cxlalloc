@@ -7,7 +7,6 @@ use clap::Parser;
 use cxlalloc_bench::process;
 use duct::cmd;
 
-use allocator_bench::Barrier;
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Benchmark;
 use serde::Serialize;
@@ -73,6 +72,9 @@ struct Process {
 
     #[arg(short, long)]
     name: String,
+
+    #[arg(long)]
+    node: usize,
 
     #[arg(short, long)]
     size: usize,
@@ -213,9 +215,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cli::Process { pretty, process } => {
-            let barrier = Barrier::new()?;
-            barrier.init((process.process_count * process.thread_count) as u64);
-
             (0..process.process_count)
                 .map(|process_id| {
                     let mut command = vec![
@@ -223,6 +222,8 @@ fn main() -> anyhow::Result<()> {
                         process.allocator.to_string(),
                         "--name".to_string(),
                         process.name.to_string(),
+                        "--node".to_string(),
+                        process.node.to_string(),
                         "--size".to_string(),
                         process.size.to_string(),
                         "--process-count".to_string(),

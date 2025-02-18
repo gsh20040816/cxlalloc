@@ -5,6 +5,7 @@ use clap::Parser;
 use serde::Serialize;
 
 use crate::Backend;
+use crate::Barrier;
 use crate::Metrics;
 use crate::Timer;
 
@@ -41,10 +42,25 @@ pub trait Interface<B: Backend>: Sync {
         process_count: usize,
         process_id: usize,
         thread_count: usize,
+        node: usize,
         name: &str,
         size: usize,
     ) {
-        let backend = B::open(name, size);
+        let barrier = &Barrier::new().unwrap();
+
+        // Prevent race conditions between creating and opening shared memory data structures
+        let backend = match process_id {
+            0 => {
+                let backend = B::create(node, name, size);
+                barrier.wait(process_count as u64);
+                backend
+            }
+            _ => {
+                barrier.wait(process_count as u64);
+                B::open(node, name, size)
+            }
+        };
+
         let timer = &Timer::new();
         let global = &self.setup_process(process_count, process_id, thread_count);
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
@@ -61,6 +77,7 @@ pub trait Interface<B: Backend>: Sync {
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(global, thread_id, &mut allocator);
 
+                        barrier.wait(thread_count as u64);
                         timer.start();
                         self.run_thread(global, &mut local, &mut allocator);
                         let time = timer.stop();
