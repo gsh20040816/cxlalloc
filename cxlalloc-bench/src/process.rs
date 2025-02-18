@@ -17,6 +17,7 @@ pub use cxlalloc::Backend;
 use serde::Serialize;
 
 #[derive(Clone, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Allocator {
     Boost,
     Cxlalloc,
