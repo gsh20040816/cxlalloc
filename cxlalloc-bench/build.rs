@@ -59,5 +59,6 @@ fn boost() {
 
     cxx_build::bridge("src/process/boost.rs")
         .file("src/cpp/boost.cpp")
+        .opt_level(3)
         .compile("boost");
 }
