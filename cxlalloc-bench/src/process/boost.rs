@@ -75,7 +75,7 @@ impl allocator_bench::Backend for Boost {
     }
 
     fn unlink(self) {
-        let _ = super::unlink(&self.name);
+        super::unlink(&self.name).unwrap();
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {

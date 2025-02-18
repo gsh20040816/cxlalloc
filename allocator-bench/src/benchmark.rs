@@ -109,7 +109,9 @@ pub trait Interface<B: Backend>: Sync {
                 });
         });
 
-        backend.unlink();
+        if process_id == 0 {
+            backend.unlink();
+        }
     }
 }
 
