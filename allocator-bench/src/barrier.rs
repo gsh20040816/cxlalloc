@@ -51,16 +51,16 @@ impl Barrier {
         }
     }
 
-    pub fn wait(&self, count: u64) {
-        let _ = self
-            .0
-            .compare_exchange(0, count, Ordering::AcqRel, Ordering::Acquire);
+    // https://nullprogram.com/blog/2022/03/13/
+    pub fn wait(&self, total: u64, add: u64) {
+        let value = self.0.fetch_add(add, Ordering::Relaxed);
 
-        if self.0.fetch_sub(1, Ordering::Relaxed) == 1 {
+        if (value + add) % total == 0 {
             return;
         }
 
-        while self.0.load(Ordering::Relaxed) > 0 {
+        let epoch = value / total;
+        while self.0.load(Ordering::Relaxed) / total == epoch {
             hint::spin_loop()
         }
     }

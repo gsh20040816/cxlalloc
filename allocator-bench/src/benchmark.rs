@@ -47,16 +47,17 @@ pub trait Interface<B: Backend>: Sync {
         size: usize,
     ) {
         let barrier = &Barrier::new().unwrap();
+        let thread_total = process_count * thread_count;
 
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match process_id {
             0 => {
                 let backend = B::create(node, name, size);
-                barrier.wait(process_count as u64);
+                barrier.wait(thread_total as u64, thread_count as u64);
                 backend
             }
             _ => {
-                barrier.wait(process_count as u64);
+                barrier.wait(thread_total as u64, thread_count as u64);
                 B::open(node, name, size)
             }
         };
@@ -77,7 +78,7 @@ pub trait Interface<B: Backend>: Sync {
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(global, thread_id, &mut allocator);
 
-                        barrier.wait(thread_count as u64);
+                        barrier.wait(thread_total as u64, 1);
                         timer.start();
                         self.run_thread(global, &mut local, &mut allocator);
                         let time = timer.stop();
