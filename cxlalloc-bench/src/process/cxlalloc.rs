@@ -1,6 +1,7 @@
 use core::ffi;
 use core::ptr::NonNull;
 use std::ffi::CString;
+use std::ffi::OsStr;
 
 use cxlalloc_static::cxlalloc_free;
 use cxlalloc_static::cxlalloc_get_root;
@@ -40,9 +41,11 @@ impl allocator_bench::Backend for Backend {
         for entry in std::fs::read_dir("/dev/shm").unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
-            let path = path.to_str().unwrap();
-            if path.starts_with(&self.0) {
-                let _ = std::fs::remove_file(path);
+            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+                continue;
+            };
+            if name.starts_with(&self.0) {
+                std::fs::remove_file(path).unwrap();
             }
         }
     }

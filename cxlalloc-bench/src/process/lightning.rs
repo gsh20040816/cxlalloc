@@ -3,6 +3,7 @@ use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use std::ffi::CString;
+use std::ffi::OsStr;
 use std::sync::Arc;
 
 use sys::LightningAllocator_Free;
@@ -63,6 +64,17 @@ impl allocator_bench::Backend for Backend {
 
     fn unlink(self) {
         super::unlink(&self.name).unwrap();
+
+        for entry in std::fs::read_dir("/dev/shm").unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+                continue;
+            };
+            if name.starts_with("log") {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
     }
 }
 
