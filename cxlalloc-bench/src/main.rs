@@ -1,6 +1,7 @@
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use allocator_bench::Barrier;
 use anyhow::anyhow;
 use anyhow::Context;
 use clap::Parser;
@@ -215,6 +216,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cli::Process { pretty, process } => {
+            Barrier::unlink();
+
             (0..process.process_count)
                 .map(|process_id| {
                     let mut command = vec![

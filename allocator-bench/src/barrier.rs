@@ -45,6 +45,12 @@ impl Barrier {
         }
     }
 
+    pub fn unlink() {
+        unsafe {
+            let _ = libc::shm_unlink(Self::PATH.as_ptr());
+        }
+    }
+
     pub fn wait(&self, count: u64) {
         let _ = self
             .0
