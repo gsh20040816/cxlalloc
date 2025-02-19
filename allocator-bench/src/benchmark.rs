@@ -13,6 +13,8 @@ mod thread_test;
 mod ycsb;
 
 pub trait Interface<B: Backend>: Sync {
+    const NAME: &str;
+
     type Global: Sync;
     type Local;
 
@@ -53,7 +55,6 @@ pub trait Interface<B: Backend>: Sync {
         process_id: usize,
         thread_count: usize,
         numa: usize,
-        name: &str,
         size: usize,
     ) {
         let mut barrier = Barrier::new().unwrap();
@@ -62,13 +63,13 @@ pub trait Interface<B: Backend>: Sync {
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match process_id {
             0 => {
-                let backend = B::create(numa, name, size);
+                let backend = B::create(numa, Self::NAME, size);
                 barrier.wait(thread_total as u64, thread_count as u64);
                 backend
             }
             _ => {
                 barrier.wait(thread_total as u64, thread_count as u64);
-                B::open(numa, name, size)
+                B::open(numa, Self::NAME, size)
             }
         }
         .unwrap();

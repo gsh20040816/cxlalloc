@@ -8,9 +8,6 @@ struct Cli {
     #[arg(short, long)]
     allocator: Allocator,
 
-    #[arg(short, long)]
-    name: String,
-
     /// NUMA node
     #[arg(long)]
     node: usize,
@@ -32,7 +29,6 @@ impl Cli {
                     self.bench.process_id,
                     self.bench.thread_count,
                     self.node,
-                    &self.name,
                     self.size,
                 )
             }
@@ -43,7 +39,6 @@ impl Cli {
                     self.bench.process_id,
                     self.bench.thread_count,
                     self.node,
-                    &self.name,
                     self.size,
                 )
             }

@@ -70,9 +70,6 @@ struct Process {
     #[arg(short, long)]
     allocator: process::Allocator,
 
-    #[arg(short, long)]
-    name: String,
-
     #[arg(long)]
     node: usize,
 
@@ -220,8 +217,6 @@ fn main() -> anyhow::Result<()> {
                     let mut command = vec![
                         "--allocator".to_string(),
                         process.allocator.to_string(),
-                        "--name".to_string(),
-                        process.name.to_string(),
                         "--node".to_string(),
                         process.node.to_string(),
                         "--size".to_string(),

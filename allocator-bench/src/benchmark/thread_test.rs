@@ -20,6 +20,7 @@ pub struct ThreadTest {
 }
 
 impl<B: Backend> benchmark::Interface<B> for ThreadTest {
+    const NAME: &str = "tt";
     type Global = usize;
     type Local = Vec<Option<<B::Allocator as Allocator>::Ptr>>;
 

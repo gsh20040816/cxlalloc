@@ -35,6 +35,7 @@ pub struct Global {
 unsafe impl Sync for Global {}
 
 impl<B: Backend> benchmark::Interface<B> for Ycsb {
+    const NAME: &str = "ycsb";
     type Global = Global;
     type Local = Range<usize>;
 
