@@ -18,6 +18,7 @@ pub trait Interface<B: Backend>: Sync {
 
     fn setup_process(
         &self,
+        numa: usize,
         process_count: usize,
         process_id: usize,
         thread_count: usize,
@@ -37,12 +38,21 @@ pub trait Interface<B: Backend>: Sync {
         allocator: &mut B::Allocator,
     );
 
+    fn teardown_process(
+        &self,
+        _process_count: usize,
+        _process_id: usize,
+        _thread_count: usize,
+        _global: Self::Global,
+    ) {
+    }
+
     fn run_process(
         &self,
         process_count: usize,
         process_id: usize,
         thread_count: usize,
-        node: usize,
+        numa: usize,
         name: &str,
         size: usize,
     ) {
@@ -52,19 +62,19 @@ pub trait Interface<B: Backend>: Sync {
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match process_id {
             0 => {
-                let backend = B::create(node, name, size);
+                let backend = B::create(numa, name, size);
                 barrier.wait(thread_total as u64, thread_count as u64);
                 backend
             }
             _ => {
                 barrier.wait(thread_total as u64, thread_count as u64);
-                B::open(node, name, size)
+                B::open(numa, name, size)
             }
         }
         .unwrap();
 
         let timer = &Timer::new();
-        let global = &self.setup_process(process_count, process_id, thread_count);
+        let global = self.setup_process(numa, process_count, process_id, thread_count);
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
 
         thread::scope(|scope| {
@@ -73,6 +83,7 @@ pub trait Interface<B: Backend>: Sync {
                 .map(|thread_id| {
                     let barrier = &barrier;
                     let backend = &backend;
+                    let global = &global;
                     let handle = scope.spawn(move || {
                         let core = thread_id % cores.len();
                         core_affinity::set_for_current(cores[core]);
@@ -112,9 +123,11 @@ pub trait Interface<B: Backend>: Sync {
                 });
         });
 
+        self.teardown_process(process_count, process_id, thread_count, global);
+
         if process_id == 0 {
             barrier.unlink().unwrap();
-            backend.unlink();
+            backend.unlink().unwrap();
         }
     }
 }

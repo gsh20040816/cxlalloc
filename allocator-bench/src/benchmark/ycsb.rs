@@ -1,7 +1,5 @@
-use core::ffi;
 use core::hash::Hash as _;
 use core::hash::Hasher as _;
-use core::hint;
 use core::ops::Range;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -9,6 +7,7 @@ use std::hash::DefaultHasher;
 
 use clap::Parser;
 use serde::Serialize;
+use shm::Shm;
 
 use crate::Allocator;
 use crate::Backend;
@@ -27,11 +26,25 @@ pub struct Insert {
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
 const MAX_SIZE: usize = 1_000;
 
-impl<B: Backend> benchmark::Interface<B> for Ycsb {
-    type Global = (Vec<Insert>, usize);
-    type Local = (*mut ffi::c_void, Range<usize>);
+pub struct Global {
+    trace: Vec<Insert>,
+    thread_total: usize,
+    index: Shm<FlatMap>,
+}
 
-    fn setup_process(&self, process_count: usize, _: usize, thread_count: usize) -> Self::Global {
+unsafe impl Sync for Global {}
+
+impl<B: Backend> benchmark::Interface<B> for Ycsb {
+    type Global = Global;
+    type Local = Range<usize>;
+
+    fn setup_process(
+        &self,
+        numa: usize,
+        process_count: usize,
+        _process_id: usize,
+        thread_count: usize,
+    ) -> Self::Global {
         let data = include_str!("../../ycsb-a.txt");
 
         let mut commands = Vec::new();
@@ -42,95 +55,62 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
 
             let (_table, line) = line.split_once(' ').unwrap();
             let (key, record) = line.split_once(' ').unwrap();
-            // data = data.strip_prefix('[').unwrap();
-            //
-            // let mut record = Vec::new();
-            // for _ in 0..10 {
-            //     data = data.strip_prefix(' ').unwrap();
-            //     let name = &data[..6];
-            //     let value = &data[7..107];
-            //     data = &data[107..];
-            //     record.push(Field { name, value });
-            // }
-
             commands.push(Insert { key, record })
         }
 
-        (commands, process_count * thread_count)
+        Global {
+            trace: commands,
+            thread_total: process_count * thread_count,
+            index: Shm::new(Some(numa), c"index".to_owned()).unwrap(),
+        }
     }
 
     fn setup_thread(
         &self,
-        (commands, thread_count): &Self::Global,
+        global: &Self::Global,
         thread_id: usize,
-        allocator: &mut B::Allocator,
+        _allocator: &mut B::Allocator,
     ) -> Self::Local {
-        let map: <B::Allocator as Allocator>::Ptr = if thread_id == 0 {
-            let pointer = if std::any::type_name::<B::Allocator>().contains("cxl_shm") {
-                // HACK: relies on CXL-SHM allocating contiguous memory for consecutive requests
-                // for the same size class
-                let count = std::mem::size_of::<FlatMap>().next_multiple_of(MAX_SIZE) / MAX_SIZE;
-                let head = allocator.allocate(MAX_SIZE).unwrap();
-                for _ in 1..count {
-                    allocator.allocate(MAX_SIZE).unwrap();
-                }
-                head
-            } else {
-                allocator.allocate(std::mem::size_of::<FlatMap>()).unwrap()
-            };
-
-            // allocator.set_root(pointer);
-            // allocator.get_root().unwrap()
-            todo!()
-        } else {
-            // loop {
-            //     match allocator.get_root() {
-            //         Some(root) => break root,
-            //         None => hint::spin_loop(),
-            //     }
-            // }
-            todo!()
-        };
-
-        let len = commands.len() / thread_count;
+        let len = global.trace.len() / global.thread_total;
         let start = thread_id * len;
-        (map.as_ptr(), start..start + len)
+        start..start + len
     }
 
     fn run_thread(
         &self,
-        (commands, _): &Self::Global,
-        (map, range): &mut Self::Local,
+        global: &Self::Global,
+        local: &mut Self::Local,
         allocator: &mut B::Allocator,
     ) {
-        let map = unsafe { map.cast::<FlatMap>().as_ref().unwrap() };
+        let map = unsafe { global.index.address().as_ref() }.unwrap();
+        let commands = &global.trace[local.clone()];
 
-        for insert in &commands[range.clone()] {
+        for commands in commands {
             // HACK: shrink record for CXL-SHM
-            let record_len = 1_000 - insert.key.len();
+            let record_len = MAX_SIZE - commands.key.len();
 
-            let pointer = allocator.allocate(insert.key.len() + record_len).unwrap();
+            let pointer = allocator.allocate(commands.key.len() + record_len).unwrap();
 
             unsafe {
                 // Copy key
                 pointer
                     .as_ptr()
                     .cast::<u8>()
-                    .copy_from_nonoverlapping(insert.key.as_bytes().as_ptr(), insert.key.len());
+                    .copy_from_nonoverlapping(commands.key.as_bytes().as_ptr(), commands.key.len());
 
                 // Copy record
                 pointer
                     .as_ptr()
                     .cast::<u8>()
-                    .byte_add(insert.key.len())
+                    .byte_add(commands.key.len())
                     .copy_from_nonoverlapping(
-                        insert.record[..record_len].as_bytes().as_ptr(),
+                        commands.record[..record_len].as_bytes().as_ptr(),
                         record_len,
                     );
             }
 
             let mut hasher = DefaultHasher::new();
-            insert.key.hash(&mut hasher);
+            commands.key.hash(&mut hasher);
             let mut index = hasher.finish() as usize % map.0.len();
 
             loop {
@@ -148,6 +128,20 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
             }
         }
     }
+
+    fn teardown_process(
+        &self,
+        _process_count: usize,
+        process_id: usize,
+        _thread_count: usize,
+        mut global: Self::Global,
+    ) {
+        if process_id != 0 {
+            return;
+        }
+
+        global.index.unlink().unwrap();
+    }
 }
 
-struct FlatMap([AtomicU64; 1 << 16]);
+struct FlatMap([AtomicU64; 1 << 20]);

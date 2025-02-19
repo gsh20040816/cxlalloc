@@ -23,7 +23,13 @@ impl<B: Backend> benchmark::Interface<B> for ThreadTest {
     type Global = usize;
     type Local = Vec<Option<<B::Allocator as Allocator>::Ptr>>;
 
-    fn setup_process(&self, process_count: usize, _: usize, thread_count: usize) -> Self::Global {
+    fn setup_process(
+        &self,
+        _: usize,
+        process_count: usize,
+        _: usize,
+        thread_count: usize,
+    ) -> Self::Global {
         assert_eq!(
             self.object_count % (process_count * thread_count),
             0,
