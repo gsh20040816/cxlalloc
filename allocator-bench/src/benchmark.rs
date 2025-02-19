@@ -46,7 +46,7 @@ pub trait Interface<B: Backend>: Sync {
         name: &str,
         size: usize,
     ) {
-        let barrier = &Barrier::new().unwrap();
+        let mut barrier = Barrier::new().unwrap();
         let thread_total = process_count * thread_count;
 
         // Prevent race conditions between creating and opening shared memory data structures
@@ -70,6 +70,7 @@ pub trait Interface<B: Backend>: Sync {
             let handles = (process_id * thread_count..)
                 .take(thread_count)
                 .map(|thread_id| {
+                    let barrier = &barrier;
                     let backend = &backend;
                     let handle = scope.spawn(move || {
                         let core = thread_id % cores.len();
@@ -111,6 +112,7 @@ pub trait Interface<B: Backend>: Sync {
         });
 
         if process_id == 0 {
+            barrier.unlink().unwrap();
             backend.unlink();
         }
     }

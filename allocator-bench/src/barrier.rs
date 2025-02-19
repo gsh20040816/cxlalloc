@@ -1,75 +1,42 @@
 use core::ffi::CStr;
 use core::hint;
-use core::ptr;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::io;
-use std::os::fd::AsRawFd as _;
-use std::os::fd::FromRawFd;
-use std::os::fd::OwnedFd;
 
-pub struct Barrier(&'static AtomicU64);
+use shm::Shm;
+
+pub struct Barrier(Shm<u64>);
+
+unsafe impl Sync for Barrier {}
 
 impl Barrier {
-    const PAGE: usize = 4096;
     const PATH: &CStr = c"/barrier";
 
     pub fn new() -> io::Result<Self> {
-        Self::open(Self::PATH)
+        Shm::new(None, Self::PATH.to_owned()).map(Self)
     }
 
-    fn open(path: &CStr) -> io::Result<Self> {
-        unsafe {
-            let shm = match libc::shm_open(path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) {
-                -1 => return Err(io::Error::last_os_error()),
-                fd => OwnedFd::from_raw_fd(fd),
-            };
-
-            if libc::ftruncate64(shm.as_raw_fd(), Self::PAGE as i64) == -1 {
-                return Err(io::Error::last_os_error());
-            }
-
-            let address = match libc::mmap64(
-                ptr::null_mut(),
-                Self::PAGE,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED_VALIDATE,
-                shm.as_raw_fd(),
-                0,
-            ) {
-                libc::MAP_FAILED => return Err(io::Error::last_os_error()),
-                address => address,
-            };
-
-            Ok(Self(AtomicU64::from_ptr(address.cast())))
-        }
-    }
-
-    pub fn unlink() {
-        unsafe {
-            let _ = libc::shm_unlink(Self::PATH.as_ptr());
-        }
+    pub fn unlink(&mut self) -> io::Result<()> {
+        self.0.unlink()
     }
 
     // https://nullprogram.com/blog/2022/03/13/
     pub fn wait(&self, total: u64, add: u64) {
-        let value = self.0.fetch_add(add, Ordering::Relaxed);
+        let barrier = self.get();
+        let value = barrier.fetch_add(add, Ordering::Relaxed);
 
         if (value + add) % total == 0 {
             return;
         }
 
         let epoch = value / total;
-        while self.0.load(Ordering::Relaxed) / total == epoch {
+        while barrier.load(Ordering::Relaxed) / total == epoch {
             hint::spin_loop()
         }
     }
-}
 
-impl Drop for Barrier {
-    fn drop(&mut self) {
-        unsafe {
-            libc::munmap(self.0.as_ptr().cast(), Self::PAGE);
-        }
+    fn get(&self) -> &AtomicU64 {
+        unsafe { AtomicU64::from_ptr(self.0.address_mut()) }
     }
 }

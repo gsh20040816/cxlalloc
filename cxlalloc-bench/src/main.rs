@@ -216,8 +216,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cli::Process { pretty, process } => {
-            Barrier::unlink();
-
             (0..process.process_count)
                 .map(|process_id| {
                     let mut command = vec![
