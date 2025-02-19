@@ -79,11 +79,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1739827010,
-        "narHash": "sha256-Kgz7kANVRmipjkKBwPhfdijcr9RvfYBTff+weAZZTZo=",
+        "lastModified": 1739998769,
+        "narHash": "sha256-3rWxsjSbeJHN6XXaWQ0aQr3GrwYfKAeyMQWZs0NcqyA=",
         "owner": "nwtnni",
         "repo": "lightning",
-        "rev": "e4976162a9a381226166da905ecd1d57f078eb1f",
+        "rev": "0e783b6c89e65c8dce809311df30e4365545699f",
         "type": "github"
       },
       "original": {
