@@ -4,15 +4,14 @@ use core::ops::Deref;
 use core::ptr::NonNull;
 use std::ffi::CString;
 use std::ffi::OsStr;
+use std::io;
 use std::sync::Arc;
 
 use sys::LightningAllocator_Free;
-use sys::LightningAllocator_GetRoot;
 use sys::LightningAllocator_Initialize;
 use sys::LightningAllocator_Malloc;
 use sys::LightningAllocator_OffsetToPointer;
 use sys::LightningAllocator_PointerToOffset;
-use sys::LightningAllocator_SetRoot;
 
 #[expect(unused)]
 #[expect(non_camel_case_types)]
@@ -22,9 +21,12 @@ mod sys {
 }
 
 pub struct Backend {
-    name: CString,
+    shm: shm::Raw,
     inner: Arc<sys::LightningAllocator>,
 }
+
+unsafe impl Send for Backend {}
+unsafe impl Sync for Backend {}
 
 pub struct Lightning {
     id: usize,
@@ -37,19 +39,18 @@ unsafe impl Sync for sys::LightningAllocator {}
 impl allocator_bench::Backend for Backend {
     type Allocator = Lightning;
 
-    fn open(node: usize, name: &str, size: usize) -> Self {
+    fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
+        let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size)?;
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
-        let name = CString::new(name).unwrap();
-        let address = super::open(node, &name, size).unwrap();
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(
                 store.as_mut_ptr(),
-                address.cast(),
+                shm.address_mut().cast(),
                 size as _,
             );
             store.assume_init()
         });
-        Self { name, inner }
+        Ok(Self { shm, inner })
     }
 
     fn allocator(&self, id: usize) -> Self::Allocator {
@@ -62,8 +63,8 @@ impl allocator_bench::Backend for Backend {
         }
     }
 
-    fn unlink(self) {
-        super::unlink(&self.name).unwrap();
+    fn unlink(mut self) -> io::Result<()> {
+        self.shm.unlink()?;
 
         for entry in std::fs::read_dir("/dev/shm").unwrap() {
             let entry = entry.unwrap();
@@ -72,9 +73,11 @@ impl allocator_bench::Backend for Backend {
                 continue;
             };
             if name.starts_with("log") {
-                std::fs::remove_file(path).unwrap();
+                std::fs::remove_file(path)?;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -110,13 +113,5 @@ impl allocator_bench::Allocator for Lightning {
 
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {
         NonNull::new(unsafe { LightningAllocator_OffsetToPointer(self.as_ptr(), offset as i64) })
-    }
-
-    fn set_root(&mut self, pointer: Self::Ptr) {
-        unsafe { LightningAllocator_SetRoot(self.as_ptr(), pointer.as_ptr()) }
-    }
-
-    fn get_root(&mut self) -> Option<Self::Ptr> {
-        unsafe { NonNull::new(LightningAllocator_GetRoot(self.as_ptr())) }
     }
 }

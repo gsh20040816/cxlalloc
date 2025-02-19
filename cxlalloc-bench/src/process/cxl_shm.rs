@@ -1,8 +1,7 @@
-use core::ffi;
 use core::mem::MaybeUninit;
 use std::ffi::CString;
+use std::io;
 
-use allocator_bench::Pointer as _;
 use sys::cxl_shm_cxl_shm2;
 use sys::cxl_shm_thread_init;
 use sys::CXLRef_s_get_addr;
@@ -12,11 +11,7 @@ mod sys {
     include!(concat!(env!("OUT_DIR"), "/bind_cxl_shm.rs"));
 }
 
-pub struct Backend {
-    name: CString,
-    size: usize,
-    address: *mut ffi::c_void,
-}
+pub struct Backend(shm::Raw);
 
 unsafe impl Send for Backend {}
 unsafe impl Sync for Backend {}
@@ -26,24 +21,22 @@ pub struct CxlShm(sys::cxl_shm);
 impl allocator_bench::Backend for Backend {
     type Allocator = CxlShm;
 
-    fn open(node: usize, name: &str, size: usize) -> Self {
-        let name = CString::new(name).unwrap();
-        let address = super::open(node, &name, size).unwrap();
-        Self {
-            name: name.to_owned(),
-            size,
-            address,
-        }
+    fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
+        shm::Raw::new(Some(node), CString::new(name).unwrap(), size).map(Self)
     }
 
-    fn unlink(self) {
-        super::unlink(&self.name).unwrap();
+    fn unlink(mut self) -> io::Result<()> {
+        self.0.unlink()
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {
         unsafe {
             let mut cxl_shm: MaybeUninit<sys::cxl_shm> = MaybeUninit::uninit();
-            cxl_shm_cxl_shm2(cxl_shm.as_mut_ptr(), self.size as u64, self.address);
+            cxl_shm_cxl_shm2(
+                cxl_shm.as_mut_ptr(),
+                self.0.size() as u64,
+                self.0.address_mut(),
+            );
             cxl_shm_thread_init(cxl_shm.as_mut_ptr());
             CxlShm(cxl_shm.assume_init())
         }
@@ -67,21 +60,6 @@ impl allocator_bench::Allocator for CxlShm {
 
     fn offset_to_pointer(&mut self, _: u64) -> Option<Self::Ptr> {
         unimplemented!()
-    }
-
-    fn set_root(&mut self, pointer: Self::Ptr) {
-        unsafe {
-            sys::cxl_shm_set_root(&mut self.0, pointer);
-        }
-    }
-
-    fn get_root(&mut self) -> Option<Self::Ptr> {
-        unsafe {
-            match sys::cxl_shm_get_root(&mut self.0) {
-                null if null.as_ptr().is_null() => None,
-                pointer => Some(pointer),
-            }
-        }
     }
 }
 

@@ -40,6 +40,10 @@ impl<T> Shm<T> {
         self.inner.address.cast()
     }
 
+    pub fn size(&self) -> usize {
+        self.inner.size
+    }
+
     pub fn unmap(self) -> io::Result<()> {
         self.inner.unmap()
     }
@@ -109,6 +113,10 @@ impl Raw {
 
     pub fn address_mut(&self) -> *mut ffi::c_void {
         self.address
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
     }
 
     pub fn unmap(mut self) -> io::Result<()> {

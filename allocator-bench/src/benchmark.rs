@@ -60,7 +60,8 @@ pub trait Interface<B: Backend>: Sync {
                 barrier.wait(thread_total as u64, thread_count as u64);
                 B::open(node, name, size)
             }
-        };
+        }
+        .unwrap();
 
         let timer = &Timer::new();
         let global = &self.setup_process(process_count, process_id, thread_count);

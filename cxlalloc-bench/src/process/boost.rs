@@ -1,6 +1,7 @@
 use core::ffi;
 use core::ptr::NonNull;
 use std::ffi::CString;
+use std::io;
 
 use cxx::SharedPtr;
 
@@ -37,49 +38,40 @@ mod sys {
     }
 }
 
-#[derive(Clone)]
-pub struct Boost {
-    name: CString,
+pub struct Backend {
+    shm: shm::Raw,
     inner: SharedPtr<sys::ManagedExternalBuffer>,
 }
 
-unsafe impl Send for Boost {}
-unsafe impl Sync for Boost {}
+pub struct Boost(SharedPtr<sys::ManagedExternalBuffer>);
 
-impl Boost {
-    fn inner(&self) -> *mut sys::ManagedExternalBuffer {
-        self.inner.as_ref().unwrap() as *const _ as *mut _
-    }
-}
+unsafe impl Send for Backend {}
+unsafe impl Sync for Backend {}
 
-impl allocator_bench::Backend for Boost {
-    type Allocator = Self;
-    fn create(node: usize, name: &str, size: usize) -> Self {
+impl allocator_bench::Backend for Backend {
+    type Allocator = Boost;
+    fn create(node: usize, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
-            let name = CString::new(name).unwrap();
-            let address = super::open(node, &name, size).unwrap();
-            #[allow(clippy::arc_with_non_send_sync)]
-            let inner = sys::managed_create(address.cast(), size);
-            Self { name, inner }
+            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size)?;
+            let inner = sys::managed_create(shm.address_mut().cast(), size);
+            Ok(Self { shm, inner })
         }
     }
 
-    fn open(node: usize, name: &str, size: usize) -> Self {
+    fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
-            let name = CString::new(name).unwrap();
-            let address = super::open(node, &name, size).unwrap();
-            #[allow(clippy::arc_with_non_send_sync)]
-            let inner = sys::managed_open(address.cast(), size);
-            Self { name, inner }
+            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size)?;
+            let inner = sys::managed_open(shm.address_mut().cast(), size);
+            Ok(Self { shm, inner })
         }
     }
 
-    fn unlink(self) {
-        super::unlink(&self.name).unwrap();
+    fn unlink(mut self) -> io::Result<()> {
+        self.shm.unlink()
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {
-        self.clone()
+        Boost(self.inner.clone())
     }
 }
 
@@ -101,12 +93,10 @@ impl allocator_bench::Allocator for Boost {
     fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         unsafe { NonNull::new(sys::managed_handle_to_address(self.inner(), offset).cast()) }
     }
+}
 
-    fn set_root(&mut self, _pointer: Self::Ptr) {
-        todo!()
-    }
-
-    fn get_root(&mut self) -> Option<Self::Ptr> {
-        todo!()
+impl Boost {
+    fn inner(&self) -> *mut sys::ManagedExternalBuffer {
+        self.0.as_ref().unwrap() as *const _ as *mut _
     }
 }

@@ -5,6 +5,7 @@ pub mod process;
 use core::cell::Cell;
 use core::ffi;
 use core::ptr::NonNull;
+use std::io;
 use std::time::Instant;
 
 pub use barrier::Barrier;
@@ -12,16 +13,15 @@ pub use benchmark::Benchmark;
 use serde::Deserialize;
 use serde::Serialize;
 
-pub trait Backend: Send + Sync {
+pub trait Backend: Send + Sync + Sized {
     type Allocator: Allocator;
-    fn create(node: usize, name: &str, size: usize) -> Self
-    where
-        Self: Sized,
-    {
+    fn create(node: usize, name: &str, size: usize) -> io::Result<Self> {
         Self::open(node, name, size)
     }
-    fn open(node: usize, name: &str, size: usize) -> Self;
-    fn unlink(self);
+
+    fn open(node: usize, name: &str, size: usize) -> io::Result<Self>;
+
+    fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
 }
 
@@ -31,8 +31,6 @@ pub trait Allocator: Sized {
     unsafe fn deallocate(&mut self, pointer: Self::Ptr);
     unsafe fn pointer_to_offset(&mut self, pointer: Self::Ptr) -> u64;
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr>;
-    fn set_root(&mut self, pointer: Self::Ptr);
-    fn get_root(&mut self) -> Option<Self::Ptr>;
 }
 
 pub trait Pointer {

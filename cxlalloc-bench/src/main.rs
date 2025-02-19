@@ -1,7 +1,6 @@
 use std::io::Write as _;
 use std::path::PathBuf;
 
-use allocator_bench::Barrier;
 use anyhow::anyhow;
 use anyhow::Context;
 use clap::Parser;

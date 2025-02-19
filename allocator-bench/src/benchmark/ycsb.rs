@@ -65,7 +65,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         thread_id: usize,
         allocator: &mut B::Allocator,
     ) -> Self::Local {
-        let map = if thread_id == 0 {
+        let map: <B::Allocator as Allocator>::Ptr = if thread_id == 0 {
             let pointer = if std::any::type_name::<B::Allocator>().contains("cxl_shm") {
                 // HACK: relies on CXL-SHM allocating contiguous memory for consecutive requests
                 // for the same size class
@@ -79,15 +79,17 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                 allocator.allocate(std::mem::size_of::<FlatMap>()).unwrap()
             };
 
-            allocator.set_root(pointer);
-            allocator.get_root().unwrap()
+            // allocator.set_root(pointer);
+            // allocator.get_root().unwrap()
+            todo!()
         } else {
-            loop {
-                match allocator.get_root() {
-                    Some(root) => break root,
-                    None => hint::spin_loop(),
-                }
-            }
+            // loop {
+            //     match allocator.get_root() {
+            //         Some(root) => break root,
+            //         None => hint::spin_loop(),
+            //     }
+            // }
+            todo!()
         };
 
         let len = commands.len() / thread_count;
