@@ -33,9 +33,11 @@ dependencies = [
  "clap",
  "core_affinity",
  "libc",
+ "rkyv",
  "serde",
  "serde_json",
  "shm",
+ "ycsb",
 ]
 
 [[package]]
@@ -2061,7 +2063,7 @@ name = "ycsb"
 version = "0.1.0"
 dependencies = [
  "clap",
- "rkyv",
+ "serde",
 ]
 
 [[package]]

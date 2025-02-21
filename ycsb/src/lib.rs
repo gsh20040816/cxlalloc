@@ -1,67 +1,60 @@
-use rkyv::Archive;
-use rkyv::Deserialize;
-use rkyv::Serialize;
+use serde::Deserialize;
 
-#[derive(Archive, Serialize, Deserialize)]
-#[rkyv(derive(Debug))]
-pub enum Command {
-    Insert(Insert),
+pub trait Database {}
+
+#[derive(Deserialize)]
+pub struct Workload {
+    #[serde(alias = "fieldcount", default = "default::field_count")]
+    field_count: usize,
+
+    #[serde(alias = "recordcount")]
+    record_count: usize,
+
+    #[serde(alias = "operationcount")]
+    operation_count: usize,
+
+    #[serde(alias = "readallfields", default = "default::read_all_fields")]
+    read_all_fields: bool,
+
+    #[serde(alias = "readproportion", default = "default::read_proportion")]
+    read_proportion: f32,
+
+    #[serde(alias = "updateproportion", default = "default::update_proportion")]
+    update_proportion: f32,
+
+    #[serde(alias = "scanproportion", default)]
+    scan_proportion: f32,
+
+    #[serde(alias = "insertproportion", default)]
+    insert_proportion: f32,
+
+    #[serde(
+        alias = "requestdistribution",
+        default = "default::request_distribution"
+    )]
+    request_distribution: RequestDistribution,
 }
 
-impl Command {
-    pub fn parse(line: &str) -> Option<Self> {
-        Insert::parse(line).map(Self::Insert)
-    }
+#[rustfmt::skip]
+mod default {
+    use super::RequestDistribution;
+    pub(super) fn field_count() -> usize { 10 }
+    pub(super) fn read_all_fields() -> bool { true}
+    pub(super) fn read_proportion() -> f32 { 0.95 }
+    pub(super) fn update_proportion() -> f32 { 0.05 }
+    pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
 }
 
-#[derive(Archive, Serialize, Deserialize)]
-#[rkyv(derive(Debug))]
-pub struct Insert {
-    table: String,
-    key: String,
-    record: Vec<Pair>,
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum FieldLengthDistribution {
+    #[serde(alias = "constant")]
+    Constant,
 }
 
-impl Insert {
-    pub fn parse(line: &str) -> Option<Self> {
-        let line = line.strip_prefix("INSERT ")?;
-
-        let (table, line) = line.split_once(' ')?;
-        let (key, mut line) = line.split_once(' ')?;
-
-        let mut record = Vec::new();
-
-        line.strip_prefix("[ ")?;
-
-        loop {
-            let (key, rest) = line.split_once('=')?;
-            line = rest;
-
-            let next = line.find(" field");
-            let value = line[..next.or_else(|| line.find(" ]"))?].to_owned();
-
-            record.push(Pair {
-                key: key.to_owned(),
-                value,
-            });
-
-            match next {
-                None => break,
-                Some(index) => line = &line[index + 1..],
-            }
-        }
-
-        Some(Self {
-            table: table.to_owned(),
-            key: key.to_owned(),
-            record,
-        })
-    }
-}
-
-#[derive(Archive, Serialize, Deserialize)]
-#[rkyv(derive(Debug))]
-pub struct Pair {
-    key: String,
-    value: String,
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum RequestDistribution {
+    #[serde(alias = "zipfian")]
+    Zipfian,
 }

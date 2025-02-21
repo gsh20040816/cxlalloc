@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 clap.workspace = true
-rkyv.workspace = true
+serde.workspace = true
