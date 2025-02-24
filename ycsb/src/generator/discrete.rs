@@ -9,6 +9,7 @@ pub struct Discrete<T> {
 }
 
 impl<T> Discrete<T> {
+    #[inline]
     pub fn new(choices: Vec<(T, f32)>) -> Self {
         let weights = WeightedIndex::new(choices.iter().map(|(_, weight)| *weight)).unwrap();
         let values = choices.into_iter().map(|(value, _)| value).collect();
@@ -21,6 +22,8 @@ where
     T: Copy,
 {
     type Item = T;
+
+    #[inline]
     fn next<R: rand::Rng>(&mut self, rng: &mut R) -> Self::Item {
         let index = self.weights.sample(rng);
         self.values[index]

@@ -3,13 +3,12 @@ pub mod generator;
 use core::hash::Hash as _;
 use core::hash::Hasher as _;
 use core::sync::atomic::AtomicU64;
-use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
+use generator::Generator as _;
+use generator::number;
 use rand::Rng;
-use rapidhash::RAPID_SEED;
 use rapidhash::RapidHasher;
-use rapidhash::rapidhash;
 use serde::Deserialize;
 
 pub trait Database {}
@@ -53,7 +52,7 @@ pub struct Workload {
         alias = "requestdistribution",
         default = "default::request_distribution"
     )]
-    request_distribution: RequestDistribution,
+    request_distribution: number::Distribution,
 }
 
 pub struct Loader {
@@ -63,6 +62,9 @@ pub struct Loader {
 
 pub struct Runner {
     operation_chooser: generator::Discrete<Operation>,
+    key_chooser: generator::Number,
+    field_count: usize,
+    field_chooser: generator::Number,
 }
 
 impl Workload {
@@ -81,21 +83,63 @@ impl Workload {
             (Operation::Insert, self.insert_proportion),
         ]);
 
-        Runner { operation_chooser }
+        Runner {
+            operation_chooser,
+            field_count: self.field_count,
+            key_chooser: match self.request_distribution {
+                number::Distribution::Constant => unreachable!(),
+                number::Distribution::Uniform => {
+                    generator::Number::uniform(self.record_count as u64)
+                }
+                number::Distribution::Zipfian => {
+                    generator::Number::zipfian(self.record_count as u64)
+                }
+            },
+            field_chooser: generator::Number::uniform(self.field_count as u64),
+        }
     }
 }
 
 impl Loader {
+    #[inline]
     pub fn next_key(&mut self) -> u64 {
         let key = self.key_sequence.fetch_add(1, Ordering::Relaxed);
         match self.insert_order {
             InsertOrder::Ordered => key,
             InsertOrder::Hashed => {
-                let mut hasher = RapidHasher::new(RAPID_SEED);
+                let mut hasher = RapidHasher::default();
                 key.hash(&mut hasher);
                 hasher.finish()
             }
         }
+    }
+}
+
+impl Runner {
+    #[inline]
+    pub fn next_operation<R: Rng>(&mut self, rng: &mut R) -> Operation {
+        self.operation_chooser.next(rng)
+    }
+
+    #[inline]
+    pub fn field_count(&self) -> usize {
+        self.field_count
+    }
+
+    #[inline]
+    pub fn next_key<R: Rng>(&mut self, rng: &mut R) -> u64 {
+        self.key_chooser.next(rng)
+    }
+
+    #[inline]
+    pub fn next_field<R: Rng>(&mut self, rng: &mut R) -> u64 {
+        self.field_chooser.next(rng)
+    }
+
+    // FIXME
+    #[inline]
+    pub fn next_field_length<R: Rng>(&mut self, _: &mut R) -> u64 {
+        100
     }
 }
 
@@ -110,14 +154,14 @@ pub enum Operation {
 #[rustfmt::skip]
 mod default {
     use crate::InsertOrder;
-    use super::RequestDistribution;
+    use crate::generator::number;
 
     pub(super) fn insert_order() -> InsertOrder { InsertOrder::Hashed }
     pub(super) fn field_count() -> usize { 10 }
     pub(super) fn read_all_fields() -> bool { true}
     pub(super) fn read_proportion() -> f32 { 0.95 }
     pub(super) fn update_proportion() -> f32 { 0.05 }
-    pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
+    pub(super) fn request_distribution() -> number::Distribution { number::Distribution::Zipfian }
 }
 
 #[derive(Copy, Clone, Debug, Deserialize)]
@@ -127,19 +171,4 @@ pub enum InsertOrder {
 
     #[serde(alias = "hashed")]
     Hashed,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum FieldLengthDistribution {
-    #[serde(alias = "constant")]
-    Constant,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum RequestDistribution {
-    #[serde(alias = "uniform")]
-    Uniform,
-
-    #[serde(alias = "zipfian")]
-    Zipfian,
 }
