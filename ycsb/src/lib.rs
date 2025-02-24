@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 pub trait Database {}
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Workload {
     #[serde(alias = "fieldcount", default = "default::field_count")]
     field_count: usize,
@@ -45,16 +45,17 @@ mod default {
     pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Deserialize)]
 pub enum FieldLengthDistribution {
     #[serde(alias = "constant")]
     Constant,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Deserialize)]
 pub enum RequestDistribution {
+    #[serde(alias = "uniform")]
+    Uniform,
+
     #[serde(alias = "zipfian")]
     Zipfian,
 }
