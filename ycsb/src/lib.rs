@@ -1,5 +1,15 @@
 pub mod generator;
 
+use core::hash::Hash as _;
+use core::hash::Hasher as _;
+use core::sync::atomic::AtomicU64;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
+
+use rand::Rng;
+use rapidhash::RAPID_SEED;
+use rapidhash::RapidHasher;
+use rapidhash::rapidhash;
 use serde::Deserialize;
 
 pub trait Database {}
@@ -46,12 +56,24 @@ pub struct Workload {
     request_distribution: RequestDistribution,
 }
 
-pub struct State {
+pub struct Loader {
+    insert_order: InsertOrder,
+    key_sequence: AtomicU64,
+}
+
+pub struct Runner {
     operation_chooser: generator::Discrete<Operation>,
 }
 
 impl Workload {
-    pub fn generator(&self) -> State {
+    pub fn loader(&self) -> Loader {
+        Loader {
+            insert_order: self.insert_order,
+            key_sequence: AtomicU64::new(self.insert_start as u64),
+        }
+    }
+
+    pub fn runner(&self) -> Runner {
         let operation_chooser = generator::Discrete::new(vec![
             (Operation::Read, self.read_proportion),
             (Operation::Update, self.update_proportion),
@@ -59,10 +81,25 @@ impl Workload {
             (Operation::Insert, self.insert_proportion),
         ]);
 
-        State { operation_chooser }
+        Runner { operation_chooser }
     }
 }
 
+impl Loader {
+    pub fn next_key(&mut self) -> u64 {
+        let key = self.key_sequence.fetch_add(1, Ordering::Relaxed);
+        match self.insert_order {
+            InsertOrder::Ordered => key,
+            InsertOrder::Hashed => {
+                let mut hasher = RapidHasher::new(RAPID_SEED);
+                key.hash(&mut hasher);
+                hasher.finish()
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 pub enum Operation {
     Read,
     Update,
@@ -83,7 +120,7 @@ mod default {
     pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize)]
 pub enum InsertOrder {
     #[serde(alias = "ordered")]
     Ordered,
