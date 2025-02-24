@@ -35,6 +35,10 @@ pub trait Interface<B: Backend>: Sync {
 
     fn run_thread(
         &self,
+        process_count: usize,
+        process_id: usize,
+        thread_count: usize,
+        thread_id: usize,
         global: &Self::Global,
         local: &mut Self::Local,
         allocator: &mut B::Allocator,
@@ -94,7 +98,15 @@ pub trait Interface<B: Backend>: Sync {
 
                         barrier.wait(thread_total as u64, 1);
                         timer.start();
-                        self.run_thread(global, &mut local, &mut allocator);
+                        self.run_thread(
+                            process_count,
+                            process_id,
+                            thread_count,
+                            thread_id,
+                            global,
+                            &mut local,
+                            &mut allocator,
+                        );
                         let time = timer.stop();
 
                         drop(allocator);
@@ -152,7 +164,7 @@ impl Benchmark {
                 "--object-size".to_string(),
                 thread_test.object_size.to_string(),
             ],
-            Benchmark::Ycsb(_) => vec!["ycsb".to_string()],
+            Benchmark::Ycsb(ycsb) => ycsb.args(),
         }
     }
 }

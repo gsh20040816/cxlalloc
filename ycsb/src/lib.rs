@@ -15,12 +15,6 @@ pub trait Database {}
 
 #[derive(Debug, Deserialize)]
 pub struct Workload {
-    #[serde(alias = "insertstart", default)]
-    insert_start: usize,
-
-    #[serde(alias = "insertcount", default)]
-    insert_count: Option<usize>,
-
     #[serde(alias = "insertorder", default = "default::insert_order")]
     insert_order: InsertOrder,
 
@@ -68,10 +62,22 @@ pub struct Runner {
 }
 
 impl Workload {
-    pub fn loader(&self) -> Loader {
+    pub fn operation_count(&self) -> usize {
+        self.operation_count
+    }
+
+    pub fn field_count(&self) -> usize {
+        self.field_count
+    }
+
+    pub fn record_count(&self) -> usize {
+        self.record_count
+    }
+
+    pub fn loader(&self, thread_total: usize, thread_id: usize) -> Loader {
         Loader {
             insert_order: self.insert_order,
-            key_sequence: AtomicU64::new(self.insert_start as u64),
+            key_sequence: AtomicU64::new((self.record_count / thread_total * thread_id) as u64),
         }
     }
 

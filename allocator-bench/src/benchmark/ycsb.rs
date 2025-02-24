@@ -3,9 +3,10 @@ use core::hash::Hasher as _;
 use core::ops::Range;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::hash::DefaultHasher;
+use std::path::PathBuf;
 
 use clap::Parser;
+use rapidhash::RapidHasher;
 use serde::Serialize;
 use shm::Shm;
 
@@ -15,19 +16,25 @@ use crate::Pointer as _;
 use crate::benchmark;
 
 #[derive(Clone, Parser, Serialize)]
-pub struct Ycsb {}
+pub struct Ycsb {
+    workload: PathBuf,
+}
 
-#[derive(Debug)]
-pub struct Insert {
-    key: &'static str,
-    record: &'static str,
+impl Ycsb {
+    pub fn args(&self) -> Vec<String> {
+        vec![
+            "ycsb".to_owned(),
+            self.workload.to_str().unwrap().to_owned(),
+        ]
+    }
 }
 
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
+#[expect(unused)]
 const MAX_SIZE: usize = 1_000;
 
 pub struct Global {
-    trace: Vec<Insert>,
+    workload: ycsb::Workload,
     thread_total: usize,
     index: Shm<FlatMap>,
 }
@@ -46,21 +53,16 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         _process_id: usize,
         thread_count: usize,
     ) -> Self::Global {
-        let data = include_str!("../../ycsb-a.txt");
-
-        let mut commands = Vec::new();
-        for line in data.split('\n') {
-            let Some(line) = line.strip_prefix("INSERT ") else {
-                continue;
-            };
-
-            let (_table, line) = line.split_once(' ').unwrap();
-            let (key, record) = line.split_once(' ').unwrap();
-            commands.push(Insert { key, record })
-        }
+        let workload = std::fs::read_to_string(&self.workload).unwrap_or_else(|error| {
+            panic!(
+                "Failed to read workload file {:?}: {:?}",
+                self.workload, error
+            )
+        });
+        let workload = toml::from_str(&workload).unwrap();
 
         Global {
-            trace: commands,
+            workload,
             thread_total: process_count * thread_count,
             index: Shm::new(Some(numa), c"index".to_owned()).unwrap(),
         }
@@ -72,46 +74,33 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         thread_id: usize,
         _allocator: &mut B::Allocator,
     ) -> Self::Local {
-        let len = global.trace.len() / global.thread_total;
+        let len = global.workload.operation_count() / global.thread_total;
         let start = thread_id * len;
         start..start + len
     }
 
     fn run_thread(
         &self,
+        process_count: usize,
+        _process_id: usize,
+        thread_count: usize,
+        thread_id: usize,
         global: &Self::Global,
-        local: &mut Self::Local,
+        _local: &mut Self::Local,
         allocator: &mut B::Allocator,
     ) {
         let map = unsafe { global.index.address().as_ref() }.unwrap();
-        let commands = &global.trace[local.clone()];
+        let thread_total = process_count * thread_count;
+        let field_count = global.workload.field_count();
+        let mut loader = global.workload.loader(thread_total, thread_id);
 
-        for commands in commands {
-            // HACK: shrink record for CXL-SHM
-            let record_len = MAX_SIZE - commands.key.len();
+        for _ in 0..global.workload.record_count() / thread_total {
+            let key = loader.next_key();
+            // FIXME: CXL-SHM max record size
+            let pointer = allocator.allocate(8 + 96 * field_count).unwrap();
 
-            let pointer = allocator.allocate(commands.key.len() + record_len).unwrap();
-
-            unsafe {
-                // Copy key
-                pointer
-                    .as_ptr()
-                    .cast::<u8>()
-                    .copy_from_nonoverlapping(commands.key.as_bytes().as_ptr(), commands.key.len());
-
-                // Copy record
-                pointer
-                    .as_ptr()
-                    .cast::<u8>()
-                    .byte_add(commands.key.len())
-                    .copy_from_nonoverlapping(
-                        commands.record[..record_len].as_bytes().as_ptr(),
-                        record_len,
-                    );
-            }
-
-            let mut hasher = DefaultHasher::new();
-            commands.key.hash(&mut hasher);
+            let mut hasher = RapidHasher::default();
+            key.hash(&mut hasher);
             let mut index = hasher.finish() as usize % map.0.len();
 
             loop {

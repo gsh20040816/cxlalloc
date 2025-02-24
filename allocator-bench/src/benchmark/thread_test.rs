@@ -51,6 +51,10 @@ impl<B: Backend> benchmark::Interface<B> for ThreadTest {
 
     fn run_thread(
         &self,
+        _process_count: usize,
+        _process_id: usize,
+        _thread_count: usize,
+        _thread_id: usize,
         _: &Self::Global,
         pointers: &mut Self::Local,
         allocator: &mut B::Allocator,
