@@ -188,7 +188,9 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                         .unwrap();
                     }
                     ycsb::Operation::Scan => todo!(),
-                    ycsb::Operation::Insert => todo!(),
+                    ycsb::Operation::Insert => {
+                        insert::<B>(allocator, map, key);
+                    }
                     ycsb::Operation::ReadModifyWrite => todo!(),
                 }
             }
@@ -224,26 +226,30 @@ fn load<B: Backend>(
     let mut loader = global.workload.loader(thread_total, thread_id);
 
     while let Some(key) = loader.next_key() {
-        // FIXME: CXL-SHM max record size
-        let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
-        let offset = unsafe { allocator.pointer_to_offset(&handle) };
-        unsafe {
-            handle
-                .as_ptr()
-                .cast::<Record>()
-                .as_ref()
-                .unwrap()
-                .key
-                .store(key.id(), Ordering::Release);
-        }
-        map.insert(key.id(), offset);
+        insert::<B>(allocator, map, key);
     }
+}
+
+fn insert<B: Backend>(allocator: &mut B::Allocator, map: &FlatMap, key: ycsb::Key) {
+    // FIXME: CXL-SHM max record size
+    let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
+    let offset = unsafe { allocator.pointer_to_offset(&handle) };
+    unsafe {
+        handle
+            .as_ptr()
+            .cast::<Record>()
+            .as_ref()
+            .unwrap()
+            .key
+            .store(key.id(), Ordering::Release);
+    }
+    map.insert(key.id(), offset);
 }
 
 struct FlatMap([AtomicU64; 1 << 20]);
 
 impl FlatMap {
-    const MAX_PROBE: usize = 16;
+    const MAX_PROBE: usize = 64;
 
     pub fn insert<K: Hash>(&self, key: K, value: u64) {
         let index = self.index(key);

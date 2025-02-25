@@ -6,7 +6,6 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
 use generator::Generator as _;
-use generator::number;
 use rand::Rng;
 use rapidhash::RapidHasher;
 use serde::Deserialize;
@@ -186,10 +185,7 @@ impl Runner<'_> {
         let key = loop {
             let key = match self.request_distribution {
                 RequestDistribution::Uniform => self.key_chooser.next(rng),
-                RequestDistribution::Latest => {
-                    let basis = self.acked.max();
-                    basis - self.key_chooser.next(rng)
-                }
+                RequestDistribution::Latest => max - self.key_chooser.next(rng),
                 RequestDistribution::Zipfian => {
                     let key = self.key_chooser.next(rng);
                     let mut hasher = RapidHasher::default();

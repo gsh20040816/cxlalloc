@@ -1,6 +1,5 @@
 use rand_distr::Distribution as _;
 use rand_distr::Zipf;
-use serde::Deserialize;
 
 use crate::generator::Generator;
 
