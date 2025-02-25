@@ -85,7 +85,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
     fn setup_thread(
         &self,
         process_count: usize,
-        _process_id: usize,
+        process_id: usize,
         thread_count: usize,
         thread_id: usize,
         global: &Self::Global,
@@ -96,32 +96,22 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         }
 
         let map = unsafe { global.index.address().as_ref() }.unwrap();
-        let thread_total = process_count * thread_count;
-        let mut loader = global.workload.loader(thread_total, thread_id);
 
-        for _ in 0..global.workload.record_count() / thread_total {
-            let key = loader.next_key();
-            // FIXME: CXL-SHM max record size
-            let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
-            let offset = unsafe { allocator.pointer_to_offset(&handle) };
-            unsafe {
-                handle
-                    .as_ptr()
-                    .cast::<Record>()
-                    .as_ref()
-                    .unwrap()
-                    .key
-                    .store(key, Ordering::Release);
-            }
-
-            map.insert(key, offset);
-        }
+        load::<B>(
+            process_count,
+            process_id,
+            thread_count,
+            thread_id,
+            global,
+            allocator,
+            map,
+        );
     }
 
     fn run_thread(
         &self,
         process_count: usize,
-        _process_id: usize,
+        process_id: usize,
         thread_count: usize,
         thread_id: usize,
         global: &Self::Global,
@@ -132,24 +122,15 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         let thread_total = process_count * thread_count;
 
         if self.load {
-            let mut loader = global.workload.loader(thread_total, thread_id);
-
-            for _ in 0..global.workload.record_count() / thread_total {
-                let key = loader.next_key();
-                // FIXME: CXL-SHM max record size
-                let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
-                let offset = unsafe { allocator.pointer_to_offset(&handle) };
-                unsafe {
-                    handle
-                        .as_ptr()
-                        .cast::<Record>()
-                        .as_ref()
-                        .unwrap()
-                        .key
-                        .store(key, Ordering::Release);
-                }
-                map.insert(key, offset);
-            }
+            load::<B>(
+                process_count,
+                process_id,
+                thread_count,
+                thread_id,
+                global,
+                allocator,
+                map,
+            );
         } else {
             let mut runner = global.workload.runner();
             let mut rng = rand::rng();
@@ -220,6 +201,36 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         }
 
         global.index.unlink().unwrap();
+    }
+}
+
+fn load<B: Backend>(
+    process_count: usize,
+    process_id: usize,
+    _thread_count: usize,
+    thread_id: usize,
+    global: &Global,
+    allocator: &mut B::Allocator,
+    map: &FlatMap,
+) {
+    let thread_total = process_count * process_id;
+    let mut loader = global.workload.loader(thread_total, thread_id);
+
+    for _ in 0..global.workload.record_count() / thread_total {
+        let key = loader.next_key();
+        // FIXME: CXL-SHM max record size
+        let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
+        let offset = unsafe { allocator.pointer_to_offset(&handle) };
+        unsafe {
+            handle
+                .as_ptr()
+                .cast::<Record>()
+                .as_ref()
+                .unwrap()
+                .key
+                .store(key, Ordering::Release);
+        }
+        map.insert(key, offset);
     }
 }
 
