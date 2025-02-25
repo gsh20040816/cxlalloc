@@ -25,10 +25,13 @@ pub struct Ycsb {
 
 impl Ycsb {
     pub fn args(&self) -> Vec<String> {
-        vec![
-            "ycsb".to_owned(),
-            self.workload.to_str().unwrap().to_owned(),
-        ]
+        let mut args = vec!["ycsb".to_owned()];
+        if self.load {
+            args.push("--load".to_owned());
+        }
+
+        args.push(self.workload.to_str().unwrap().to_owned());
+        args
     }
 }
 
