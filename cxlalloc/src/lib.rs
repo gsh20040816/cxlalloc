@@ -84,6 +84,6 @@ pub enum Error {
     #[error("out-of-bounds memory access")]
     OutOfBounds,
 
-    #[error("underlying I/O error")]
+    #[error(transparent)]
     Io(#[from] io::Error),
 }
