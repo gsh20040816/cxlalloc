@@ -42,6 +42,9 @@ pub struct Workload {
     #[serde(alias = "insertproportion", default)]
     insert_proportion: f32,
 
+    #[serde(alias = "readmodifywriteproportion", default)]
+    read_modify_write_proportion: f32,
+
     #[serde(
         alias = "requestdistribution",
         default = "default::request_distribution"
@@ -88,6 +91,10 @@ impl Workload {
             (Operation::Update, self.update_proportion),
             (Operation::Scan, self.scan_proportion),
             (Operation::Insert, self.insert_proportion),
+            (
+                Operation::ReadModifyWrite,
+                self.read_modify_write_proportion,
+            ),
         ]);
 
         Runner {
@@ -165,6 +172,7 @@ pub enum Operation {
     Update,
     Scan,
     Insert,
+    ReadModifyWrite,
 }
 
 #[rustfmt::skip]

@@ -184,6 +184,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                     }
                     ycsb::Operation::Scan => todo!(),
                     ycsb::Operation::Insert => todo!(),
+                    ycsb::Operation::ReadModifyWrite => todo!(),
                 }
             }
         }
