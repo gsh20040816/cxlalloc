@@ -39,6 +39,7 @@ const MAX_SIZE: usize = 1_000;
 pub struct Global {
     workload: ycsb::Workload,
     index: Shm<FlatMap>,
+    acked: Shm<ycsb::Acknowledged>,
 }
 
 #[repr(C)]
@@ -79,6 +80,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         Global {
             workload,
             index: Shm::new(Some(numa), c"index".to_owned()).unwrap(),
+            acked: Shm::new(None, c"acked".to_owned()).unwrap(),
         }
     }
 
@@ -132,14 +134,17 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                 map,
             );
         } else {
-            let mut runner = global.workload.runner();
+            let mut runner = global
+                .workload
+                .runner(unsafe { global.acked.address().as_ref().unwrap() });
             let mut rng = rand::rng();
             for _ in 0..global.workload.operation_count() / thread_total {
                 let key = runner.next_key(&mut rng);
+                let id = key.id();
                 match runner.next_operation(&mut rng) {
                     ycsb::Operation::Read => {
                         let fields = map
-                            .get(key, |offset| {
+                            .get(id, |offset| {
                                 let record = unsafe {
                                     allocator
                                         .offset_to_pointer(offset)?
@@ -148,7 +153,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                                         .as_ref()?
                                 };
 
-                                if record.key.load(Ordering::Acquire) != key {
+                                if record.key.load(Ordering::Acquire) != id {
                                     return None;
                                 }
 
@@ -164,7 +169,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                     }
                     ycsb::Operation::Update => {
                         let field = runner.next_field(&mut rng);
-                        map.get(key, |offset| {
+                        map.get(id, |offset| {
                             let record = unsafe {
                                 allocator
                                     .offset_to_pointer(offset)?
@@ -173,7 +178,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                                     .as_ref()?
                             };
 
-                            if record.key.load(Ordering::Acquire) != key {
+                            if record.key.load(Ordering::Acquire) != id {
                                 return None;
                             }
 
@@ -202,19 +207,20 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         }
 
         global.index.unlink().unwrap();
+        global.acked.unlink().unwrap();
     }
 }
 
 fn load<B: Backend>(
     process_count: usize,
-    process_id: usize,
-    _thread_count: usize,
+    _process_id: usize,
+    thread_count: usize,
     thread_id: usize,
     global: &Global,
     allocator: &mut B::Allocator,
     map: &FlatMap,
 ) {
-    let thread_total = process_count * process_id;
+    let thread_total = process_count * thread_count;
     let mut loader = global.workload.loader(thread_total, thread_id);
 
     for _ in 0..global.workload.record_count() / thread_total {
