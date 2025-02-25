@@ -33,6 +33,7 @@ dependencies = [
  "clap",
  "core_affinity",
  "libc",
+ "rand 0.9.0",
  "rapidhash",
  "serde",
  "serde_json",

@@ -54,8 +54,9 @@ impl allocator_bench::Allocator for CxlShm {
         unsafe { pointer.destruct() }
     }
 
-    unsafe fn pointer_to_offset(&mut self, mut pointer: Self::Ptr) -> u64 {
-        pointer.get_addr() as u64 - sys::cxl_shm_get_start(&mut self.0) as u64
+    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64 {
+        let address = sys::CXLRef_s_get_addr(pointer as *const Self::Ptr as *mut _);
+        address as u64 - sys::cxl_shm_get_start(&mut self.0) as u64
     }
 
     fn offset_to_pointer(&mut self, _: u64) -> Option<Self::Ptr> {

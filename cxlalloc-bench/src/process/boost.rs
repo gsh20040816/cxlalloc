@@ -86,7 +86,7 @@ impl allocator_bench::Allocator for Boost {
         sys::managed_deallocate(self.inner(), pointer.as_ptr().cast())
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: NonNull<ffi::c_void>) -> u64 {
+    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> u64 {
         sys::managed_address_to_handle(self.inner(), pointer.as_ptr().cast())
     }
 

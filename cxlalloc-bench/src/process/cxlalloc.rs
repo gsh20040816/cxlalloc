@@ -63,7 +63,7 @@ impl allocator_bench::Allocator for Cxlalloc {
         cxlalloc_free(pointer.as_ptr())
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: NonNull<ffi::c_void>) -> u64 {
+    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> u64 {
         let mut offset = 0;
         cxlalloc_pointer_to_offset(pointer.as_ptr(), &mut offset);
         offset

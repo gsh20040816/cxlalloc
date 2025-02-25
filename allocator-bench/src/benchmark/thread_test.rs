@@ -42,8 +42,11 @@ impl<B: Backend> benchmark::Interface<B> for ThreadTest {
 
     fn setup_thread(
         &self,
+        _process_count: usize,
+        _process_id: usize,
+        _thread_count: usize,
+        _thread_id: usize,
         object_count: &Self::Global,
-        _: usize,
         _: &mut B::Allocator,
     ) -> Self::Local {
         (0..*object_count).map(|_| None).collect()

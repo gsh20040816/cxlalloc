@@ -28,8 +28,11 @@ pub trait Interface<B: Backend>: Sync {
 
     fn setup_thread(
         &self,
-        global: &Self::Global,
+        process_count: usize,
+        process_id: usize,
+        thread_count: usize,
         thread_id: usize,
+        global: &Self::Global,
         allocator: &mut B::Allocator,
     ) -> Self::Local;
 
@@ -94,7 +97,14 @@ pub trait Interface<B: Backend>: Sync {
                         core_affinity::set_for_current(cores[core]);
 
                         let mut allocator = backend.allocator(thread_id);
-                        let mut local = self.setup_thread(global, thread_id, &mut allocator);
+                        let mut local = self.setup_thread(
+                            process_count,
+                            process_id,
+                            thread_count,
+                            thread_id,
+                            global,
+                            &mut allocator,
+                        );
 
                         barrier.wait(thread_total as u64, 1);
                         timer.start();

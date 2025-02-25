@@ -55,7 +55,7 @@ impl allocator_bench::Backend for Backend {
 
     fn allocator(&self, id: usize) -> Self::Allocator {
         if id == 0 {
-            unsafe { LightningAllocator_Initialize(self.inner.deref() as *const _ as *mut _, 1) }
+            unsafe { LightningAllocator_Initialize(self.inner.deref() as *const _ as *mut _, 0) }
         }
         Lightning {
             id,
@@ -107,7 +107,7 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: Self::Ptr) -> u64 {
+    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64 {
         LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr()) as u64
     }
 

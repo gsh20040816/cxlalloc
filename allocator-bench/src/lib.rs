@@ -29,7 +29,7 @@ pub trait Allocator: Sized {
     type Ptr: Pointer;
     fn allocate(&mut self, size: usize) -> Option<Self::Ptr>;
     unsafe fn deallocate(&mut self, pointer: Self::Ptr);
-    unsafe fn pointer_to_offset(&mut self, pointer: Self::Ptr) -> u64;
+    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64;
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr>;
 }
 

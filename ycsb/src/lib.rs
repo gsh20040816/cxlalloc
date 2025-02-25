@@ -56,6 +56,7 @@ pub struct Loader {
 
 pub struct Runner {
     operation_chooser: generator::Discrete<Operation>,
+    insert_order: InsertOrder,
     key_chooser: generator::Number,
     field_count: usize,
     field_chooser: generator::Number,
@@ -92,6 +93,7 @@ impl Workload {
         Runner {
             operation_chooser,
             field_count: self.field_count,
+            insert_order: self.insert_order,
             key_chooser: match self.request_distribution {
                 number::Distribution::Constant => unreachable!(),
                 number::Distribution::Uniform => {
@@ -134,7 +136,15 @@ impl Runner {
 
     #[inline]
     pub fn next_key<R: Rng>(&mut self, rng: &mut R) -> u64 {
-        self.key_chooser.next(rng)
+        let key = self.key_chooser.next(rng);
+        match self.insert_order {
+            InsertOrder::Ordered => key,
+            InsertOrder::Hashed => {
+                let mut hasher = RapidHasher::default();
+                key.hash(&mut hasher);
+                hasher.finish()
+            }
+        }
     }
 
     #[inline]
