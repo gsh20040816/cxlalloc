@@ -223,8 +223,7 @@ fn load<B: Backend>(
     let thread_total = process_count * thread_count;
     let mut loader = global.workload.loader(thread_total, thread_id);
 
-    for _ in 0..global.workload.record_count() / thread_total {
-        let key = loader.next_key();
+    while let Some(key) = loader.next_key() {
         // FIXME: CXL-SHM max record size
         let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
         let offset = unsafe { allocator.pointer_to_offset(&handle) };
@@ -235,9 +234,9 @@ fn load<B: Backend>(
                 .as_ref()
                 .unwrap()
                 .key
-                .store(key, Ordering::Release);
+                .store(key.id(), Ordering::Release);
         }
-        map.insert(key, offset);
+        map.insert(key.id(), offset);
     }
 }
 

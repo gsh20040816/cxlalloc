@@ -47,12 +47,13 @@ pub struct Workload {
         alias = "requestdistribution",
         default = "default::request_distribution"
     )]
-    request_distribution: number::Distribution,
+    request_distribution: RequestDistribution,
 }
 
 pub struct Loader {
     insert_order: InsertOrder,
-    key_sequence: AtomicU64,
+    next_key: u64,
+    last_key: u64,
 }
 
 pub struct Runner<'a> {
@@ -60,6 +61,8 @@ pub struct Runner<'a> {
     record_count: usize,
     operation_chooser: generator::Discrete<Operation>,
     insert_order: InsertOrder,
+    request_distribution: RequestDistribution,
+    keys_total: u64,
     key_chooser: generator::Number,
     field_count: usize,
     field_chooser: generator::Number,
@@ -79,9 +82,12 @@ impl Workload {
     }
 
     pub fn loader(&self, thread_total: usize, thread_id: usize) -> Loader {
+        let insert_count = (self.record_count / thread_total) as u64;
+        let insert_start = insert_count * thread_id as u64;
         Loader {
             insert_order: self.insert_order,
-            key_sequence: AtomicU64::new((self.record_count / thread_total * thread_id) as u64),
+            next_key: insert_start,
+            last_key: insert_start + insert_count,
         }
     }
 
@@ -106,10 +112,12 @@ impl Workload {
             operation_chooser,
             field_count: self.field_count,
             insert_order: self.insert_order,
+            request_distribution: self.request_distribution,
+            keys_total,
             key_chooser: match self.request_distribution {
-                number::Distribution::Constant => unreachable!(),
-                number::Distribution::Uniform => generator::Number::uniform(keys_total),
-                number::Distribution::Zipfian => generator::Number::zipfian(keys_total),
+                RequestDistribution::Latest => generator::Number::zipfian(keys_total),
+                RequestDistribution::Uniform => generator::Number::uniform(keys_total),
+                RequestDistribution::Zipfian => generator::Number::zipfian(keys_total),
             },
             field_chooser: generator::Number::uniform(self.field_count as u64),
         }
@@ -118,16 +126,14 @@ impl Workload {
 
 impl Loader {
     #[inline]
-    pub fn next_key(&mut self) -> u64 {
-        let key = self.key_sequence.fetch_add(1, Ordering::Relaxed);
-        match self.insert_order {
-            InsertOrder::Ordered => key,
-            InsertOrder::Hashed => {
-                let mut hasher = RapidHasher::default();
-                key.hash(&mut hasher);
-                hasher.finish()
-            }
+    pub fn next_key(&mut self) -> Option<Key> {
+        if self.next_key >= self.last_key {
+            return None;
         }
+
+        let key = self.next_key;
+        self.next_key += 1;
+        Some(Key::new(self.insert_order, key))
     }
 }
 
@@ -176,11 +182,27 @@ impl Runner<'_> {
 
     #[inline]
     pub fn next_key<R: Rng>(&mut self, rng: &mut R) -> Key {
-        let mut key = self.key_chooser.next(rng);
         let max = self.record_count as u64 + self.acked.max();
-        while key >= max {
-            key = self.key_chooser.next(rng);
-        }
+        let key = loop {
+            let key = match self.request_distribution {
+                RequestDistribution::Uniform => self.key_chooser.next(rng),
+                RequestDistribution::Latest => {
+                    let basis = self.acked.max();
+                    basis - self.key_chooser.next(rng)
+                }
+                RequestDistribution::Zipfian => {
+                    let key = self.key_chooser.next(rng);
+                    let mut hasher = RapidHasher::default();
+                    key.hash(&mut hasher);
+                    hasher.finish() % self.keys_total
+                }
+            };
+
+            if key < max {
+                break key;
+            }
+        };
+
         Key::new(self.insert_order, key)
     }
 
@@ -215,14 +237,26 @@ pub enum Operation {
 #[rustfmt::skip]
 mod default {
     use crate::InsertOrder;
-    use crate::generator::number;
+    use crate::RequestDistribution;
 
     pub(super) fn insert_order() -> InsertOrder { InsertOrder::Hashed }
     pub(super) fn field_count() -> usize { 10 }
     pub(super) fn read_all_fields() -> bool { true}
     pub(super) fn read_proportion() -> f32 { 0.95 }
     pub(super) fn update_proportion() -> f32 { 0.05 }
-    pub(super) fn request_distribution() -> number::Distribution { number::Distribution::Zipfian }
+    pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
+}
+
+#[derive(Copy, Clone, Debug, Deserialize)]
+pub enum RequestDistribution {
+    #[serde(alias = "latest")]
+    Latest,
+
+    #[serde(alias = "uniform")]
+    Uniform,
+
+    #[serde(alias = "zipfian")]
+    Zipfian,
 }
 
 #[derive(Copy, Clone, Debug, Deserialize)]
