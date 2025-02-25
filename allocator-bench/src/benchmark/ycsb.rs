@@ -249,8 +249,6 @@ fn insert<B: Backend>(allocator: &mut B::Allocator, map: &FlatMap, key: ycsb::Ke
 struct FlatMap([AtomicU64; 1 << 20]);
 
 impl FlatMap {
-    const MAX_PROBE: usize = 64;
-
     pub fn insert<K: Hash>(&self, key: K, value: u64) {
         let index = self.index(key);
         let mut probe = 0;
@@ -264,12 +262,6 @@ impl FlatMap {
                 .compare_exchange(0, value + 1, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                assert!(
-                    probe < Self::MAX_PROBE,
-                    "Expected probe = {} < {}",
-                    probe,
-                    Self::MAX_PROBE
-                );
                 break;
             }
         }
@@ -277,18 +269,17 @@ impl FlatMap {
 
     pub fn get<K: Hash, F: FnMut(u64) -> Option<T>, T>(&self, key: K, mut compare: F) -> Option<T> {
         let index = self.index(key);
+        let mut probe = 0;
 
-        for probe in 0..Self::MAX_PROBE {
+        loop {
             match self.0[(index + probe) % self.0.len()].load(Ordering::Acquire) {
-                0 => continue,
+                0 => return None,
                 offset => match compare(offset - 1) {
-                    None => continue,
                     value @ Some(_) => return value,
+                    None => probe += 1,
                 },
             }
         }
-
-        None
     }
 
     fn index<K: Hash>(&self, key: K) -> usize {
