@@ -1,8 +1,6 @@
 use core::hash::Hash;
-use core::hash::Hash as _;
 use core::hash::Hasher as _;
 use core::mem;
-use core::ops::Range;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -16,7 +14,6 @@ use shm::Shm;
 use crate::Allocator;
 use crate::Backend;
 use crate::Pointer;
-use crate::Pointer as _;
 use crate::benchmark;
 
 #[derive(Clone, Parser, Serialize)]
@@ -41,7 +38,6 @@ const MAX_SIZE: usize = 1_000;
 
 pub struct Global {
     workload: ycsb::Workload,
-    thread_total: usize,
     index: Shm<FlatMap>,
 }
 
@@ -68,9 +64,9 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
     fn setup_process(
         &self,
         numa: usize,
-        process_count: usize,
+        _process_count: usize,
         _process_id: usize,
-        thread_count: usize,
+        _thread_count: usize,
     ) -> Self::Global {
         let workload = std::fs::read_to_string(&self.workload).unwrap_or_else(|error| {
             panic!(
@@ -82,7 +78,6 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
 
         Global {
             workload,
-            thread_total: process_count * thread_count,
             index: Shm::new(Some(numa), c"index".to_owned()).unwrap(),
         }
     }
