@@ -9,7 +9,8 @@ pub mod lightning;
 
 pub use boost::Boost;
 pub use cxl_shm::CxlShm;
-pub use cxlalloc::Backend;
+pub use cxlalloc::Cxlalloc;
+pub use lightning::Lightning;
 use serde::Serialize;
 
 #[derive(Clone, ValueEnum, Serialize)]
