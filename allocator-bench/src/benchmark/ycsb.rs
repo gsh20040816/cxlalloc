@@ -82,8 +82,8 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
 
         Global {
             workload,
-            index: Shm::new(Some(numa), c"index".to_owned()).unwrap(),
-            acked: Shm::new(None, c"acked".to_owned()).unwrap(),
+            index: Shm::new(Some(numa), c"index".to_owned(), true).unwrap(),
+            acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
         }
     }
 

@@ -6,6 +6,8 @@ use sys::cxl_shm_cxl_shm2;
 use sys::cxl_shm_thread_init;
 use sys::CXLRef_s_get_addr;
 
+use crate::MAP_POPULATE;
+
 #[expect(non_camel_case_types)]
 mod sys {
     include!(concat!(env!("OUT_DIR"), "/bind_cxl_shm.rs"));
@@ -22,7 +24,7 @@ impl allocator_bench::Backend for Backend {
     type Allocator = CxlShm;
 
     fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
-        shm::Raw::new(Some(node), CString::new(name).unwrap(), size).map(Self)
+        shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE).map(Self)
     }
 
     fn unlink(mut self) -> io::Result<()> {

@@ -13,6 +13,8 @@ use sys::LightningAllocator_Malloc;
 use sys::LightningAllocator_OffsetToPointer;
 use sys::LightningAllocator_PointerToOffset;
 
+use crate::MAP_POPULATE;
+
 #[expect(unused)]
 #[expect(non_camel_case_types)]
 #[expect(non_snake_case)]
@@ -40,7 +42,7 @@ impl allocator_bench::Backend for Backend {
     type Allocator = Lightning;
 
     fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
-        let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size)?;
+        let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(

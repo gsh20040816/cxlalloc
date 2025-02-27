@@ -5,6 +5,8 @@ use std::io;
 
 use cxx::SharedPtr;
 
+use crate::MAP_POPULATE;
+
 #[cxx::bridge]
 mod sys {
 
@@ -52,7 +54,7 @@ impl allocator_bench::Backend for Backend {
     type Allocator = Boost;
     fn create(node: usize, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size)?;
+            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
             let inner = sys::managed_create(shm.address_mut().cast(), size);
             Ok(Self { shm, inner })
         }
@@ -60,7 +62,7 @@ impl allocator_bench::Backend for Backend {
 
     fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size)?;
+            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
             let inner = sys::managed_open(shm.address_mut().cast(), size);
             Ok(Self { shm, inner })
         }

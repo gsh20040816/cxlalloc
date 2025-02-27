@@ -24,8 +24,8 @@ pub struct Raw {
 impl<T> Shm<T> {
     const SIZE: usize = mem::size_of::<T>().next_multiple_of(PAGE);
 
-    pub fn new(numa: Option<usize>, name: CString) -> io::Result<Self> {
-        let inner = Raw::new(numa, name, Self::SIZE)?;
+    pub fn new(numa: Option<usize>, name: CString, populate: bool) -> io::Result<Self> {
+        let inner = Raw::new(numa, name, Self::SIZE, populate)?;
         Ok(Self {
             inner,
             r#type: PhantomData,
@@ -54,7 +54,12 @@ impl<T> Shm<T> {
 }
 
 impl Raw {
-    pub fn new(numa: Option<usize>, name: CString, size: usize) -> io::Result<Self> {
+    pub fn new(
+        numa: Option<usize>,
+        name: CString,
+        size: usize,
+        populate: bool,
+    ) -> io::Result<Self> {
         let size = size.next_multiple_of(PAGE);
 
         let (create, fd) = match unsafe {
@@ -98,6 +103,10 @@ impl Raw {
 
         if let (true, Some(numa)) = (create, numa) {
             Self::mbind(numa, address, size)?;
+        }
+
+        if populate {
+            Self::madvise(address, size)?;
         }
 
         Ok(Self {
@@ -153,6 +162,13 @@ impl Raw {
         } {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
+        }
+    }
+
+    fn madvise(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+        match unsafe { libc::madvise(address, size, libc::MADV_POPULATE_WRITE) } {
+            -1 => Err(io::Error::last_os_error()),
+            _ => Ok(()),
         }
     }
 }

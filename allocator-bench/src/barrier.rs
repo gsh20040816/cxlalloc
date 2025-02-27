@@ -14,7 +14,7 @@ impl Barrier {
     const PATH: &CStr = c"/barrier";
 
     pub fn new() -> io::Result<Self> {
-        Shm::new(None, Self::PATH.to_owned()).map(Self)
+        Shm::new(None, Self::PATH.to_owned(), true).map(Self)
     }
 
     pub fn unlink(&mut self) -> io::Result<()> {
