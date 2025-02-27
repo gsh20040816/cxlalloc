@@ -23,8 +23,8 @@ pub struct CxlShm(sys::cxl_shm);
 impl allocator_bench::Backend for Backend {
     type Allocator = CxlShm;
 
-    fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
-        shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE).map(Self)
+    fn open(numa: usize, name: &str, size: usize) -> io::Result<Self> {
+        shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, *MAP_POPULATE).map(Self)
     }
 
     fn unlink(mut self) -> io::Result<()> {

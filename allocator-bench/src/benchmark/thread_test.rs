@@ -6,6 +6,7 @@ use serde::Serialize;
 use crate::Allocator;
 use crate::Backend;
 use crate::benchmark;
+use crate::context;
 
 #[derive(Clone, Parser, Serialize)]
 pub struct ThreadTest {
@@ -24,40 +25,29 @@ impl<B: Backend> benchmark::Interface<B> for ThreadTest {
     type Global = usize;
     type Local = Vec<Option<<B::Allocator as Allocator>::Ptr>>;
 
-    fn setup_process(
-        &self,
-        _: usize,
-        process_count: usize,
-        _: usize,
-        thread_count: usize,
-    ) -> Self::Global {
+    fn setup_process(&self, context: &context::Process) -> Self::Global {
+        let thread_total = context.thread_total();
         assert_eq!(
-            self.object_count % (process_count * thread_count),
+            self.object_count % thread_total,
             0,
             "Object count should be multiple of total thread count"
         );
 
-        self.object_count / (process_count * thread_count)
+        self.object_count / thread_total
     }
 
     fn setup_thread(
         &self,
-        _process_count: usize,
-        _process_id: usize,
-        _thread_count: usize,
-        _thread_id: usize,
+        _context: &context::Thread,
         object_count: &Self::Global,
-        _: &mut B::Allocator,
+        _allocator: &mut B::Allocator,
     ) -> Self::Local {
         (0..*object_count).map(|_| None).collect()
     }
 
     fn run_thread(
         &self,
-        _process_count: usize,
-        _process_id: usize,
-        _thread_count: usize,
-        _thread_id: usize,
+        _context: &context::Thread,
         _: &Self::Global,
         pointers: &mut Self::Local,
         allocator: &mut B::Allocator,

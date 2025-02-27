@@ -52,17 +52,17 @@ unsafe impl Sync for Backend {}
 
 impl allocator_bench::Backend for Backend {
     type Allocator = Boost;
-    fn create(node: usize, name: &str, size: usize) -> io::Result<Self> {
+    fn create(numa: usize, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
+            let shm = shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
             let inner = sys::managed_create(shm.address_mut().cast(), size);
             Ok(Self { shm, inner })
         }
     }
 
-    fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
+    fn open(numa: usize, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
+            let shm = shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
             let inner = sys::managed_open(shm.address_mut().cast(), size);
             Ok(Self { shm, inner })
         }

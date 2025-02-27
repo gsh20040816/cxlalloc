@@ -1,20 +1,12 @@
 use clap::Parser;
 
 use crate::Benchmark;
+use crate::context;
 
 #[derive(Parser)]
 pub struct Cli {
-    /// Number of processes
-    #[arg(long)]
-    pub process_count: usize,
-
-    /// Unique process ID within range 0..process_count
-    #[arg(long)]
-    pub process_id: usize,
-
-    /// Number of threads per process
-    #[arg(long)]
-    pub thread_count: usize,
+    #[command(flatten)]
+    pub context: context::Process,
 
     #[command(subcommand)]
     pub benchmark: Benchmark,

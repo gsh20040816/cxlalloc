@@ -12,6 +12,7 @@ use crate::Allocator;
 use crate::Backend;
 use crate::Pointer;
 use crate::benchmark;
+use crate::context;
 use crate::index::LinearHashMap;
 
 #[derive(Clone, Parser, Serialize)]
@@ -63,13 +64,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
     type Global = Global;
     type Local = ();
 
-    fn setup_process(
-        &self,
-        numa: usize,
-        _process_count: usize,
-        _process_id: usize,
-        _thread_count: usize,
-    ) -> Self::Global {
+    fn setup_process(&self, context: &context::Process) -> Self::Global {
         let workload = std::fs::read_to_string(&self.workload).unwrap_or_else(|error| {
             panic!(
                 "Failed to read workload file {:?}: {:?}",
@@ -80,17 +75,14 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
 
         Global {
             workload,
-            index: LinearHashMap::new(Some(numa), "index", 1 << 24, true).unwrap(),
+            index: LinearHashMap::new(Some(context.numa), "index", 1 << 24, true).unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
         }
     }
 
     fn setup_thread(
         &self,
-        process_count: usize,
-        process_id: usize,
-        thread_count: usize,
-        thread_id: usize,
+        context: &context::Thread,
         global: &Self::Global,
         allocator: &mut B::Allocator,
     ) -> Self::Local {
@@ -98,43 +90,24 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
             return;
         }
 
-        load::<B>(
-            process_count,
-            process_id,
-            thread_count,
-            thread_id,
-            global,
-            allocator,
-        );
+        load::<B>(context, global, allocator);
     }
 
     fn run_thread(
         &self,
-        process_count: usize,
-        process_id: usize,
-        thread_count: usize,
-        thread_id: usize,
+        context: &context::Thread,
         global: &Self::Global,
         _local: &mut Self::Local,
         allocator: &mut B::Allocator,
     ) {
-        let thread_total = process_count * thread_count;
-
         if self.load {
-            load::<B>(
-                process_count,
-                process_id,
-                thread_count,
-                thread_id,
-                global,
-                allocator,
-            );
+            load::<B>(context, global, allocator);
         } else {
             let mut runner = global
                 .workload
                 .runner(unsafe { global.acked.address().as_ref().unwrap() });
             let mut rng = rand::rng();
-            for _ in 0..global.workload.operation_count() / thread_total {
+            for _ in 0..global.workload.operation_count() / context.thread_total() {
                 let key = runner.next_key(&mut rng);
                 let id = key.id();
                 match runner.next_operation(&mut rng) {
@@ -196,14 +169,8 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         }
     }
 
-    fn teardown_process(
-        &self,
-        _process_count: usize,
-        process_id: usize,
-        _thread_count: usize,
-        mut global: Self::Global,
-    ) {
-        if process_id != 0 {
+    fn teardown_process(&self, context: &context::Process, mut global: Self::Global) {
+        if context.process_id != 0 {
             return;
         }
 
@@ -212,16 +179,10 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
     }
 }
 
-fn load<B: Backend>(
-    process_count: usize,
-    _process_id: usize,
-    thread_count: usize,
-    thread_id: usize,
-    global: &Global,
-    allocator: &mut B::Allocator,
-) {
-    let thread_total = process_count * thread_count;
-    let mut loader = global.workload.loader(thread_total, thread_id);
+fn load<B: Backend>(context: &context::Thread, global: &Global, allocator: &mut B::Allocator) {
+    let mut loader = global
+        .workload
+        .loader(context.thread_total(), context.thread_id);
     while let Some(key) = loader.next_key() {
         insert::<B>(allocator, &global.index, key);
     }

@@ -41,8 +41,8 @@ unsafe impl Sync for sys::LightningAllocator {}
 impl allocator_bench::Backend for Backend {
     type Allocator = Lightning;
 
-    fn open(node: usize, name: &str, size: usize) -> io::Result<Self> {
-        let shm = shm::Raw::new(Some(node), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
+    fn open(numa: usize, name: &str, size: usize) -> io::Result<Self> {
+        let shm = shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, *MAP_POPULATE)?;
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(

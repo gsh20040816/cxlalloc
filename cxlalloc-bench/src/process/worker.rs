@@ -8,10 +8,6 @@ struct Cli {
     #[arg(short, long)]
     allocator: Allocator,
 
-    /// NUMA node
-    #[arg(long)]
-    node: usize,
-
     #[arg(short, long)]
     size: usize,
 
@@ -25,20 +21,14 @@ impl Cli {
             allocator_bench::Benchmark::ThreadTest(thread_test) => {
                 <_ as allocator_bench::benchmark::Interface<B>>::run_process(
                     thread_test,
-                    self.bench.process_count,
-                    self.bench.process_id,
-                    self.bench.thread_count,
-                    self.node,
+                    &self.bench.context,
                     self.size,
                 )
             }
             allocator_bench::Benchmark::Ycsb(ycsb) => {
                 <_ as allocator_bench::benchmark::Interface<B>>::run_process(
                     ycsb,
-                    self.bench.process_count,
-                    self.bench.process_id,
-                    self.bench.thread_count,
-                    self.node,
+                    &self.bench.context,
                     self.size,
                 )
             }

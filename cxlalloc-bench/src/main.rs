@@ -70,18 +70,12 @@ struct Process {
     #[arg(short, long)]
     allocator: process::Allocator,
 
-    #[arg(long)]
-    node: usize,
-
     #[arg(short, long)]
     size: usize,
 
-    #[arg(short, long)]
-    process_count: usize,
-
-    /// Number of threads per process
-    #[arg(short, long)]
-    thread_count: usize,
+    #[serde(flatten)]
+    #[command(flatten)]
+    context: allocator_bench::context::Global,
 
     #[serde(flatten)]
     #[command(subcommand)]
@@ -212,21 +206,21 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cli::Process { pretty, process } => {
-            (0..process.process_count)
+            (0..process.context.process_count)
                 .map(|process_id| {
                     let mut command = vec![
                         "--allocator".to_string(),
                         process.allocator.to_string(),
-                        "--node".to_string(),
-                        process.node.to_string(),
+                        "--numa".to_string(),
+                        process.context.numa.to_string(),
                         "--size".to_string(),
                         process.size.to_string(),
                         "--process-count".to_string(),
-                        process.process_count.to_string(),
+                        process.context.process_count.to_string(),
                         "--process-id".to_string(),
                         process_id.to_string(),
                         "--thread-count".to_string(),
-                        process.thread_count.to_string(),
+                        process.context.thread_count.to_string(),
                     ];
 
                     command.extend(process.benchmark.args());

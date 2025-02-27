@@ -8,6 +8,7 @@ use crate::Backend;
 use crate::Barrier;
 use crate::Metrics;
 use crate::Timer;
+use crate::context;
 
 mod thread_test;
 mod ycsb;
@@ -18,105 +19,67 @@ pub trait Interface<B: Backend>: Sync {
     type Global: Sync;
     type Local;
 
-    fn setup_process(
-        &self,
-        numa: usize,
-        process_count: usize,
-        process_id: usize,
-        thread_count: usize,
-    ) -> Self::Global;
+    fn setup_process(&self, context: &context::Process) -> Self::Global;
 
     fn setup_thread(
         &self,
-        process_count: usize,
-        process_id: usize,
-        thread_count: usize,
-        thread_id: usize,
+        context: &context::Thread,
         global: &Self::Global,
         allocator: &mut B::Allocator,
     ) -> Self::Local;
 
     fn run_thread(
         &self,
-        process_count: usize,
-        process_id: usize,
-        thread_count: usize,
-        thread_id: usize,
+        context: &context::Thread,
         global: &Self::Global,
         local: &mut Self::Local,
         allocator: &mut B::Allocator,
     );
 
-    fn teardown_process(
-        &self,
-        _process_count: usize,
-        _process_id: usize,
-        _thread_count: usize,
-        _global: Self::Global,
-    ) {
-    }
+    fn teardown_process(&self, _context: &context::Process, _global: Self::Global) {}
 
-    fn run_process(
-        &self,
-        process_count: usize,
-        process_id: usize,
-        thread_count: usize,
-        numa: usize,
-        size: usize,
-    ) {
+    fn run_process(&self, context: &context::Process, size: usize) {
         let mut barrier = Barrier::new().unwrap();
-        let thread_total = process_count * thread_count;
 
         // Prevent race conditions between creating and opening shared memory data structures
-        let backend = match process_id {
+        let backend = match context.process_id {
             0 => {
-                let backend = B::create(numa, Self::NAME, size);
-                barrier.wait(thread_total as u64, thread_count as u64);
+                let backend = B::open(context.numa, Self::NAME, size);
+                barrier.wait(context.thread_total() as u64, context.thread_count as u64);
                 backend
             }
             _ => {
-                barrier.wait(thread_total as u64, thread_count as u64);
-                B::open(numa, Self::NAME, size)
+                barrier.wait(context.thread_total() as u64, context.thread_count as u64);
+                B::open(context.numa, Self::NAME, size)
             }
         }
         .unwrap();
 
         let timer = &Timer::new();
-        let global = self.setup_process(numa, process_count, process_id, thread_count);
+        let global = self.setup_process(context);
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
 
         thread::scope(|scope| {
-            let handles = (process_id * thread_count..)
-                .take(thread_count)
+            let handles = (context.process_id * context.thread_count..)
+                .take(context.thread_count)
                 .map(|thread_id| {
                     let barrier = &barrier;
                     let backend = &backend;
                     let global = &global;
                     let handle = scope.spawn(move || {
+                        let context = context::Thread {
+                            process: *context,
+                            thread_id,
+                        };
                         let core = thread_id % cores.len();
                         core_affinity::set_for_current(cores[core]);
 
                         let mut allocator = backend.allocator(thread_id);
-                        let mut local = self.setup_thread(
-                            process_count,
-                            process_id,
-                            thread_count,
-                            thread_id,
-                            global,
-                            &mut allocator,
-                        );
+                        let mut local = self.setup_thread(&context, global, &mut allocator);
 
-                        barrier.wait(thread_total as u64, 1);
+                        barrier.wait(context.thread_total() as u64, 1);
                         timer.start();
-                        self.run_thread(
-                            process_count,
-                            process_id,
-                            thread_count,
-                            thread_id,
-                            global,
-                            &mut local,
-                            &mut allocator,
-                        );
+                        self.run_thread(&context, global, &mut local, &mut allocator);
                         let time = timer.stop();
 
                         drop(allocator);
@@ -137,7 +100,7 @@ pub trait Interface<B: Backend>: Sync {
                 .for_each(|(thread_id, time)| {
                     let mut stdout = std::io::stdout().lock();
                     serde_json::ser::to_writer(&mut stdout, &Metrics {
-                        process_id,
+                        process_id: context.process_id,
                         thread_id,
                         time,
                     })
@@ -146,9 +109,9 @@ pub trait Interface<B: Backend>: Sync {
                 });
         });
 
-        self.teardown_process(process_count, process_id, thread_count, global);
+        self.teardown_process(context, global);
 
-        if process_id == 0 {
+        if context.process_id == 0 {
             barrier.unlink().unwrap();
             backend.unlink().unwrap();
         }

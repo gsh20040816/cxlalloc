@@ -1,5 +1,6 @@
 pub mod barrier;
 pub mod benchmark;
+pub mod context;
 mod index;
 pub mod process;
 
@@ -16,11 +17,11 @@ use serde::Serialize;
 
 pub trait Backend: Send + Sync + Sized {
     type Allocator: Allocator;
-    fn create(node: usize, name: &str, size: usize) -> io::Result<Self> {
-        Self::open(node, name, size)
+    fn create(numa: usize, name: &str, size: usize) -> io::Result<Self> {
+        Self::open(numa, name, size)
     }
 
-    fn open(node: usize, name: &str, size: usize) -> io::Result<Self>;
+    fn open(numa: usize, name: &str, size: usize) -> io::Result<Self>;
 
     fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
