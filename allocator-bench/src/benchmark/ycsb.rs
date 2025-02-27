@@ -22,18 +22,6 @@ pub struct Ycsb {
     load: bool,
 }
 
-impl Ycsb {
-    pub fn args(&self) -> Vec<String> {
-        let mut args = vec!["ycsb".to_owned()];
-        if self.load {
-            args.push("--load".to_owned());
-        }
-
-        args.push(self.workload.to_str().unwrap().to_owned());
-        args
-    }
-}
-
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
 #[expect(unused)]
 const MAX_SIZE: usize = 1_000;

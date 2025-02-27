@@ -4,6 +4,7 @@ use clap::Parser;
 use serde::Serialize;
 
 #[derive(Copy, Clone, Parser, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Global {
     /// NUMA node for remote memory
     #[arg(long)]
@@ -24,8 +25,10 @@ impl Global {
     }
 }
 
-#[derive(Copy, Clone, Parser)]
+#[derive(Copy, Clone, Parser, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Process {
+    #[serde(flatten)]
     #[command(flatten)]
     pub global: Global,
 

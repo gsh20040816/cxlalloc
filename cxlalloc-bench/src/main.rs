@@ -208,22 +208,17 @@ fn main() -> anyhow::Result<()> {
         Cli::Process { pretty, process } => {
             (0..process.context.process_count)
                 .map(|process_id| {
-                    let mut command = vec![
-                        "--allocator".to_string(),
-                        process.allocator.to_string(),
-                        "--numa".to_string(),
-                        process.context.numa.to_string(),
-                        "--size".to_string(),
-                        process.size.to_string(),
-                        "--process-count".to_string(),
-                        process.context.process_count.to_string(),
-                        "--process-id".to_string(),
-                        process_id.to_string(),
-                        "--thread-count".to_string(),
-                        process.context.thread_count.to_string(),
-                    ];
-
-                    command.extend(process.benchmark.args());
+                    let command = crate::process::Cli {
+                        allocator: process.allocator.clone(),
+                        size: process.size,
+                        benchmark: allocator_bench::process::Cli {
+                            context: allocator_bench::context::Process {
+                                global: process.context,
+                                process_id,
+                            },
+                            benchmark: process.benchmark.clone(),
+                        },
+                    };
 
                     duct::cmd(
                         if cfg!(debug_assertions) {
@@ -231,7 +226,7 @@ fn main() -> anyhow::Result<()> {
                         } else {
                             "target/release/cxlalloc-bench-worker"
                         },
-                        command,
+                        serde_command_line::to_vec(&command).unwrap(),
                     )
                     .stdout_capture()
                     .start()

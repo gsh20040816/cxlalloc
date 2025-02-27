@@ -469,6 +469,7 @@ dependencies = [
  "libc",
  "pkg-config",
  "serde",
+ "serde-command-line",
  "serde_json",
  "shm",
 ]
@@ -1482,6 +1483,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-command-line"
+version = "0.1.0"
+source = "git+https://github.com/nwtnni/serde-command-line.git#ac00041f0a03e38cc2f3d53b7a1d1b49b857305a"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

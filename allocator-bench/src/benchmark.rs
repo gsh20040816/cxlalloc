@@ -124,20 +124,3 @@ pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),
 }
-
-impl Benchmark {
-    pub fn args(&self) -> Vec<String> {
-        match self {
-            Benchmark::ThreadTest(thread_test) => vec![
-                "thread-test".to_string(),
-                "--iteration-count".to_string(),
-                thread_test.iteration_count.to_string(),
-                "--object-count".to_string(),
-                thread_test.object_count.to_string(),
-                "--object-size".to_string(),
-                thread_test.object_size.to_string(),
-            ],
-            Benchmark::Ycsb(ycsb) => ycsb.args(),
-        }
-    }
-}

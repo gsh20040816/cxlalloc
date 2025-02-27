@@ -1,5 +1,7 @@
 use core::fmt::Display;
 
+use allocator_bench::Backend;
+use clap::Parser;
 use clap::ValueEnum;
 
 pub mod boost;
@@ -32,5 +34,40 @@ impl Display for Allocator {
         };
 
         write!(f, "{}", name)
+    }
+}
+
+#[derive(Clone, Parser, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[group(skip)]
+pub struct Cli {
+    #[arg(short, long)]
+    pub allocator: Allocator,
+
+    #[arg(short, long)]
+    pub size: usize,
+
+    #[command(flatten)]
+    pub benchmark: allocator_bench::process::Cli,
+}
+
+impl Cli {
+    pub fn run<B: Backend>(&self) {
+        match &self.benchmark.benchmark {
+            allocator_bench::Benchmark::ThreadTest(thread_test) => {
+                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
+                    thread_test,
+                    &self.benchmark.context,
+                    self.size,
+                )
+            }
+            allocator_bench::Benchmark::Ycsb(ycsb) => {
+                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
+                    ycsb,
+                    &self.benchmark.context,
+                    self.size,
+                )
+            }
+        }
     }
 }

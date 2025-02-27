@@ -1,43 +1,8 @@
-use allocator_bench::Backend;
 use clap::Parser;
 use cxlalloc_bench::process::Allocator;
 
-#[derive(Parser)]
-#[group(skip)]
-struct Cli {
-    #[arg(short, long)]
-    allocator: Allocator,
-
-    #[arg(short, long)]
-    size: usize,
-
-    #[command(flatten)]
-    bench: allocator_bench::process::Cli,
-}
-
-impl Cli {
-    fn run<B: Backend>(&self) {
-        match &self.bench.benchmark {
-            allocator_bench::Benchmark::ThreadTest(thread_test) => {
-                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
-                    thread_test,
-                    &self.bench.context,
-                    self.size,
-                )
-            }
-            allocator_bench::Benchmark::Ycsb(ycsb) => {
-                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
-                    ycsb,
-                    &self.bench.context,
-                    self.size,
-                )
-            }
-        }
-    }
-}
-
 fn main() {
-    let cli = Cli::parse();
+    let cli = cxlalloc_bench::process::Cli::parse();
 
     match cli.allocator {
         Allocator::Boost => cli.run::<cxlalloc_bench::process::boost::Backend>(),
