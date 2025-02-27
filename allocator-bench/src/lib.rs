@@ -1,5 +1,6 @@
 pub mod barrier;
 pub mod benchmark;
+mod index;
 pub mod process;
 
 use core::cell::Cell;

@@ -1,5 +1,3 @@
-use core::hash::Hash;
-use core::hash::Hasher as _;
 use core::mem;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::AtomicU64;
@@ -7,7 +5,6 @@ use core::sync::atomic::Ordering;
 use std::path::PathBuf;
 
 use clap::Parser;
-use rapidhash::RapidHasher;
 use serde::Serialize;
 use shm::Shm;
 
@@ -15,6 +12,7 @@ use crate::Allocator;
 use crate::Backend;
 use crate::Pointer;
 use crate::benchmark;
+use crate::index::LinearHashMap;
 
 #[derive(Clone, Parser, Serialize)]
 pub struct Ycsb {
@@ -41,7 +39,7 @@ const MAX_SIZE: usize = 1_000;
 
 pub struct Global {
     workload: ycsb::Workload,
-    index: Shm<FlatMap>,
+    index: LinearHashMap,
     acked: Shm<ycsb::Acknowledged>,
 }
 
@@ -82,7 +80,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
 
         Global {
             workload,
-            index: Shm::new(Some(numa), c"index".to_owned(), true).unwrap(),
+            index: LinearHashMap::new(Some(numa), "index", 1 << 24, true).unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
         }
     }
@@ -100,8 +98,6 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
             return;
         }
 
-        let map = unsafe { global.index.address().as_ref() }.unwrap();
-
         load::<B>(
             process_count,
             process_id,
@@ -109,7 +105,6 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
             thread_id,
             global,
             allocator,
-            map,
         );
     }
 
@@ -123,7 +118,6 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         _local: &mut Self::Local,
         allocator: &mut B::Allocator,
     ) {
-        let map = unsafe { global.index.address().as_ref() }.unwrap();
         let thread_total = process_count * thread_count;
 
         if self.load {
@@ -134,7 +128,6 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                 thread_id,
                 global,
                 allocator,
-                map,
             );
         } else {
             let mut runner = global
@@ -146,7 +139,8 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                 let id = key.id();
                 match runner.next_operation(&mut rng) {
                     ycsb::Operation::Read => {
-                        let fields = map
+                        let fields = global
+                            .index
                             .get(id, |offset| {
                                 let record = unsafe {
                                     allocator
@@ -172,27 +166,29 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                     }
                     ycsb::Operation::Update => {
                         let field = runner.next_field(&mut rng);
-                        map.get(id, |offset| {
-                            let record = unsafe {
-                                allocator
-                                    .offset_to_pointer(offset)?
-                                    .as_ptr()
-                                    .cast::<Record>()
-                                    .as_ref()?
-                            };
+                        global
+                            .index
+                            .get(id, |offset| {
+                                let record = unsafe {
+                                    allocator
+                                        .offset_to_pointer(offset)?
+                                        .as_ptr()
+                                        .cast::<Record>()
+                                        .as_ref()?
+                                };
 
-                            if record.key.load(Ordering::Acquire) != id {
-                                return None;
-                            }
+                                if record.key.load(Ordering::Acquire) != id {
+                                    return None;
+                                }
 
-                            record.fields[field as usize].value[0].store(1, Ordering::Release);
-                            Some(())
-                        })
-                        .unwrap();
+                                record.fields[field as usize].value[0].store(1, Ordering::Release);
+                                Some(())
+                            })
+                            .unwrap();
                     }
                     ycsb::Operation::Scan => todo!(),
                     ycsb::Operation::Insert => {
-                        insert::<B>(allocator, map, key);
+                        insert::<B>(allocator, &global.index, key);
                     }
                     ycsb::Operation::ReadModifyWrite => todo!(),
                 }
@@ -223,17 +219,15 @@ fn load<B: Backend>(
     thread_id: usize,
     global: &Global,
     allocator: &mut B::Allocator,
-    map: &FlatMap,
 ) {
     let thread_total = process_count * thread_count;
     let mut loader = global.workload.loader(thread_total, thread_id);
-
     while let Some(key) = loader.next_key() {
-        insert::<B>(allocator, map, key);
+        insert::<B>(allocator, &global.index, key);
     }
 }
 
-fn insert<B: Backend>(allocator: &mut B::Allocator, map: &FlatMap, key: ycsb::Key) {
+fn insert<B: Backend>(allocator: &mut B::Allocator, map: &LinearHashMap, key: ycsb::Key) {
     // FIXME: CXL-SHM max record size
     let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
     let offset = unsafe { allocator.pointer_to_offset(&handle) };
@@ -247,47 +241,4 @@ fn insert<B: Backend>(allocator: &mut B::Allocator, map: &FlatMap, key: ycsb::Ke
             .store(key.id(), Ordering::Release);
     }
     map.insert(key.id(), offset);
-}
-
-struct FlatMap([AtomicU64; 1 << 20]);
-
-impl FlatMap {
-    pub fn insert<K: Hash>(&self, key: K, value: u64) {
-        let index = self.index(key);
-        let mut probe = 0;
-
-        loop {
-            while self.0[(index + probe) % self.0.len()].load(Ordering::Acquire) > 0 {
-                probe += 1;
-            }
-
-            if self.0[(index + probe) % self.0.len()]
-                .compare_exchange(0, value + 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                break;
-            }
-        }
-    }
-
-    pub fn get<K: Hash, F: FnMut(u64) -> Option<T>, T>(&self, key: K, mut compare: F) -> Option<T> {
-        let index = self.index(key);
-        let mut probe = 0;
-
-        loop {
-            match self.0[(index + probe) % self.0.len()].load(Ordering::Acquire) {
-                0 => return None,
-                offset => match compare(offset - 1) {
-                    value @ Some(_) => return value,
-                    None => probe += 1,
-                },
-            }
-        }
-    }
-
-    fn index<K: Hash>(&self, key: K) -> usize {
-        let mut hasher = RapidHasher::default();
-        key.hash(&mut hasher);
-        hasher.finish() as usize % self.0.len()
-    }
 }
