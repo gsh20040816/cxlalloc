@@ -5,6 +5,7 @@ use core::num::NonZeroUsize;
 use core::ops::Deref;
 use core::ptr;
 use core::ptr::NonNull;
+use std::env;
 use std::io;
 
 use arrayvec::ArrayString;
@@ -274,14 +275,33 @@ unsafe fn mmap(
 
     if rw {
         mbind(actual, size)?;
+        madvise(actual, size)?;
     }
 
     Ok(actual)
 }
 
+unsafe fn madvise(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
+    let Some(true) = env::var("CXLALLOC_MAP_POPULATE")
+        .ok()
+        .and_then(|bool| bool.parse::<bool>().ok())
+    else {
+        return Ok(());
+    };
+
+    match libc::madvise(
+        address.as_ptr().cast(),
+        size.get(),
+        libc::MADV_POPULATE_WRITE,
+    ) {
+        -1 => Err(io::Error::last_os_error()),
+        _ => Ok(()),
+    }
+}
+
 // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
 unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
-    let Some(numa) = std::env::var("CXL_NUMA_NODE")
+    let Some(numa) = env::var("CXL_NUMA_NODE")
         .ok()
         .and_then(|numa| numa.parse::<usize>().ok())
     else {
