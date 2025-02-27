@@ -63,9 +63,6 @@ pub struct Raw {
     pub(crate) data_large: region::Sequential,
     pub(crate) data_huge: region::Random,
 
-    /// Initial capacity
-    pub(crate) capacity: u32,
-
     /// Free on drop
     free: bool,
 }
@@ -104,7 +101,8 @@ impl Raw {
         id: &str,
         Builder {
             backend,
-            size,
+            size_small,
+            size_large,
             thread_count,
             free,
         }: Builder,
@@ -112,14 +110,15 @@ impl Raw {
         log::info!(
             "Requesting heap with \
             backend = {}, \
-            size = {}, \
+            size_small = {}, \
+            size_large = {}, \
             thread_count = {}",
             backend.name(),
-            size,
+            size_small,
+            size_large,
             thread_count,
         );
 
-        let slab_count = size.next_multiple_of(size::Small::SIZE_SLAB) / size::Small::SIZE_SLAB;
         let id = region::Id::new(id);
 
         let (shared_size, _) = Self::shared();
@@ -129,8 +128,10 @@ impl Raw {
         let (owned_size, _) = Self::owned();
         let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
 
-        let (small_lazy, small) = match NonZeroUsize::new(slab_count)
-            .map(|count| Heap::<view::Unfocus, size::Small>::layout(count).unwrap())
+        let (small_lazy, small) = match NonZeroUsize::new(
+            size_small.next_multiple_of(size::Small::SIZE_SLAB) / size::Small::SIZE_SLAB,
+        )
+        .map(|count| Heap::<view::Unfocus, size::Small>::layout(count).unwrap())
         {
             None => (true, Default::default()),
             Some(layout) => (false, layout),
@@ -154,7 +155,14 @@ impl Raw {
             small_lazy,
         )?;
 
-        let large = heap::Layout::<size::Large>::default();
+        let (large_lazy, large) = match NonZeroUsize::new(
+            size_large.next_multiple_of(size::Large::SIZE_SLAB) / size::Large::SIZE_SLAB,
+        )
+        .map(|count| Heap::<view::Unfocus, size::Large>::layout(count).unwrap())
+        {
+            None => (true, Default::default()),
+            Some(layout) => (false, layout),
+        };
 
         let local_large_reservation = Reservation::new()?;
         let local_large = region::Sequential::new(
@@ -162,7 +170,7 @@ impl Raw {
             id.with_suffix("ll"),
             local_large_reservation,
             large.locals,
-            true,
+            large_lazy,
         )?;
 
         let remote_large_reservation = Reservation::new()?;
@@ -171,7 +179,7 @@ impl Raw {
             id.with_suffix("rl"),
             remote_large_reservation,
             large.remotes,
-            true,
+            large_lazy,
         )?;
 
         let [data_small_reservation, data_large_reservation, data_huge_reservation] =
@@ -190,7 +198,7 @@ impl Raw {
             id.with_suffix("dl"),
             data_large_reservation,
             large.data,
-            true,
+            large_lazy,
         )?;
 
         let data_huge = region::Random::new(id.with_suffix("dh"), data_huge_reservation)?;
@@ -206,7 +214,6 @@ impl Raw {
             data_small,
             data_large,
             data_huge,
-            capacity: slab_count as u32,
             free,
         })
     }
@@ -279,7 +286,6 @@ impl Raw {
                     .as_ref()
                     .unwrap(),
                 Heap::<view::Unfocus, size::Small>::new(
-                    self.capacity,
                     shared
                         .wrapping_byte_add(shared_offsets[1])
                         .cast::<heap::Shared<size::Small>>()
@@ -297,7 +303,6 @@ impl Raw {
                     Data::<size::Small>::new(self.data_small.address()),
                 ),
                 Heap::<view::Unfocus, size::Large>::new(
-                    self.capacity,
                     shared
                         .wrapping_byte_add(shared_offsets[2])
                         .cast::<heap::Shared<size::Large>>()

@@ -148,7 +148,7 @@ impl Worker {
                 .backend(cxlalloc::raw::backend::Shm)
                 .free(false)
                 .thread_count(cli.count)
-                .size(cli.size)
+                .size_small(cli.size)
                 .build(&cli.name)
                 .unwrap()
         });

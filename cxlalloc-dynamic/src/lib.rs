@@ -72,7 +72,7 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
     }
 
     cxlalloc::raw::Builder::default()
-        .size(1usize << 34)
+        .size_small(1usize << 34)
         .thread_count(64)
         .build("cxl")
         .expect("Heap creation failed")

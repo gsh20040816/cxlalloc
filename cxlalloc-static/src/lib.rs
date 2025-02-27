@@ -227,7 +227,7 @@ pub unsafe extern "C" fn cxlalloc_init(
 
         raw::Builder::default()
             .backend(BACKEND.get_or_init(|| Backend::Mmap).instantiate())
-            .size(size)
+            .size_small(size)
             .thread_count(thread_count as usize)
             .build(name)
             .unwrap()

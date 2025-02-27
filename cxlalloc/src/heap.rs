@@ -36,9 +36,6 @@ use crate::COUNT_CACHE_SLAB;
 use self::region::Region as _;
 
 pub struct Heap<'raw, L: view::Lens, B: size::Bracket> {
-    /// Capacity is in units of slabs
-    pub(crate) capacity: u32,
-
     /// Multiple-reader, multiple-writer metadata
     pub(crate) shared: &'raw Shared<B>,
 
@@ -96,14 +93,12 @@ where
     State: From<HeapState<B>>,
 {
     pub(crate) fn new(
-        capacity: u32,
         shared: &'raw Shared<B>,
         owned: L::Scope<'raw, Owned<B>>,
         slabs: Slab<'raw, B>,
         data: Data<'raw, B>,
     ) -> Self {
         Self {
-            capacity,
             shared,
             owned,
             slabs,
@@ -113,7 +108,6 @@ where
 
     pub(crate) unsafe fn focus(self, id: thread::Id) -> Heap<'raw, view::Focus, B> {
         Heap {
-            capacity: self.capacity,
             shared: self.shared,
             owned: L::focus(self.owned, id),
             slabs: self.slabs,
