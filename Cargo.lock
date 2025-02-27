@@ -461,7 +461,7 @@ dependencies = [
  "anyhow",
  "bindgen",
  "clap",
- "cxlalloc-static",
+ "cxlalloc",
  "cxx",
  "cxx-build",
  "duct",

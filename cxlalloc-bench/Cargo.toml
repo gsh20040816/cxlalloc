@@ -12,7 +12,7 @@ path = "src/process/worker.rs"
 allocator-bench.path = "../allocator-bench"
 anyhow.workspace = true
 clap.workspace = true
-cxlalloc-static = { path = "../cxlalloc-static", features = ["backend-shm"] }
+cxlalloc = { path = "../cxlalloc", features = ["backend-shm"] }
 cxx.workspace = true
 duct.workspace = true
 homedir.workspace = true
