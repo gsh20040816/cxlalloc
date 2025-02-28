@@ -22,7 +22,7 @@ impl LinearHashMap {
         })
     }
 
-    pub fn insert<K: Hash>(&self, key: K, value: u64) {
+    pub fn insert<K: Hash>(&self, key: K) -> &AtomicU64 {
         let view = self.view();
         let index = self.index(key);
         let mut probe = 0;
@@ -32,11 +32,13 @@ impl LinearHashMap {
                 probe += 1;
             }
 
-            if view[(index + probe) % view.len()]
-                .compare_exchange(0, value + 1, Ordering::AcqRel, Ordering::Acquire)
+            let slot = &view[(index + probe) % view.len()];
+
+            if slot
+                .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                break;
+                break slot;
             }
         }
     }

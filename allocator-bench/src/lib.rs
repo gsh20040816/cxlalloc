@@ -7,6 +7,8 @@ pub mod process;
 use core::cell::Cell;
 use core::ffi;
 use core::ptr::NonNull;
+use core::sync::atomic::AtomicU64;
+use core::sync::atomic::Ordering;
 use std::io;
 use std::time::Instant;
 
@@ -30,6 +32,14 @@ pub trait Backend: Send + Sync + Sized {
 pub trait Allocator: Sized {
     type Ptr: Pointer;
     fn allocate(&mut self, size: usize) -> Option<Self::Ptr>;
+
+    unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
+        unsafe {
+            let offset = self.pointer_to_offset(pointee);
+            AtomicU64::from_ptr(pointer).store(offset, Ordering::Release);
+        }
+    }
+
     unsafe fn deallocate(&mut self, pointer: Self::Ptr);
     unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64;
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr>;
@@ -37,35 +47,17 @@ pub trait Allocator: Sized {
 
 pub trait Pointer {
     fn as_ptr(&self) -> *mut ffi::c_void;
-    fn as_u64(&self) -> u64;
-    fn from_u64(pointer: u64) -> Self;
 }
 
 impl Pointer for *mut ffi::c_void {
     fn as_ptr(&self) -> *mut ffi::c_void {
         *self
     }
-
-    fn as_u64(&self) -> u64 {
-        *self as u64
-    }
-
-    fn from_u64(pointer: u64) -> Self {
-        pointer as Self
-    }
 }
 
 impl Pointer for NonNull<ffi::c_void> {
     fn as_ptr(&self) -> *mut ffi::c_void {
         (*self).as_ptr()
-    }
-
-    fn as_u64(&self) -> u64 {
-        self.as_ptr() as u64
-    }
-
-    fn from_u64(pointer: u64) -> Self {
-        NonNull::new(pointer as *mut ffi::c_void).unwrap()
     }
 }
 

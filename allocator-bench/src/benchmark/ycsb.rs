@@ -179,7 +179,6 @@ fn load<B: Backend>(context: &context::Thread, global: &Global, allocator: &mut 
 fn insert<B: Backend>(allocator: &mut B::Allocator, map: &LinearHashMap, key: ycsb::Key) {
     // FIXME: CXL-SHM max record size
     let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
-    let offset = unsafe { allocator.pointer_to_offset(&handle) };
     unsafe {
         handle
             .as_ptr()
@@ -189,5 +188,7 @@ fn insert<B: Backend>(allocator: &mut B::Allocator, map: &LinearHashMap, key: yc
             .key
             .store(key.id(), Ordering::Release);
     }
-    map.insert(key.id(), offset);
+
+    let slot = map.insert(key.id());
+    unsafe { allocator.link(slot.as_ptr(), &handle) }
 }

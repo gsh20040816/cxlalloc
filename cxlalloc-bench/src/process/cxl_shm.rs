@@ -52,17 +52,22 @@ impl allocator_bench::Allocator for CxlShm {
         unsafe { Some(self.0.cxl_malloc(size as u64, 0)) }
     }
 
-    unsafe fn deallocate(&mut self, mut pointer: Self::Ptr) {
-        unsafe { pointer.destruct() }
+    unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
+        unsafe {
+            let offset = self.pointer_to_offset(pointee);
+            self.0.link_reference(pointer, offset);
+        }
     }
+
+    unsafe fn deallocate(&mut self, _: Self::Ptr) {}
 
     unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64 {
         let address = sys::CXLRef_s_get_addr(pointer as *const Self::Ptr as *mut _);
-        address as u64 - sys::cxl_shm_get_start(&mut self.0) as u64
+        address as u64 - self.0.get_start() as u64
     }
 
-    fn offset_to_pointer(&mut self, _: u64) -> Option<Self::Ptr> {
-        unimplemented!()
+    fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {
+        unsafe { Some(self.0.get_ref(offset)) }
     }
 }
 
@@ -70,12 +75,10 @@ impl allocator_bench::Pointer for sys::CXLRef {
     fn as_ptr(&self) -> *mut core::ffi::c_void {
         unsafe { CXLRef_s_get_addr(self as *const _ as *mut _) }
     }
+}
 
-    fn as_u64(&self) -> u64 {
-        (*self).as_ptr() as u64
-    }
-
-    fn from_u64(_pointer: u64) -> Self {
-        unimplemented!()
+impl Drop for sys::CXLRef {
+    fn drop(&mut self) {
+        unsafe { self.destruct() }
     }
 }
