@@ -10,6 +10,10 @@ pub struct Global {
     #[arg(long)]
     pub numa: usize,
 
+    /// Eagerly populate page tables
+    #[arg(long)]
+    pub populate: bool,
+
     /// Number of processes
     #[arg(long)]
     pub process_count: usize,

@@ -12,7 +12,10 @@ use crate::raw::backend;
 use crate::raw::region;
 
 #[derive(Debug)]
-pub struct Shm;
+pub struct Shm {
+    pub numa: Option<usize>,
+    pub populate: bool,
+}
 
 impl backend::Impl for Shm {
     fn name(&self) -> &'static str {
@@ -54,6 +57,14 @@ impl backend::Impl for Shm {
 
             Ok(backend::File::new(fd, 0, clean))
         }
+    }
+
+    fn numa(&self) -> Option<usize> {
+        self.numa
+    }
+
+    fn populate(&self) -> bool {
+        self.populate
     }
 }
 

@@ -46,7 +46,10 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Self {
         Builder {
-            backend: Backend::Mmap(backend::Mmap),
+            backend: Backend::Mmap(backend::Mmap {
+                numa: None,
+                populate: false,
+            }),
             size_small: 0,
             size_large: 0,
             thread_count: 1,

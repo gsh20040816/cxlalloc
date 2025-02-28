@@ -20,7 +20,11 @@ use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
+use std::env;
 use std::sync::LazyLock;
+
+use cxlalloc::raw::backend::Mmap;
+use cxlalloc::raw::Backend;
 
 /// We explicitly opt out of the system allocator so that
 /// `cxlalloc` can allocate DRAM internally without recursion.
@@ -71,7 +75,15 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
         libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
     }
 
+    let numa = env::var("CXL_NUMA_NODE")
+        .ok()
+        .and_then(|numa| numa.parse::<usize>().ok());
+
     cxlalloc::raw::Builder::default()
+        .backend(Backend::Mmap(Mmap {
+            numa,
+            populate: false,
+        }))
         .size_small(1usize << 34)
         .thread_count(64)
         .build("cxl")

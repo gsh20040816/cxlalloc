@@ -10,16 +10,17 @@ use crate::raw::region;
 #[derive(Debug)]
 pub struct Ivshmem {
     device: fs::File,
+    populate: bool,
 }
 
 impl Ivshmem {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(populate: bool) -> Self {
         fs::File::options()
             .read(true)
             .write(true)
             .open("/dev/cxl_ivpci0")
-            .map(|device| Self { device })
+            .map(|device| Self { device, populate })
             .expect("Failed to open `/dev/cxl_ivpci0`: is CXL driver module loaded?")
     }
 }
@@ -37,6 +38,15 @@ impl backend::Impl for Ivshmem {
             allocation.desc.offset as i64,
             allocation.existing == 0,
         ))
+    }
+
+    // Assumes memory is bound to NUMA node by host (outside of VM)
+    fn numa(&self) -> Option<usize> {
+        None
+    }
+
+    fn populate(&self) -> bool {
+        self.populate
     }
 }
 

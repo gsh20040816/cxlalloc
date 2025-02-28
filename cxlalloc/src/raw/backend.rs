@@ -47,6 +47,14 @@ impl Backend {
         self.as_backend().name()
     }
 
+    pub(super) fn numa(&self) -> Option<usize> {
+        self.as_backend().numa()
+    }
+
+    pub(super) fn populate(&self) -> bool {
+        self.as_backend().populate()
+    }
+
     fn as_backend(&self) -> &dyn Impl {
         match self {
             Backend::Mmap(mmap) => mmap,
@@ -62,10 +70,14 @@ impl Backend {
 //
 // This trait is an implementation detail for requiring
 // our backend implementations to expose the same interface.
-trait Impl: Send + Sync {
+pub(super) trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
     fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File>;
+
+    fn numa(&self) -> Option<usize>;
+
+    fn populate(&self) -> bool;
 }
 
 pub(super) struct File {

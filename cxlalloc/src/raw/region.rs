@@ -5,7 +5,6 @@ use core::num::NonZeroUsize;
 use core::ops::Deref;
 use core::ptr;
 use core::ptr::NonNull;
-use std::env;
 use std::io;
 
 use arrayvec::ArrayString;
@@ -51,19 +50,35 @@ impl Reservation {
     // to reserve an unbacked region of virtual address space,
     // and then overwrite it later via `mmap` with `MMAP_FIXED`.
     pub(crate) fn new() -> io::Result<Self> {
-        let address = unsafe { mmap(None, Self::SIZE, false, &backend::File::default())? };
+        let address = Self::mmap(Self::SIZE)?;
         Ok(Self(address))
     }
 
     pub(crate) fn new_contiguous<const COUNT: usize>() -> io::Result<[Self; COUNT]> {
         let total = NonZeroUsize::new(Self::SIZE.get() * COUNT).unwrap();
-        let address = unsafe { mmap(None, total, false, &backend::File::default())? };
+        let address = Self::mmap(total)?;
         Ok(std::array::from_fn(|i| {
             Self(unsafe { address.byte_add(Self::SIZE.get() * i) })
         }))
     }
 
-    fn unmap(&self) -> io::Result<()> {
+    fn mmap(size: NonZeroUsize) -> io::Result<NonNull<Page>> {
+        match unsafe {
+            libc::mmap64(
+                ptr::null_mut(),
+                size.get(),
+                libc::PROT_NONE,
+                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                -1,
+                0,
+            )
+        } {
+            libc::MAP_FAILED => Err(io::Error::last_os_error()),
+            actual => Ok(NonNull::new(actual).unwrap().cast::<Page>()),
+        }
+    }
+
+    fn munmap(&self) -> io::Result<()> {
         unsafe { munmap(self.0, Self::SIZE) }
     }
 
@@ -106,7 +121,7 @@ impl Fixed {
     pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> io::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
         let file = backend.allocate(id.clone(), size)?;
-        let address = unsafe { mmap(None, size, true, &file)? };
+        let address = unsafe { mmap(None, size, backend.numa(), backend.populate(), &file)? };
         Ok(Self {
             id,
             address,
@@ -148,7 +163,15 @@ impl Sequential {
             true => false,
             false => {
                 let file = backend.allocate(id.with_suffix(0), size)?;
-                unsafe { mmap(Some(reservation.0), size, true, &file) }?;
+                unsafe {
+                    mmap(
+                        Some(reservation.0),
+                        size,
+                        backend.numa(),
+                        backend.populate(),
+                        &file,
+                    )
+                }?;
                 file.clean
             }
         };
@@ -169,7 +192,8 @@ impl Sequential {
             mmap(
                 Some(self.reservation.0.byte_add(self.size.get() * index)),
                 self.size,
-                true,
+                backend.numa(),
+                backend.populate(),
                 &file,
             )
         }?;
@@ -193,7 +217,7 @@ impl Region for Sequential {
 
     /// Remove all virtual address space mappings for this region.
     fn unmap(&self) -> io::Result<()> {
-        self.reservation.unmap()
+        self.reservation.munmap()
     }
 }
 
@@ -213,7 +237,15 @@ impl Random {
         size: NonZeroUsize,
     ) -> io::Result<()> {
         let file = backend.allocate(self.id.with_suffix(format_args!("{:#x}", offset)), size)?;
-        unsafe { mmap(Some(self.address().byte_add(offset)), size, true, &file) }?;
+        unsafe {
+            mmap(
+                Some(self.address().byte_add(offset)),
+                size,
+                backend.numa(),
+                backend.populate(),
+                &file,
+            )
+        }?;
 
         Ok(())
     }
@@ -233,7 +265,7 @@ impl Region for Random {
     }
 
     fn unmap(&self) -> io::Result<()> {
-        self.reservation.unmap()
+        self.reservation.munmap()
     }
 }
 
@@ -247,7 +279,8 @@ unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
 unsafe fn mmap(
     address: Option<NonNull<Page>>,
     size: NonZeroUsize,
-    rw: bool,
+    numa: Option<usize>,
+    populate: bool,
     file: &backend::File,
 ) -> io::Result<NonNull<Page>> {
     let actual = match libc::mmap64(
@@ -256,11 +289,7 @@ unsafe fn mmap(
             .unwrap_or_else(ptr::null_mut)
             .cast(),
         size.get(),
-        if rw {
-            libc::PROT_READ | libc::PROT_WRITE
-        } else {
-            libc::PROT_NONE
-        },
+        libc::PROT_READ | libc::PROT_WRITE,
         file.flags() | address.map(|_| libc::MAP_FIXED).unwrap_or(0),
         file.fd(),
         file.offset,
@@ -273,8 +302,11 @@ unsafe fn mmap(
         assert_eq!(expected, actual);
     }
 
-    if rw {
-        mbind(actual, size)?;
+    if let Some(numa) = numa {
+        mbind(actual, size, numa)?;
+    }
+
+    if populate {
         madvise(actual, size)?;
     }
 
@@ -282,13 +314,6 @@ unsafe fn mmap(
 }
 
 unsafe fn madvise(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
-    let Some(true) = env::var("CXLALLOC_MAP_POPULATE")
-        .ok()
-        .and_then(|bool| bool.parse::<bool>().ok())
-    else {
-        return Ok(());
-    };
-
     match libc::madvise(
         address.as_ptr().cast(),
         size.get(),
@@ -300,14 +325,7 @@ unsafe fn madvise(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> 
 }
 
 // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
-    let Some(numa) = env::var("CXL_NUMA_NODE")
-        .ok()
-        .and_then(|numa| numa.parse::<usize>().ok())
-    else {
-        return Ok(());
-    };
-
+unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize, numa: usize) -> io::Result<()> {
     let mask = 1u64 << numa;
     match libc::syscall(
         libc::SYS_mbind,

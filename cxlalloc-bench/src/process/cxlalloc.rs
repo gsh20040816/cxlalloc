@@ -29,11 +29,13 @@ pub struct Cxlalloc(cxlalloc::Allocator<'static>);
 impl allocator_bench::Backend for Backend {
     type Allocator = Cxlalloc;
 
-    // FIXME: implicitly passed through `CXL_NUMA_NODE` environment variable
-    fn open(_: usize, name: &str, size: usize) -> io::Result<Self> {
+    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
         RAW.get_or_init(|| {
             cxlalloc::raw::Builder::default()
-                .backend(cxlalloc::raw::backend::Shm)
+                .backend(cxlalloc::raw::backend::Shm {
+                    numa: Some(numa),
+                    populate,
+                })
                 .size_small(size / 2)
                 .size_large(size / 2)
                 .build(name)

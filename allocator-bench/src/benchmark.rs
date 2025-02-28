@@ -44,13 +44,13 @@ pub trait Interface<B: Backend>: Sync {
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match context.process_id {
             0 => {
-                let backend = B::open(context.numa, Self::NAME, size);
+                let backend = B::open(context.numa, context.populate, Self::NAME, size);
                 barrier.wait(context.thread_total() as u64, context.thread_count as u64);
                 backend
             }
             _ => {
                 barrier.wait(context.thread_total() as u64, context.thread_count as u64);
-                B::open(context.numa, Self::NAME, size)
+                B::open(context.numa, context.populate, Self::NAME, size)
             }
         }
         .unwrap();

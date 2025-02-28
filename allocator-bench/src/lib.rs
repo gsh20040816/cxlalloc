@@ -19,11 +19,11 @@ use serde::Serialize;
 
 pub trait Backend: Send + Sync + Sized {
     type Allocator: Allocator;
-    fn create(numa: usize, name: &str, size: usize) -> io::Result<Self> {
-        Self::open(numa, name, size)
+    fn create(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
+        Self::open(numa, populate, name, size)
     }
 
-    fn open(numa: usize, name: &str, size: usize) -> io::Result<Self>;
+    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self>;
 
     fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;

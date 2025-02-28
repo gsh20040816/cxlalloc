@@ -9,6 +9,7 @@ use core::sync::atomic::Ordering;
 use std::alloc::Layout;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::env;
 use std::ffi;
 use std::ffi::CStr;
 use std::ptr::NonNull;
@@ -52,18 +53,26 @@ impl Backend {
     }
 
     fn instantiate(&self) -> raw::Backend {
+        let numa = env::var("CXL_NUMA_NODE")
+            .ok()
+            .and_then(|numa| numa.parse::<usize>().ok());
+        let populate = env::var("CXLALLOC_MAP_POPULATE")
+            .ok()
+            .and_then(|populate| populate.parse::<bool>().ok())
+            .unwrap_or_default();
+
         match self {
-            Backend::Mmap => raw::Backend::Mmap(backend::Mmap),
+            Backend::Mmap => raw::Backend::Mmap(backend::Mmap { numa, populate }),
 
             #[cfg(feature = "backend-shm")]
-            Backend::Shm => raw::Backend::Shm(backend::Shm),
+            Backend::Shm => raw::Backend::Shm(backend::Shm { numa, populate }),
             #[cfg(not(feature = "backend-shm"))]
             Backend::Shm => {
                 panic!("cxlalloc-static crate was compiled without `backend-shm` feature")
             }
 
             #[cfg(feature = "backend-ivshmem")]
-            Backend::Ivshmem => raw::Backend::Ivshmem(backend::Ivshmem::new()),
+            Backend::Ivshmem => raw::Backend::Ivshmem(backend::Ivshmem::new(populate)),
             #[cfg(not(feature = "backend-ivshmem"))]
             Backend::Ivshmem => {
                 panic!("cxlalloc-static crate was compiled without `backend-ivshmem` feature")
