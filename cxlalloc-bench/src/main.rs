@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use anyhow::Context;
 use clap::Parser;
 use cxlalloc_bench::process;
+use cxlalloc_bench::Observation;
 use duct::cmd;
 
 use cxlalloc_bench::Allocator;
@@ -55,31 +56,7 @@ enum Cli {
         output: String,
     },
 
-    Process {
-        #[arg(long)]
-        pretty: bool,
-
-        #[command(flatten)]
-        process: Process,
-    },
-}
-
-#[derive(Clone, Parser, Serialize)]
-#[group(skip)]
-struct Process {
-    #[arg(short, long)]
-    allocator: process::Allocator,
-
-    #[arg(short, long)]
-    size: usize,
-
-    #[serde(flatten)]
-    #[command(flatten)]
-    context: allocator_bench::context::Global,
-
-    #[serde(flatten)]
-    #[command(subcommand)]
-    benchmark: allocator_bench::Benchmark,
+    Process(cxlalloc_bench::Cli),
 }
 
 #[derive(Clone, Parser, Serialize)]
@@ -205,18 +182,18 @@ fn main() -> anyhow::Result<()> {
                     .run()?;
             }
         }
-        Cli::Process { pretty, process } => {
-            (0..process.context.process_count)
+        Cli::Process(cli) => {
+            (0..cli.context.process_count)
                 .map(|process_id| {
                     let command = serde_json::to_vec(&crate::process::Cli {
-                        allocator: process.allocator.clone(),
-                        size: process.size,
+                        allocator: cli.allocator.clone(),
+                        size: cli.size,
                         benchmark: allocator_bench::process::Cli {
                             context: allocator_bench::context::Process {
-                                global: process.context,
+                                global: cli.context,
                                 process_id,
                             },
-                            benchmark: process.benchmark.clone(),
+                            benchmark: cli.benchmark.clone(),
                         },
                     })
                     .unwrap();
@@ -246,13 +223,13 @@ fn main() -> anyhow::Result<()> {
                         .collect::<Vec<_>>()
                 })
                 .map(Result::unwrap)
-                .map(|outputs| Metrics {
-                    inputs: &process,
+                .map(|outputs| Observation {
+                    inputs: cli.clone(),
                     outputs,
                 })
                 .for_each(|output| {
                     let mut stdout = std::io::stdout().lock();
-                    let write = match pretty {
+                    let write = match cli.pretty {
                         true => serde_json::to_writer_pretty,
                         false => serde_json::to_writer,
                     };
@@ -263,14 +240,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-#[derive(Serialize)]
-pub struct Metrics<'a> {
-    #[serde(flatten)]
-    inputs: &'a Process,
-    #[serde(flatten)]
-    outputs: allocator_bench::Metrics,
 }
 
 impl Wrapper {
