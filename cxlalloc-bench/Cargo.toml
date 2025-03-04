@@ -18,7 +18,6 @@ duct.workspace = true
 homedir.workspace = true
 libc.workspace = true
 serde.workspace = true
-serde-command-line.workspace = true
 serde_json.workspace = true
 shm.path = "../shm"
 

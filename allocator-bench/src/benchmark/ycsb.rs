@@ -5,6 +5,7 @@ use core::sync::atomic::Ordering;
 use std::path::PathBuf;
 
 use clap::Parser;
+use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
 
@@ -15,7 +16,8 @@ use crate::benchmark;
 use crate::context;
 use crate::index::LinearHashMap;
 
-#[derive(Clone, Parser, Serialize)]
+#[derive(Clone, Parser, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Ycsb {
     workload: PathBuf,
     #[arg(long)]

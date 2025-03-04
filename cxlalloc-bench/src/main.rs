@@ -208,7 +208,7 @@ fn main() -> anyhow::Result<()> {
         Cli::Process { pretty, process } => {
             (0..process.context.process_count)
                 .map(|process_id| {
-                    let command = crate::process::Cli {
+                    let command = serde_json::to_vec(&crate::process::Cli {
                         allocator: process.allocator.clone(),
                         size: process.size,
                         benchmark: allocator_bench::process::Cli {
@@ -218,7 +218,9 @@ fn main() -> anyhow::Result<()> {
                             },
                             benchmark: process.benchmark.clone(),
                         },
-                    };
+                    })
+                    .unwrap();
+                    let empty: [String; 0] = [];
 
                     duct::cmd(
                         if cfg!(debug_assertions) {
@@ -226,8 +228,9 @@ fn main() -> anyhow::Result<()> {
                         } else {
                             "target/release/cxlalloc-bench-worker"
                         },
-                        serde_command_line::to_vec(&command).unwrap(),
+                        empty,
                     )
+                    .stdin_bytes(command)
                     .stdout_capture()
                     .start()
                     .unwrap()

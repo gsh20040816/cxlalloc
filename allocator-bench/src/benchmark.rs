@@ -2,6 +2,7 @@ use std::io::Write as _;
 use std::thread;
 
 use clap::Parser;
+use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Backend;
@@ -118,8 +119,8 @@ pub trait Interface<B: Backend>: Sync {
     }
 }
 
-#[derive(Clone, Parser, Serialize)]
-#[serde(tag = "benchmark", rename_all = "kebab-case")]
+#[derive(Clone, Parser, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),

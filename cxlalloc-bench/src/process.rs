@@ -13,9 +13,10 @@ pub use boost::Boost;
 pub use cxl_shm::CxlShm;
 pub use cxlalloc::Cxlalloc;
 pub use lightning::Lightning;
+use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Clone, ValueEnum, Serialize)]
+#[derive(Clone, ValueEnum, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Allocator {
     Boost,
@@ -37,7 +38,7 @@ impl Display for Allocator {
     }
 }
 
-#[derive(Clone, Parser, Serialize)]
+#[derive(Clone, Parser, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[group(skip)]
 pub struct Cli {
