@@ -19,6 +19,7 @@ anyhow = "1.0"
 arrayvec = "0.7"
 backtrace = "0.3"
 bindgen = "0.71"
+bon = "3.3"
 clap = { version = "4.5", features = ["derive"] }
 core_affinity = "0.8"
 ctor = "0.2"
