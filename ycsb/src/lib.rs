@@ -9,8 +9,9 @@ use generator::Generator as _;
 use rand::Rng;
 use rapidhash::RapidHasher;
 use serde::Deserialize;
+use serde::Serialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Workload {
     #[serde(alias = "insertorder", default = "default::insert_order")]
     insert_order: InsertOrder,
@@ -136,7 +137,7 @@ impl Loader {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Key(u64);
 
 impl Key {
@@ -243,24 +244,18 @@ mod default {
     pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestDistribution {
-    #[serde(alias = "latest")]
     Latest,
-
-    #[serde(alias = "uniform")]
     Uniform,
-
-    #[serde(alias = "zipfian")]
     Zipfian,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InsertOrder {
-    #[serde(alias = "ordered")]
     Ordered,
-
-    #[serde(alias = "hashed")]
     Hashed,
 }
 

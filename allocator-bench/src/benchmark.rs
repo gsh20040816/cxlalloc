@@ -120,7 +120,7 @@ pub trait Interface<B: Backend>: Sync {
 }
 
 #[derive(Clone, Parser, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),

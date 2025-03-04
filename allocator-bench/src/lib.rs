@@ -64,7 +64,6 @@ impl Pointer for NonNull<ffi::c_void> {
 pub struct Timer {}
 
 #[derive(Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct Metrics {
     process_id: usize,
     thread_id: usize,

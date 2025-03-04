@@ -5,7 +5,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Copy, Clone, Parser, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct Global {
     /// NUMA node for remote memory
     #[arg(long)]
@@ -31,7 +30,6 @@ impl Global {
 }
 
 #[derive(Copy, Clone, Parser, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct Process {
     #[serde(flatten)]
     #[command(flatten)]

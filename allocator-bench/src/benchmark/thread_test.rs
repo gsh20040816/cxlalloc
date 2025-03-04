@@ -10,7 +10,6 @@ use crate::benchmark;
 use crate::context;
 
 #[derive(Clone, Parser, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct ThreadTest {
     #[arg(short, long, default_value_t = 50)]
     pub(crate) iteration_count: usize,

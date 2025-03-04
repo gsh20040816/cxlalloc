@@ -17,7 +17,6 @@ use crate::context;
 use crate::index::LinearHashMap;
 
 #[derive(Clone, Parser, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct Ycsb {
     workload: PathBuf,
     #[arg(long)]
