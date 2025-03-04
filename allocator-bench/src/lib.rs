@@ -36,7 +36,7 @@ pub trait Allocator: Sized {
     unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
         unsafe {
             let offset = self.pointer_to_offset(pointee);
-            AtomicU64::from_ptr(pointer).store(offset, Ordering::Release);
+            AtomicU64::from_ptr(pointer).store(offset + 1, Ordering::Release);
         }
     }
 

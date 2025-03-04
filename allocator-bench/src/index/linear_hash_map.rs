@@ -1,5 +1,6 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
+use core::hint;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::ffi::CString;
@@ -51,6 +52,8 @@ impl LinearHashMap {
         loop {
             match view[(index + probe) % view.len()].load(Ordering::Acquire) {
                 0 => return None,
+                // Wait for link operation to complete
+                u64::MAX => hint::spin_loop(),
                 offset => match compare(offset - 1) {
                     value @ Some(_) => return value,
                     None => probe += 1,
