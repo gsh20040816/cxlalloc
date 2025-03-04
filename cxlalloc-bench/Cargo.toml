@@ -2,11 +2,15 @@
 name = "cxlalloc-bench"
 version = "0.1.0"
 edition = "2021"
-default-run = "cxlalloc-bench"
+default-run = "cxlalloc-bench-coordinator"
 
 [[bin]]
 name = "cxlalloc-bench-worker"
-path = "src/process/worker.rs"
+path = "src/bin/worker.rs"
+
+[[bin]]
+name = "cxlalloc-bench-coordinator"
+path = "src/bin/coordinator.rs"
 
 [dependencies]
 allocator-bench.path = "../allocator-bench"
