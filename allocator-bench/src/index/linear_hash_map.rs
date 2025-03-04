@@ -14,12 +14,10 @@ pub struct LinearHashMap {
 }
 
 impl LinearHashMap {
-    pub fn new(numa: Option<usize>, name: &str, size: usize, populate: bool) -> io::Result<Self> {
-        let size = size.next_multiple_of(8);
-
+    pub fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
-            len: size / 8,
-            raw: shm::Raw::new(numa, CString::new(name).unwrap(), size, populate)?,
+            len,
+            raw: shm::Raw::new(numa, CString::new(name).unwrap(), len * 8, populate)?,
         })
     }
 
