@@ -2,7 +2,6 @@ use core::mem;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::path::PathBuf;
 
 use clap::Parser;
 use serde::Deserialize;
@@ -18,9 +17,11 @@ use crate::index::LinearHashMap;
 
 #[derive(Clone, Parser, Deserialize, Serialize)]
 pub struct Ycsb {
-    workload: PathBuf,
     #[arg(long)]
     load: bool,
+
+    #[command(flatten)]
+    workload: ycsb::Workload,
 }
 
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
@@ -28,7 +29,6 @@ pub struct Ycsb {
 const MAX_SIZE: usize = 1_000;
 
 pub struct Global {
-    workload: ycsb::Workload,
     index: LinearHashMap,
     acked: Shm<ycsb::Acknowledged>,
 }
@@ -54,16 +54,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
     type Local = ();
 
     fn setup_process(&self, context: &context::Process) -> Self::Global {
-        let workload = std::fs::read_to_string(&self.workload).unwrap_or_else(|error| {
-            panic!(
-                "Failed to read workload file {:?}: {:?}",
-                self.workload, error
-            )
-        });
-        let workload = toml::from_str(&workload).unwrap();
-
         Global {
-            workload,
             index: LinearHashMap::new(Some(context.numa), "index", 1 << 24, true).unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
         }
@@ -79,7 +70,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
             return;
         }
 
-        load::<B>(context, global, allocator);
+        self.load::<B>(context, global, allocator);
     }
 
     fn run_thread(
@@ -90,13 +81,13 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
         allocator: &mut B::Allocator,
     ) {
         if self.load {
-            load::<B>(context, global, allocator);
+            self.load::<B>(context, global, allocator);
         } else {
-            let mut runner = global
+            let mut runner = self
                 .workload
                 .runner(unsafe { global.acked.address().as_ref().unwrap() });
             let mut rng = rand::rng();
-            for _ in 0..global.workload.operation_count() / context.thread_total() {
+            for _ in 0..self.workload.operation_count() / context.thread_total() {
                 let key = runner.next_key(&mut rng);
                 let id = key.id();
                 match runner.next_operation(&mut rng) {
@@ -150,7 +141,7 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
                     }
                     ycsb::Operation::Scan => todo!(),
                     ycsb::Operation::Insert => {
-                        insert::<B>(allocator, &global.index, key);
+                        self.insert::<B>(allocator, &global.index, key);
                     }
                     ycsb::Operation::ReadModifyWrite => todo!(),
                 }
@@ -168,28 +159,40 @@ impl<B: Backend> benchmark::Interface<B> for Ycsb {
     }
 }
 
-fn load<B: Backend>(context: &context::Thread, global: &Global, allocator: &mut B::Allocator) {
-    let mut loader = global
-        .workload
-        .loader(context.thread_total(), context.thread_id);
-    while let Some(key) = loader.next_key() {
-        insert::<B>(allocator, &global.index, key);
-    }
-}
-
-fn insert<B: Backend>(allocator: &mut B::Allocator, map: &LinearHashMap, key: ycsb::Key) {
-    // FIXME: CXL-SHM max record size
-    let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
-    unsafe {
-        handle
-            .as_ptr()
-            .cast::<Record>()
-            .as_ref()
-            .unwrap()
-            .key
-            .store(key.id(), Ordering::Release);
+impl Ycsb {
+    fn load<B: Backend>(
+        &self,
+        context: &context::Thread,
+        global: &Global,
+        allocator: &mut B::Allocator,
+    ) {
+        let mut loader = self
+            .workload
+            .loader(context.thread_total(), context.thread_id);
+        while let Some(key) = loader.next_key() {
+            self.insert::<B>(allocator, &global.index, key);
+        }
     }
 
-    let slot = map.insert(key.id());
-    unsafe { allocator.link(slot.as_ptr(), &handle) }
+    fn insert<B: Backend>(
+        &self,
+        allocator: &mut B::Allocator,
+        map: &LinearHashMap,
+        key: ycsb::Key,
+    ) {
+        // FIXME: CXL-SHM max record size
+        let handle = allocator.allocate(mem::size_of::<Record>()).unwrap();
+        unsafe {
+            handle
+                .as_ptr()
+                .cast::<Record>()
+                .as_ref()
+                .unwrap()
+                .key
+                .store(key.id(), Ordering::Release);
+        }
+
+        let slot = map.insert(key.id());
+        unsafe { allocator.link(slot.as_ptr(), &handle) }
+    }
 }

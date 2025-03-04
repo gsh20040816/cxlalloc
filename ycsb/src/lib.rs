@@ -5,44 +5,57 @@ use core::hash::Hasher as _;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
+use clap::Parser;
+use clap::ValueEnum;
 use generator::Generator as _;
 use rand::Rng;
 use rapidhash::RapidHasher;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Parser, Deserialize, Serialize)]
 pub struct Workload {
+    #[arg(long, value_enum, default_value_t = default::insert_order())]
     #[serde(alias = "insertorder", default = "default::insert_order")]
     insert_order: InsertOrder,
 
+    #[arg(long, default_value_t = default::field_count())]
     #[serde(alias = "fieldcount", default = "default::field_count")]
     field_count: usize,
 
+    #[arg(long)]
     #[serde(alias = "recordcount")]
     record_count: usize,
 
+    #[arg(long)]
     #[serde(alias = "operationcount")]
     operation_count: usize,
 
+    #[arg(long, default_value_t = default::read_all_fields())]
     #[serde(alias = "readallfields", default = "default::read_all_fields")]
     read_all_fields: bool,
 
+    #[arg(long, default_value_t = default::read_proportion())]
     #[serde(alias = "readproportion", default = "default::read_proportion")]
     read_proportion: f32,
 
+    #[arg(long, default_value_t = default::update_proportion())]
     #[serde(alias = "updateproportion", default = "default::update_proportion")]
     update_proportion: f32,
 
+    #[arg(long, default_value_t = 0.0)]
     #[serde(alias = "scanproportion", default)]
     scan_proportion: f32,
 
+    #[arg(long, default_value_t = 0.0)]
     #[serde(alias = "insertproportion", default)]
     insert_proportion: f32,
 
+    #[arg(long, default_value_t = 0.0)]
     #[serde(alias = "readmodifywriteproportion", default)]
     read_modify_write_proportion: f32,
 
+    #[arg(long, value_enum, default_value_t = default::request_distribution())]
     #[serde(
         alias = "requestdistribution",
         default = "default::request_distribution"
@@ -244,7 +257,8 @@ mod default {
     pub(super) fn request_distribution() -> RequestDistribution { RequestDistribution::Zipfian }
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ValueEnum)]
+#[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum RequestDistribution {
     Latest,
@@ -252,7 +266,8 @@ pub enum RequestDistribution {
     Zipfian,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ValueEnum)]
+#[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum InsertOrder {
     Ordered,
