@@ -1,5 +1,6 @@
 use core::ffi;
 use core::mem;
+use core::num::NonZeroU64;
 use core::ptr;
 use core::ptr::NonNull;
 use std::ffi::OsStr;
@@ -87,11 +88,11 @@ impl allocator_bench::Allocator for Cxlalloc {
         self.0.free_untyped(pointer)
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> u64 {
-        self.0.pointer_to_offset(*pointer) as u64
+    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(self.0.pointer_to_offset(*pointer) as u64 + 1).unwrap()
     }
 
     fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
-        Some(self.0.offset_to_pointer(offset as usize))
+        Some(self.0.offset_to_pointer(offset as usize - 1))
     }
 }

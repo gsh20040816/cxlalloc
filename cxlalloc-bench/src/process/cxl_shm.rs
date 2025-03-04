@@ -1,4 +1,5 @@
 use core::mem::MaybeUninit;
+use core::num::NonZeroU64;
 use std::ffi::CString;
 use std::io;
 
@@ -53,15 +54,17 @@ impl allocator_bench::Allocator for CxlShm {
     unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
         unsafe {
             let offset = self.pointer_to_offset(pointee);
-            self.0.link_reference(pointer, offset);
+            self.0.link_reference(pointer, offset.get());
         }
     }
 
     unsafe fn deallocate(&mut self, _: Self::Ptr) {}
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64 {
+    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
         let address = sys::CXLRef_s_get_addr(pointer as *const Self::Ptr as *mut _);
-        address as u64 - self.0.get_start() as u64
+        // The `link_reference` and `get_ref` functions expect the offset of the
+        // `CXLObj` header, *not* the data.
+        NonZeroU64::new(address as u64 - self.0.get_start() as u64 - 24).unwrap()
     }
 
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {

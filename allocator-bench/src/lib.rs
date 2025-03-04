@@ -6,6 +6,7 @@ pub mod process;
 
 use core::cell::Cell;
 use core::ffi;
+use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -36,12 +37,12 @@ pub trait Allocator: Sized {
     unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
         unsafe {
             let offset = self.pointer_to_offset(pointee);
-            AtomicU64::from_ptr(pointer).store(offset + 1, Ordering::Release);
+            AtomicU64::from_ptr(pointer).store(offset.get(), Ordering::Release);
         }
     }
 
     unsafe fn deallocate(&mut self, pointer: Self::Ptr);
-    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64;
+    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64;
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr>;
 }
 

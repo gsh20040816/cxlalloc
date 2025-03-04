@@ -54,7 +54,7 @@ impl LinearHashMap {
                 0 => return None,
                 // Wait for link operation to complete
                 u64::MAX => hint::spin_loop(),
-                offset => match compare(offset - 1) {
+                offset => match compare(offset) {
                     value @ Some(_) => return value,
                     None => probe += 1,
                 },

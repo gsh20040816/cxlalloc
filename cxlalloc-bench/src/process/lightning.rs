@@ -1,5 +1,6 @@
 use core::ffi;
 use core::mem::MaybeUninit;
+use core::num::NonZeroU64;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use std::ffi::CString;
@@ -107,8 +108,9 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> u64 {
-        LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr()) as u64
+    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
+        NonZeroU64::new(LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr()) as u64)
+            .unwrap()
     }
 
     fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {

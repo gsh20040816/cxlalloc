@@ -1,4 +1,5 @@
 use core::ffi;
+use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use std::ffi::CString;
 use std::io;
@@ -86,8 +87,12 @@ impl allocator_bench::Allocator for Boost {
         sys::managed_deallocate(self.inner(), pointer.as_ptr().cast())
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> u64 {
-        sys::managed_address_to_handle(self.inner(), pointer.as_ptr().cast())
+    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(sys::managed_address_to_handle(
+            self.inner(),
+            pointer.as_ptr().cast(),
+        ))
+        .unwrap()
     }
 
     fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
