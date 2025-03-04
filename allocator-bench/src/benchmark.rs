@@ -1,7 +1,6 @@
 use std::io::Write as _;
 use std::thread;
 
-use clap::Parser;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -12,7 +11,7 @@ use crate::Timer;
 use crate::context;
 
 mod thread_test;
-mod ycsb;
+pub mod ycsb;
 
 pub trait Interface<B: Backend>: Sync {
     const NAME: &str;
@@ -119,7 +118,7 @@ pub trait Interface<B: Backend>: Sync {
     }
 }
 
-#[derive(Clone, Parser, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),

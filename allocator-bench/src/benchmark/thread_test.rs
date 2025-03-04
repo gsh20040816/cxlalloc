@@ -1,6 +1,6 @@
 // https://github.com/emeryberger/Hoard/blob/f021bdb810332c9c9f5a11ae5404aaa38fe129c0/benchmarks/threadtest/threadtest.cpp
 
-use clap::Parser;
+use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -9,15 +9,15 @@ use crate::Backend;
 use crate::benchmark;
 use crate::context;
 
-#[derive(Clone, Parser, Deserialize, Serialize)]
+#[derive(Builder, Clone, Deserialize, Serialize)]
 pub struct ThreadTest {
-    #[arg(short, long, default_value_t = 50)]
+    #[builder(default = 50)]
     pub(crate) iteration_count: usize,
 
-    #[arg(short = 'n', long, default_value_t = 30_000)]
+    #[builder(default = 30_000)]
     pub(crate) object_count: usize,
 
-    #[arg(short = 's', long, default_value_t = 8)]
+    #[builder(default = 8)]
     pub(crate) object_size: usize,
 }
 

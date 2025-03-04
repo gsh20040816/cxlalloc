@@ -30,7 +30,7 @@ dependencies = [
 name = "allocator-bench"
 version = "0.1.0"
 dependencies = [
- "clap",
+ "bon",
  "core_affinity",
  "libc",
  "rand 0.9.0",
@@ -485,7 +485,6 @@ dependencies = [
  "allocator-bench",
  "anyhow",
  "bindgen",
- "clap",
  "cxlalloc",
  "cxx",
  "cxx-build",

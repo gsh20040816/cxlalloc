@@ -1,8 +1,6 @@
 use core::fmt::Display;
 
 use allocator_bench::Backend;
-use clap::Parser;
-use clap::ValueEnum;
 
 pub mod boost;
 pub mod cxl_shm;
@@ -16,8 +14,8 @@ pub use lightning::Lightning;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Clone, ValueEnum, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Allocator {
     Boost,
     Cxlalloc,
@@ -38,17 +36,10 @@ impl Display for Allocator {
     }
 }
 
-#[derive(Clone, Parser, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-#[group(skip)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Cli {
-    #[arg(short, long)]
     pub allocator: Allocator,
-
-    #[arg(short, long)]
     pub size: usize,
-
-    #[command(flatten)]
     pub benchmark: allocator_bench::process::Cli,
 }
 

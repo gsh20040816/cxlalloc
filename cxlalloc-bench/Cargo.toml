@@ -2,7 +2,7 @@
 name = "cxlalloc-bench"
 version = "0.1.0"
 edition = "2021"
-default-run = "cxlalloc-bench-coordinator"
+default-run = "cxlalloc-bench"
 
 [[bin]]
 name = "cxlalloc-bench-worker"
@@ -15,7 +15,6 @@ path = "src/bin/coordinator.rs"
 [dependencies]
 allocator-bench.path = "../allocator-bench"
 anyhow.workspace = true
-clap.workspace = true
 cxlalloc = { path = "../cxlalloc", features = ["backend-shm"] }
 cxx.workspace = true
 duct.workspace = true
@@ -24,6 +23,7 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shm.path = "../shm"
+ycsb.path = "../ycsb"
 
 [build-dependencies]
 bindgen.workspace = true

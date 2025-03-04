@@ -1,10 +1,9 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use clap::ValueEnum;
 use serde::Serialize;
 
-#[derive(Copy, Clone, ValueEnum, Serialize)]
+#[derive(Copy, Clone, Serialize)]
 pub enum Allocator {
     Mi2,
     Je,
