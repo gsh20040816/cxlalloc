@@ -12,10 +12,8 @@ use serde::Serialize;
 pub struct Cli {
     pub allocator: process::Allocator,
 
-    pub size: usize,
-
     #[serde(flatten)]
-    pub context: allocator_bench::context::Global,
+    pub control: allocator_bench::context::Global,
 
     #[serde(flatten)]
     pub benchmark: allocator_bench::Benchmark,

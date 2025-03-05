@@ -39,7 +39,6 @@ impl Display for Allocator {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Cli {
     pub allocator: Allocator,
-    pub size: usize,
     pub benchmark: allocator_bench::process::Cli,
 }
 
@@ -50,14 +49,12 @@ impl Cli {
                 <_ as allocator_bench::benchmark::Interface<B>>::run_process(
                     thread_test,
                     &self.benchmark.context,
-                    self.size,
                 )
             }
             allocator_bench::Benchmark::Ycsb(ycsb) => {
                 <_ as allocator_bench::benchmark::Interface<B>>::run_process(
                     ycsb,
                     &self.benchmark.context,
-                    self.size,
                 )
             }
         }

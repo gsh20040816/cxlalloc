@@ -18,9 +18,9 @@ fn main() -> anyhow::Result<()> {
 
                 let cli = cxlalloc_bench::Cli {
                     allocator: allocator.clone(),
-                    size: 2usize.pow(33),
-                    context: allocator_bench::context::Global {
+                    control: allocator_bench::context::Global {
                         numa: 0,
+                        size: 2usize.pow(33),
                         populate: false,
                         process_count,
                         thread_count,

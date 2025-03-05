@@ -17,6 +17,8 @@ use crate::index::LinearHashMap;
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Ycsb {
     pub load: bool,
+
+    #[serde(flatten)]
     pub workload: ycsb::Workload,
 }
 

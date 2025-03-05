@@ -7,14 +7,13 @@ use cxlalloc_bench::Observation;
 fn main() -> anyhow::Result<()> {
     let stdin = io::stdin().lock();
     let cli = serde_json::from_reader::<_, cxlalloc_bench::Cli>(stdin)?;
-    (0..cli.context.process_count)
+    (0..cli.control.process_count)
         .map(|process_id| {
             let command = serde_json::to_vec(&crate::process::Cli {
                 allocator: cli.allocator.clone(),
-                size: cli.size,
                 benchmark: allocator_bench::process::Cli {
                     context: allocator_bench::context::Process {
-                        global: cli.context,
+                        global: cli.control,
                         process_id,
                     },
                     benchmark: cli.benchmark.clone(),

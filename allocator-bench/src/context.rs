@@ -8,6 +8,9 @@ pub struct Global {
     /// NUMA node for remote memory
     pub numa: usize,
 
+    /// Initial heap size
+    pub size: usize,
+
     /// Eagerly populate page tables
     pub populate: bool,
 

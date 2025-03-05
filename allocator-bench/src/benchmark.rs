@@ -38,19 +38,19 @@ pub trait Interface<B: Backend>: Sync {
 
     fn teardown_process(&self, _context: &context::Process, _global: Self::Global) {}
 
-    fn run_process(&self, context: &context::Process, size: usize) {
+    fn run_process(&self, context: &context::Process) {
         let mut barrier = Barrier::new().unwrap();
 
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match context.process_id {
             0 => {
-                let backend = B::open(context.numa, context.populate, Self::NAME, size);
+                let backend = B::open(context.numa, context.populate, Self::NAME, context.size);
                 barrier.wait(context.thread_total() as u64, context.thread_count as u64);
                 backend
             }
             _ => {
                 barrier.wait(context.thread_total() as u64, context.thread_count as u64);
-                B::open(context.numa, context.populate, Self::NAME, size)
+                B::open(context.numa, context.populate, Self::NAME, context.size)
             }
         }
         .unwrap();
