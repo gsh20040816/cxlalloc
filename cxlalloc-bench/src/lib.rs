@@ -11,7 +11,6 @@ use serde::Serialize;
 pub struct Cli {
     pub allocator: Allocator,
 
-    #[serde(flatten)]
     pub control: allocator_bench::context::Global,
 
     #[serde(flatten)]
