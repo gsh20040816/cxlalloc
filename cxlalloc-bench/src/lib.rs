@@ -1,6 +1,5 @@
-mod allocator;
+pub mod allocator;
 mod benchmark;
-pub mod process;
 
 pub use allocator::Allocator;
 pub use benchmark::Benchmark;
@@ -10,7 +9,7 @@ use serde::Serialize;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Cli {
-    pub allocator: process::Allocator,
+    pub allocator: Allocator,
 
     #[serde(flatten)]
     pub control: allocator_bench::context::Global,

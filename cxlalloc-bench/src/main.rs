@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use cxlalloc_bench::process::Allocator;
+use cxlalloc_bench::Allocator;
 
 fn main() -> anyhow::Result<()> {
     let out = File::options()

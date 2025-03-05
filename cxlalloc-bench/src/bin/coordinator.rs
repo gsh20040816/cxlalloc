@@ -1,7 +1,7 @@
 use std::io;
 use std::io::Write as _;
 
-use cxlalloc_bench::process;
+use cxlalloc_bench::allocator;
 use cxlalloc_bench::Observation;
 
 fn main() -> anyhow::Result<()> {
@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
     let cli = serde_json::from_reader::<_, cxlalloc_bench::Cli>(stdin)?;
     (0..cli.control.process_count)
         .map(|process_id| {
-            let command = serde_json::to_vec(&crate::process::Cli {
+            let command = serde_json::to_vec(&allocator::Cli {
                 allocator: cli.allocator.clone(),
                 benchmark: allocator_bench::process::Cli {
                     context: allocator_bench::context::Process {

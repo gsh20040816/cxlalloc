@@ -1,35 +1,62 @@
-use std::path::Path;
-use std::path::PathBuf;
+use core::fmt::Display;
 
+use allocator_bench::Backend;
+
+pub mod boost;
+pub mod cxl_shm;
+pub mod cxlalloc;
+pub mod lightning;
+
+pub use boost::Boost;
+pub use cxl_shm::CxlShm;
+pub use cxlalloc::Cxlalloc;
+pub use lightning::Lightning;
+use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Allocator {
-    Mi2,
-    Je,
-    Cxl,
-    CxlDebug,
-    CxlMi2,
+    Boost,
+    Cxlalloc,
     CxlShm,
-    R,
+    Lightning,
 }
 
-impl Allocator {
-    pub fn path(&self) -> PathBuf {
-        let path = match self {
-            Allocator::Mi2 => "mi2/out/release/libmimalloc",
-            Allocator::Je => "je/lib/libjemalloc",
-            Allocator::Cxl => "cxlalloc/target/release/libcxlalloc_dynamic",
-            Allocator::CxlMi2 => "cxl-mi2/build/libcxl_mimalloc_dynamic",
-            Allocator::CxlDebug => "cxlalloc/target/debug/libcxlalloc_dynamic",
-            Allocator::CxlShm => "cxl-shm/build/libcxlmalloc_dynamic",
-            Allocator::R => "r/build/libralloc_dynamic",
+impl Display for Allocator {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Allocator::Boost => "boost",
+            Allocator::Cxlalloc => "cxlalloc",
+            Allocator::CxlShm => "cxl-shm",
+            Allocator::Lightning => "lightning",
         };
 
-        // TODO: change for MacOS
-        let ext = "so";
-        let path = Path::new("extern").join(Path::new(path).with_extension(ext));
+        write!(f, "{}", name)
+    }
+}
 
-        path
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Cli {
+    pub allocator: Allocator,
+    pub benchmark: allocator_bench::process::Cli,
+}
+
+impl Cli {
+    pub fn run<B: Backend>(&self) {
+        match &self.benchmark.benchmark {
+            allocator_bench::Benchmark::ThreadTest(thread_test) => {
+                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
+                    thread_test,
+                    &self.benchmark.context,
+                )
+            }
+            allocator_bench::Benchmark::Ycsb(ycsb) => {
+                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
+                    ycsb,
+                    &self.benchmark.context,
+                )
+            }
+        }
     }
 }
