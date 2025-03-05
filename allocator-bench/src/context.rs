@@ -3,7 +3,7 @@ use core::ops::Deref;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Copy, Clone, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Global {
     /// NUMA node for remote memory
     pub numa: usize,
@@ -27,7 +27,7 @@ impl Global {
     }
 }
 
-#[derive(Copy, Clone, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Process {
     #[serde(flatten)]
     pub global: Global,
@@ -43,7 +43,7 @@ impl Deref for Process {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Thread {
     pub process: Process,
 

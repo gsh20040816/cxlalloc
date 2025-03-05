@@ -1,59 +1,116 @@
 use std::fs::File;
+use std::path::PathBuf;
 
+use anyhow::anyhow;
+use cartesian::cartesian;
+use cartesian::TuplePrepend as _;
+use clap::Parser;
 use cxlalloc_bench::Allocator;
 
+#[derive(Parser)]
+struct Cli {
+    #[arg(short, long, value_delimiter = ',')]
+    allocators: Vec<Allocator>,
+
+    #[arg(short, long, value_delimiter = ',', default_value = "1")]
+    process_counts: Vec<usize>,
+
+    #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
+    thread_totals: Vec<usize>,
+
+    #[arg(short, long, default_value_t = 1)]
+    numa: usize,
+
+    #[arg(short, long, default_value_t = 2usize.pow(34))]
+    size: usize,
+
+    #[arg(long)]
+    populate: bool,
+
+    #[arg(
+        short,
+        long,
+        default_value = "target/release/cxlalloc-bench-coordinator"
+    )]
+    coordinator: PathBuf,
+
+    #[arg(short, long, default_value = "result.ndjson")]
+    output: PathBuf,
+}
+
 fn main() -> anyhow::Result<()> {
-    let out = File::options()
+    let cli = Cli::parse();
+    let mut out = File::options()
         .create(true)
         .append(true)
-        .open("result.ndjson")
-        .unwrap();
+        .open(&cli.output)?;
 
-    for allocator in [Allocator::Cxlalloc, Allocator::CxlShm] {
-        for process_count in [1] {
-            for thread_total in [1, 2, 4, 8, 16, 32, 40] {
-                let thread_count = thread_total / process_count;
+    eprintln!(
+        "{:16} | {:3} | {:3}",
+        "Allocator", "Process Count", "Thread Total"
+    );
 
-                eprintln!("a{:?} p{:?} t{:?}", allocator, process_count, thread_total);
-
-                let cli = cxlalloc_bench::Cli {
-                    allocator: allocator.clone(),
-                    control: allocator_bench::context::Global {
-                        numa: 0,
-                        size: 2usize.pow(33),
-                        populate: false,
-                        process_count,
-                        thread_count,
-                    },
-                    benchmark: allocator_bench::Benchmark::Ycsb(
-                        allocator_bench::benchmark::ycsb::Ycsb {
-                            load: true,
-                            workload: ycsb::Workload {
-                                // record_count: 10_000_000,
-                                ..ycsb::workload::A.clone()
-                            },
-                        },
-                    ),
-                };
-                let cli = serde_json::to_vec(&cli)?;
-
-                let empty: [String; 0] = [];
-
-                duct::cmd(
-                    if cfg!(debug_assertions) {
-                        "target/debug/cxlalloc-bench-coordinator"
-                    } else {
-                        "target/release/cxlalloc-bench-coordinator"
-                    },
-                    empty,
-                )
-                .stdin_bytes(cli)
-                .stdout_file(out.try_clone()?)
-                .start()?
-                .wait()?;
-            }
+    for (allocator, &process_count, &thread_total) in cartesian!(
+        cli.allocators.iter(),
+        cli.process_counts.iter(),
+        cli.thread_totals.iter()
+    ) {
+        if thread_total % process_count != 0 {
+            continue;
         }
+
+        eprintln!(
+            "{:16} | {:3} | {:3}",
+            allocator, process_count, thread_total,
+        );
+
+        let thread_count = thread_total / process_count;
+
+        cli.run(
+            &cxlalloc_bench::Cli {
+                allocator: allocator.clone(),
+                control: allocator_bench::context::Global {
+                    numa: cli.numa,
+                    size: cli.size,
+                    populate: cli.populate,
+                    process_count,
+                    thread_count,
+                },
+                benchmark: allocator_bench::Benchmark::Ycsb(
+                    allocator_bench::benchmark::ycsb::Ycsb {
+                        load: true,
+                        workload: ycsb::Workload {
+                            record_count: 10_000_000,
+                            ..ycsb::workload::A.clone()
+                        },
+                    },
+                ),
+            },
+            &mut out,
+        )?;
     }
 
     Ok(())
+}
+
+impl Cli {
+    fn run(&self, cli: &cxlalloc_bench::Cli, out: &mut File) -> anyhow::Result<()> {
+        const EMPTY: [String; 0] = [];
+
+        let handle = duct::cmd(&self.coordinator, EMPTY)
+            .stdin_bytes(serde_json::to_vec(&cli)?)
+            .stdout_file(out.try_clone()?)
+            .start()?;
+        let output = handle.wait()?;
+
+        if !output.status.success() {
+            return Err(anyhow!(
+                "Command {:?} failed with status code {:?}",
+                cli,
+                output.status,
+            ));
+        }
+
+        Ok(())
+    }
 }

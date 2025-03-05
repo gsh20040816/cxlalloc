@@ -15,6 +15,8 @@ path = "src/bin/coordinator.rs"
 [dependencies]
 allocator-bench.path = "../allocator-bench"
 anyhow.workspace = true
+cartesian.workspace = true
+clap.workspace = true
 cxlalloc = { path = "../cxlalloc", features = ["backend-shm"] }
 cxx.workspace = true
 duct.workspace = true

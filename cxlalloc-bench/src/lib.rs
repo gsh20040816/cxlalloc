@@ -7,7 +7,7 @@ pub use benchmark::Benchmark;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Cli {
     pub allocator: Allocator,
 

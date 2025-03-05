@@ -118,7 +118,7 @@ pub trait Interface<B: Backend>: Sync {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Benchmark {
     ThreadTest(thread_test::ThreadTest),

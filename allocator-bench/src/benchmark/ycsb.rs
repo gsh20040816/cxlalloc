@@ -14,7 +14,7 @@ use crate::benchmark;
 use crate::context;
 use crate::index::LinearHashMap;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Ycsb {
     pub load: bool,
 

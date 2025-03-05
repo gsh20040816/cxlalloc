@@ -9,7 +9,7 @@ use crate::Backend;
 use crate::benchmark;
 use crate::context;
 
-#[derive(Builder, Clone, Deserialize, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct ThreadTest {
     #[builder(default = 50)]
     pub(crate) iteration_count: usize,
