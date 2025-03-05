@@ -2,7 +2,9 @@ pub mod barrier;
 pub mod benchmark;
 pub mod context;
 mod index;
-pub mod process;
+
+pub use barrier::Barrier;
+pub use benchmark::Benchmark;
 
 use core::cell::Cell;
 use core::ffi;
@@ -13,8 +15,6 @@ use core::sync::atomic::Ordering;
 use std::io;
 use std::time::Instant;
 
-pub use barrier::Barrier;
-pub use benchmark::Benchmark;
 use serde::Deserialize;
 use serde::Serialize;
 

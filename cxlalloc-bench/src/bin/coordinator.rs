@@ -11,13 +11,11 @@ fn main() -> anyhow::Result<()> {
         .map(|process_id| {
             let command = serde_json::to_vec(&allocator::Cli {
                 allocator: cli.allocator.clone(),
-                benchmark: allocator_bench::process::Cli {
-                    context: allocator_bench::context::Process {
-                        global: cli.control,
-                        process_id,
-                    },
-                    benchmark: cli.benchmark.clone(),
+                context: allocator_bench::context::Process {
+                    global: cli.control,
+                    process_id,
                 },
+                benchmark: cli.benchmark.clone(),
             })
             .unwrap();
             let empty: [String; 0] = [];
