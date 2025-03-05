@@ -1,8 +1,6 @@
 pub mod allocator;
-mod benchmark;
 
 pub use allocator::Allocator;
-pub use benchmark::Benchmark;
 
 use serde::Deserialize;
 use serde::Serialize;
