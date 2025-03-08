@@ -48,3 +48,44 @@ impl Handle for NonNull<ffi::c_void> {
         (*self).as_ptr()
     }
 }
+
+/// For testing and debugging purposes.
+///
+/// Will not work across processes.
+pub struct Libc;
+
+impl Backend for Libc {
+    type Allocator = Self;
+
+    fn open(_numa: usize, _populate: bool, _name: &str, _size: usize) -> io::Result<Self> {
+        Ok(Self)
+    }
+
+    fn unlink(self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn allocator(&self, _thread_id: usize) -> Self::Allocator {
+        Self
+    }
+}
+
+impl Allocator for Libc {
+    type Handle = NonNull<ffi::c_void>;
+
+    fn allocate(&mut self, size: usize) -> Option<Self::Handle> {
+        NonNull::new(unsafe { libc::malloc(size) })
+    }
+
+    unsafe fn deallocate(&mut self, handle: Self::Handle) {
+        unsafe { libc::free(handle.as_ptr()) }
+    }
+
+    unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64 {
+        NonZeroU64::new(handle.as_ptr() as u64).unwrap()
+    }
+
+    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
+        NonNull::new(offset as *mut ffi::c_void)
+    }
+}
