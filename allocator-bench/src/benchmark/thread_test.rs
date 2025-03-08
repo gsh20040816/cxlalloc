@@ -25,7 +25,7 @@ pub struct ThreadTest {
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for ThreadTest {
     const NAME: &str = "tt";
     type Global = usize;
-    type Local = Vec<Option<<B::Allocator as Allocator>::Ptr>>;
+    type Local = Vec<Option<<B::Allocator as Allocator>::Handle>>;
 
     fn setup_process(&self, context: &context::Process) -> Self::Global {
         let thread_total = context.thread_total();
@@ -51,18 +51,18 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for ThreadTe
         &self,
         _context: &context::Thread,
         _: &Self::Global,
-        pointers: &mut Self::Local,
+        handles: &mut Self::Local,
         allocator: &mut B::Allocator,
     ) {
         for _ in 0..self.iteration_count {
-            for pointer in &mut *pointers {
-                *pointer = allocator.allocate(self.object_size);
+            for handle in &mut *handles {
+                *handle = allocator.allocate(self.object_size);
             }
 
-            for pointer in &mut *pointers {
-                let pointer = pointer.take().unwrap();
+            for handle in &mut *handles {
+                let handle = handle.take().unwrap();
                 unsafe {
-                    allocator.deallocate(pointer);
+                    allocator.deallocate(handle);
                 }
             }
         }

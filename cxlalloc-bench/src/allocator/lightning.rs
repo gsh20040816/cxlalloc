@@ -89,9 +89,9 @@ impl Lightning {
 }
 
 impl allocator_bench::Allocator for Lightning {
-    type Ptr = NonNull<ffi::c_void>;
+    type Handle = NonNull<ffi::c_void>;
 
-    fn allocate(&mut self, size: usize) -> Option<Self::Ptr> {
+    fn allocate(&mut self, size: usize) -> Option<Self::Handle> {
         let store = self.as_ptr();
         unsafe {
             let offset = LightningAllocator_Malloc(store, self.id as u64, size);
@@ -100,20 +100,20 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
-    unsafe fn deallocate(&mut self, pointer: Self::Ptr) {
+    unsafe fn deallocate(&mut self, handle: Self::Handle) {
         let store = self.as_ptr();
         unsafe {
-            let offset = LightningAllocator_PointerToOffset(store, pointer.as_ptr());
+            let offset = LightningAllocator_PointerToOffset(store, handle.as_ptr());
             LightningAllocator_Free(store, self.id as u64, offset);
         }
     }
 
-    unsafe fn handle_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
-        NonZeroU64::new(LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr()) as u64)
+    unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64 {
+        NonZeroU64::new(LightningAllocator_PointerToOffset(self.as_ptr(), handle.as_ptr()) as u64)
             .unwrap()
     }
 
-    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Ptr> {
+    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
         NonNull::new(unsafe { LightningAllocator_OffsetToPointer(self.as_ptr(), offset as i64) })
     }
 }

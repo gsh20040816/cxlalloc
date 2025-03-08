@@ -77,20 +77,20 @@ impl allocator_bench::allocator::Backend for Backend {
 }
 
 impl allocator_bench::Allocator for Boost {
-    type Ptr = NonNull<ffi::c_void>;
+    type Handle = NonNull<ffi::c_void>;
 
     fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {
         unsafe { NonNull::new(sys::managed_allocate(self.inner(), size).cast()) }
     }
 
-    unsafe fn deallocate(&mut self, pointer: NonNull<ffi::c_void>) {
-        sys::managed_deallocate(self.inner(), pointer.as_ptr().cast())
+    unsafe fn deallocate(&mut self, handle: NonNull<ffi::c_void>) {
+        sys::managed_deallocate(self.inner(), handle.as_ptr().cast())
     }
 
-    unsafe fn handle_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
+    unsafe fn handle_to_offset(&mut self, handle: &NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(sys::managed_address_to_handle(
             self.inner(),
-            pointer.as_ptr().cast(),
+            handle.as_ptr().cast(),
         ))
         .unwrap()
     }

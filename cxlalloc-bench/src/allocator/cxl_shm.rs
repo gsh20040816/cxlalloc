@@ -45,29 +45,29 @@ impl allocator_bench::allocator::Backend for Backend {
 }
 
 impl allocator_bench::Allocator for CxlShm {
-    type Ptr = sys::CXLRef;
+    type Handle = sys::CXLRef;
 
-    fn allocate(&mut self, size: usize) -> Option<Self::Ptr> {
+    fn allocate(&mut self, size: usize) -> Option<Self::Handle> {
         unsafe { Some(self.0.cxl_malloc(size as u64, 0)) }
     }
 
-    unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
+    unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Handle) {
         unsafe {
             let offset = self.handle_to_offset(pointee);
             self.0.link_reference(pointer, offset.get());
         }
     }
 
-    unsafe fn deallocate(&mut self, _: Self::Ptr) {}
+    unsafe fn deallocate(&mut self, _: Self::Handle) {}
 
-    unsafe fn handle_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
-        let address = sys::CXLRef_s_get_addr(pointer as *const Self::Ptr as *mut _);
+    unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64 {
+        let address = sys::CXLRef_s_get_addr(handle as *const Self::Handle as *mut _);
         // The `link_reference` and `get_ref` functions expect the offset of the
         // `CXLObj` header, *not* the data.
         NonZeroU64::new(address as u64 - self.0.get_start() as u64 - 24).unwrap()
     }
 
-    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Ptr> {
+    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
         unsafe { Some(self.0.get_ref(offset)) }
     }
 }

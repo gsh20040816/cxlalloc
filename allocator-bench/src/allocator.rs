@@ -18,19 +18,19 @@ pub trait Backend: Send + Sync + Sized {
 }
 
 pub trait Allocator: Sized {
-    type Ptr: Handle;
-    fn allocate(&mut self, size: usize) -> Option<Self::Ptr>;
+    type Handle: Handle;
+    fn allocate(&mut self, size: usize) -> Option<Self::Handle>;
 
-    unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
+    unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Handle) {
         unsafe {
             let offset = self.handle_to_offset(pointee);
             AtomicU64::from_ptr(pointer).store(offset.get(), Ordering::Release);
         }
     }
 
-    unsafe fn deallocate(&mut self, pointer: Self::Ptr);
-    unsafe fn handle_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64;
-    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Ptr>;
+    unsafe fn deallocate(&mut self, handle: Self::Handle);
+    unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64;
+    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle>;
 }
 
 pub trait Handle {

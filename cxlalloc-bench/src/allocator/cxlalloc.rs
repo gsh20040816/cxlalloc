@@ -78,18 +78,18 @@ impl allocator_bench::allocator::Backend for Backend {
 }
 
 impl allocator_bench::Allocator for Cxlalloc {
-    type Ptr = NonNull<ffi::c_void>;
+    type Handle = NonNull<ffi::c_void>;
 
     fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {
         NonNull::new(self.0.allocate_untyped(size))
     }
 
-    unsafe fn deallocate(&mut self, pointer: NonNull<ffi::c_void>) {
-        self.0.free_untyped(pointer)
+    unsafe fn deallocate(&mut self, handle: NonNull<ffi::c_void>) {
+        self.0.free_untyped(handle)
     }
 
-    unsafe fn handle_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
-        NonZeroU64::new(self.0.pointer_to_offset(*pointer) as u64 + 1).unwrap()
+    unsafe fn handle_to_offset(&mut self, handle: &NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(self.0.pointer_to_offset(*handle) as u64 + 1).unwrap()
     }
 
     fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
