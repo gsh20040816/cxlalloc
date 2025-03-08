@@ -6,13 +6,13 @@ use serde::Serialize;
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Global {
     /// NUMA node for remote memory
-    pub numa: usize,
+    pub allocator_numa: usize,
 
     /// Initial heap size
-    pub size: usize,
+    pub allocator_size: usize,
 
     /// Eagerly populate page tables
-    pub populate: bool,
+    pub allocator_populate: bool,
 
     /// Number of processes
     pub process_count: usize,

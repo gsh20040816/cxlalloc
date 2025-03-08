@@ -29,7 +29,13 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         })
     }
 
-    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: u64, size: usize, with: F) {
+    fn insert<F: FnOnce(&mut A, *mut u8)>(
+        &self,
+        allocator: &mut A,
+        key: u64,
+        size: usize,
+        with: F,
+    ) {
         let view = self.view();
         let index = self.index(key);
 
@@ -41,7 +47,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
 
         unsafe {
             pointer_key.write(key);
-            with(pointer_value);
+            with(allocator, pointer_value);
         }
 
         let head = &view[index];
@@ -62,7 +68,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         }
     }
 
-    fn get<F: FnOnce(*const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
         let view = self.view();
         let index = self.index(key);
 
@@ -89,7 +95,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
 
             match key == unsafe { pointer_key.read() } {
                 true => {
-                    with(pointer_value);
+                    with(allocator, pointer_value);
                     return true;
                 }
                 false => {

@@ -16,14 +16,14 @@ struct Cli {
     #[arg(short, long, value_delimiter = ',', default_value = "1")]
     process_counts: Vec<usize>,
 
-    #[arg(short, long, default_value_t = 1)]
-    numa: usize,
+    #[arg(long, default_value_t = 1)]
+    allocator_numa: usize,
 
-    #[arg(short, long, default_value_t = 2usize.pow(34))]
-    size: usize,
+    #[arg(long, default_value_t = 2usize.pow(34))]
+    allocator_size: usize,
 
     #[arg(long)]
-    populate: bool,
+    allocator_populate: bool,
 
     #[arg(
         short,
@@ -45,6 +45,21 @@ enum Experiment {
         #[arg(short, long, value_delimiter = ',')]
         indexes: Vec<Index>,
 
+        #[arg(long, default_value_t = 10_000_000)]
+        record_count: usize,
+
+        #[arg(long, default_value_t = 1_000_000)]
+        operation_count: usize,
+
+        #[arg(long, default_value_t = 1 << 24)]
+        index_len: usize,
+
+        #[arg(long)]
+        index_inline: bool,
+
+        #[arg(long)]
+        index_populate: bool,
+
         #[command(subcommand)]
         workload: Workload,
     },
@@ -64,7 +79,7 @@ enum Workload {
             short,
             long,
             value_delimiter = ',',
-            default_value = "0.0,0.05,0.10,0.15,0.20,0.25"
+            default_value = "0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0"
         )]
         insert_proportions: Vec<f32>,
     },
@@ -80,6 +95,11 @@ fn main() -> anyhow::Result<()> {
     match &cli.experiment {
         Experiment::Ycsb {
             indexes,
+            record_count,
+            operation_count,
+            index_len,
+            index_inline,
+            index_populate,
             workload: Workload::Load { thread_totals },
         } => {
             for (&allocator, &index, &process_count, &thread_total) in cartesian!(
@@ -104,17 +124,21 @@ fn main() -> anyhow::Result<()> {
                         allocator,
                         index,
                         control: allocator_bench::context::Global {
-                            numa: cli.numa,
-                            size: cli.size,
-                            populate: cli.populate,
+                            allocator_numa: cli.allocator_numa,
+                            allocator_size: cli.allocator_size,
+                            allocator_populate: cli.allocator_populate,
                             process_count,
                             thread_count,
                         },
                         benchmark: allocator_bench::Benchmark::Ycsb(
                             allocator_bench::benchmark::ycsb::Ycsb {
                                 load: true,
+                                index_len: *index_len,
+                                index_inline: *index_inline,
+                                index_populate: *index_populate,
                                 workload: ycsb::Workload {
-                                    record_count: 10_000_000,
+                                    record_count: *record_count,
+                                    operation_count: *operation_count,
                                     ..ycsb::workload::A.clone()
                                 },
                             },
@@ -126,6 +150,11 @@ fn main() -> anyhow::Result<()> {
         }
         Experiment::Ycsb {
             indexes,
+            record_count,
+            operation_count,
+            index_len,
+            index_inline,
+            index_populate,
             workload:
                 Workload::D {
                     thread_total,
@@ -142,10 +171,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                eprintln!(
-                    "{:16} | {:3} | {:3}",
-                    allocator, process_count, thread_total,
-                );
+                eprintln!("{:16} | {:8?} | {:4}", allocator, index, insert_proportion);
 
                 let thread_count = thread_total / process_count;
 
@@ -154,17 +180,21 @@ fn main() -> anyhow::Result<()> {
                         allocator,
                         index,
                         control: allocator_bench::context::Global {
-                            numa: cli.numa,
-                            size: cli.size,
-                            populate: cli.populate,
+                            allocator_numa: cli.allocator_numa,
+                            allocator_size: cli.allocator_size,
+                            allocator_populate: cli.allocator_populate,
                             process_count,
                             thread_count,
                         },
                         benchmark: allocator_bench::Benchmark::Ycsb(
                             allocator_bench::benchmark::ycsb::Ycsb {
                                 load: false,
+                                index_len: *index_len,
+                                index_inline: *index_inline,
+                                index_populate: *index_populate,
                                 workload: ycsb::Workload {
-                                    record_count: 10_000_000,
+                                    record_count: *record_count,
+                                    operation_count: *operation_count,
                                     insert_proportion,
                                     read_proportion: 1.0 - insert_proportion,
                                     ..ycsb::workload::D.clone()

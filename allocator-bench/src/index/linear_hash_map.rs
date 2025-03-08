@@ -26,7 +26,13 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         })
     }
 
-    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: u64, size: usize, with: F) {
+    fn insert<F: FnOnce(&mut A, *mut u8)>(
+        &self,
+        allocator: &mut A,
+        key: u64,
+        size: usize,
+        with: F,
+    ) {
         let view = self.view();
         let index = self.index(&key);
         let mut probe = 0;
@@ -35,7 +41,7 @@ impl<A: Allocator> Index<A> for LinearHashMap {
 
         unsafe {
             handle.as_ptr().cast::<u64>().write(key);
-            with(handle.as_ptr().byte_add(8).cast::<u8>())
+            with(allocator, handle.as_ptr().byte_add(8).cast::<u8>())
         }
 
         loop {
@@ -57,7 +63,7 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         }
     }
 
-    fn get<F: FnOnce(*const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
         let view = self.view();
         let index = self.index(&key);
         let mut probe = 0;
@@ -75,7 +81,7 @@ impl<A: Allocator> Index<A> for LinearHashMap {
                         false => probe += 1,
                         true => {
                             let pointer_value = unsafe { handle.as_ptr().byte_add(8).cast::<u8>() };
-                            with(pointer_value);
+                            with(allocator, pointer_value);
                             return true;
                         }
                     }

@@ -17,7 +17,7 @@ where
 
     fn unlink(&mut self) -> io::Result<()>;
 
-    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: u64, size: usize, with: F);
+    fn insert<F: FnOnce(&mut A, *mut u8)>(&self, allocator: &mut A, key: u64, size: usize, with: F);
 
-    fn get<F: FnOnce(*const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool;
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool;
 }

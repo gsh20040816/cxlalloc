@@ -6,14 +6,26 @@ use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
 
+use crate::Allocator;
 use crate::Index;
 use crate::allocator::Backend;
+use crate::allocator::Handle as _;
 use crate::benchmark;
 use crate::context;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Ycsb {
+    /// Whether to measure loading only (or else running phase only)
     pub load: bool,
+
+    /// Whether to inline the value into index entries (or else allocate separately)
+    pub index_inline: bool,
+
+    /// Size of hash map backing array
+    pub index_len: usize,
+
+    /// Whether to map populate the index
+    pub index_populate: bool,
 
     #[serde(flatten)]
     pub workload: ycsb::Workload,
@@ -44,7 +56,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
 
     fn setup_process(&self, context: &context::Process) -> Global<I> {
         Global {
-            index: I::new(Some(context.numa), "index", 1 << 24, true).unwrap(),
+            index: I::new(
+                Some(context.allocator_numa),
+                "index",
+                self.index_len,
+                self.index_populate,
+            )
+            .unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
         }
     }
@@ -59,13 +77,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
             return;
         }
 
-        let mut loader = self
-            .workload
-            .loader(context.thread_total(), context.thread_id);
-        while let Some(key) = loader.next_key() {
-            global
-                .index
-                .insert(allocator, key.id(), mem::size_of::<Record>(), |_| ());
+        match self.index_inline {
+            true => load::<true, _, _>(&self.workload, context, allocator, &global.index),
+            false => load::<false, _, _>(&self.workload, context, allocator, &global.index),
         }
     }
 
@@ -77,53 +91,33 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
         allocator: &mut B::Allocator,
     ) {
         if self.load {
-            let mut loader = self
-                .workload
-                .loader(context.thread_total(), context.thread_id);
-            while let Some(key) = loader.next_key() {
-                global
-                    .index
-                    .insert(allocator, key.id(), mem::size_of::<Record>(), |_| ());
+            match self.index_inline {
+                true => load::<true, _, _>(&self.workload, context, allocator, &global.index),
+                false => load::<false, _, _>(&self.workload, context, allocator, &global.index),
             }
+
             return;
         }
 
         let mut runner = self
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
-        let mut rng = rand::rng();
-        for _ in 0..self.workload.operation_count() / context.thread_total() {
-            let key = runner.next_key(&mut rng);
-            let id = key.id();
-            match runner.next_operation(&mut rng) {
-                ycsb::Operation::Read => unsafe {
-                    let found = global.index.get(allocator, id, |value| {
-                        let record = value.cast::<Record>().as_ref().unwrap();
-                        for field in &record.0 {
-                            (field as *const Field).read_volatile();
-                        }
-                    });
 
-                    assert!(found);
-                },
-                ycsb::Operation::Update => {
-                    let field = runner.next_field(&mut rng);
-
-                    let found = global.index.get(allocator, id, |value| unsafe {
-                        let record = value.cast::<Record>().as_ref().unwrap();
-                        record.0[field as usize].value[0].store(1, Ordering::Release);
-                    });
-
-                    assert!(found);
-                }
-                ycsb::Operation::Scan => todo!(),
-                ycsb::Operation::Insert => {
-                    global
-                        .index
-                        .insert(allocator, key.id(), mem::size_of::<Record>(), |_| ());
-                }
-                ycsb::Operation::ReadModifyWrite => todo!(),
-            }
+        match self.index_inline {
+            true => run::<true, _, _>(
+                self.workload.operation_count(),
+                context,
+                &mut runner,
+                allocator,
+                &global.index,
+            ),
+            false => run::<false, _, _>(
+                self.workload.operation_count(),
+                context,
+                &mut runner,
+                allocator,
+                &global.index,
+            ),
         }
     }
 
@@ -134,5 +128,97 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
 
         global.index.unlink().unwrap();
         global.acked.unlink().unwrap();
+    }
+}
+
+fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
+    workload: &ycsb::Workload,
+    context: &context::Thread,
+    allocator: &mut A,
+    index: &I,
+) {
+    let mut loader = workload.loader(context.thread_total(), context.thread_id);
+
+    while let Some(key) = loader.next_key() {
+        insert::<INLINE, _, _>(allocator, index, &key);
+    }
+}
+
+fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
+    operation_count: usize,
+    context: &context::Thread,
+    runner: &mut ycsb::Runner,
+    allocator: &mut A,
+    index: &I,
+) {
+    let mut rng = rand::rng();
+
+    for _ in 0..operation_count / context.thread_total() {
+        let key = runner.next_key(&mut rng);
+        match runner.next_operation(&mut rng) {
+            ycsb::Operation::Read => {
+                with::<INLINE, _, _, _>(allocator, index, &key, |value| unsafe {
+                    let record = value.cast::<Record>().as_ref().unwrap();
+                    for field in &record.0 {
+                        (field as *const Field).read_volatile();
+                    }
+                })
+            }
+            ycsb::Operation::Update => {
+                let field = runner.next_field(&mut rng);
+                with::<INLINE, _, _, _>(allocator, index, &key, |value| unsafe {
+                    let record = value.cast::<Record>().as_ref().unwrap();
+                    record.0[field as usize].value[0].store(1, Ordering::Release);
+                });
+            }
+            ycsb::Operation::Scan => todo!(),
+            ycsb::Operation::Insert => {
+                insert::<INLINE, _, _>(allocator, index, &key);
+            }
+            ycsb::Operation::ReadModifyWrite => todo!(),
+        }
+    }
+}
+
+fn insert<const INLINE: bool, A: Allocator, I: Index<A>>(
+    allocator: &mut A,
+    index: &I,
+    key: &ycsb::Key,
+) {
+    match INLINE {
+        true => index.insert(allocator, key.id(), mem::size_of::<Record>(), |_, _| ()),
+        false => {
+            let value = allocator.allocate(mem::size_of::<Record>()).unwrap();
+            index.insert(
+                allocator,
+                key.id(),
+                mem::size_of::<u64>(),
+                |allocator, pointer| unsafe {
+                    allocator.link(pointer.cast(), &value);
+                },
+            );
+        }
+    }
+}
+
+fn with<const INLINE: bool, A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
+    allocator: &mut A,
+    index: &I,
+    key: &ycsb::Key,
+    with: F,
+) {
+    match INLINE {
+        true => {
+            let found = index.get(allocator, key.id(), |_, value| with(value));
+            assert!(found);
+        }
+        false => {
+            let found = index.get(allocator, key.id(), |allocator, pointer| {
+                let offset = unsafe { pointer.cast::<u64>().read() };
+                let handle = allocator.offset_to_handle(offset).unwrap();
+                with(handle.as_ptr().cast())
+            });
+            assert!(found);
+        }
     }
 }
