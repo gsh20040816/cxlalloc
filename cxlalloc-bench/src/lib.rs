@@ -1,6 +1,9 @@
 pub mod allocator;
+pub mod index;
+pub mod worker;
 
 pub use allocator::Allocator;
+pub use index::Index;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -8,6 +11,8 @@ use serde::Serialize;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Cli {
     pub allocator: Allocator,
+
+    pub index: Index,
 
     pub control: allocator_bench::context::Global,
 

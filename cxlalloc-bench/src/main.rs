@@ -6,11 +6,15 @@ use cartesian::cartesian;
 use cartesian::TuplePrepend as _;
 use clap::Parser;
 use cxlalloc_bench::Allocator;
+use cxlalloc_bench::Index;
 
 #[derive(Parser)]
 struct Cli {
     #[arg(short, long, value_delimiter = ',')]
     allocators: Vec<Allocator>,
+
+    #[arg(short, long, value_delimiter = ',')]
+    indexes: Vec<Index>,
 
     #[arg(short, long, value_delimiter = ',', default_value = "1")]
     process_counts: Vec<usize>,
@@ -50,8 +54,9 @@ fn main() -> anyhow::Result<()> {
         "Allocator", "Process Count", "Thread Total"
     );
 
-    for (allocator, &process_count, &thread_total) in cartesian!(
+    for (allocator, &index, &process_count, &thread_total) in cartesian!(
         cli.allocators.iter(),
+        cli.indexes.iter(),
         cli.process_counts.iter(),
         cli.thread_totals.iter()
     ) {
@@ -69,6 +74,7 @@ fn main() -> anyhow::Result<()> {
         cli.run(
             &cxlalloc_bench::Cli {
                 allocator: allocator.clone(),
+                index,
                 control: allocator_bench::context::Global {
                     numa: cli.numa,
                     size: cli.size,

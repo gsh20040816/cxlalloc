@@ -13,8 +13,6 @@ pub use lightning::Lightning;
 use serde::Deserialize;
 use serde::Serialize;
 
-use allocator_bench::allocator::Backend;
-use allocator_bench::index;
 use clap::ValueEnum;
 
 #[derive(Clone, Debug, Deserialize, Serialize, ValueEnum)]
@@ -36,31 +34,5 @@ impl Display for Allocator {
         };
 
         write!(f, "{}", name)
-    }
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub struct Cli {
-    pub allocator: Allocator,
-    pub context: allocator_bench::context::Process,
-    pub benchmark: allocator_bench::Benchmark,
-}
-
-impl Cli {
-    pub fn run<B: Backend>(&self) {
-        match &self.benchmark {
-            allocator_bench::Benchmark::ThreadTest(thread_test) => {
-                <_ as allocator_bench::benchmark::Interface<B, index::LinearHashMap>>::run_process(
-                    thread_test,
-                    &self.context,
-                )
-            }
-            allocator_bench::Benchmark::Ycsb(ycsb) => {
-                <_ as allocator_bench::benchmark::Interface<B, index::LinearHashMap>>::run_process(
-                    ycsb,
-                    &self.context,
-                )
-            }
-        }
     }
 }
