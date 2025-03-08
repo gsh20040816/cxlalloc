@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use clap::ValueEnum;
 
-#[derive(Clone, Debug, Deserialize, Serialize, ValueEnum)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Allocator {
     Boost,
