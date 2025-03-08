@@ -1,3 +1,4 @@
+use std::env;
 use std::io::Write as _;
 use std::thread;
 
@@ -7,6 +8,7 @@ use serde::Serialize;
 use crate::Barrier;
 use crate::Index;
 use crate::Metrics;
+use crate::Perf;
 use crate::Timer;
 use crate::allocator::Backend;
 use crate::context;
@@ -78,10 +80,27 @@ pub trait Interface<B: Backend, I: Index<B::Allocator>>: Sync {
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(&context, global, &mut allocator);
 
+                        let mut perf = match (
+                            thread_id,
+                            env::var("PERF_CTL_FIFO"),
+                            env::var("PERF_ACK_FIFO"),
+                        ) {
+                            (0, Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
+                            _ => None,
+                        };
+
+                        if let Some(perf) = &mut perf {
+                            perf.enable();
+                        }
+
                         barrier.wait(context.thread_total() as u64, 1);
                         timer.start();
                         self.run_thread(&context, global, &mut local, &mut allocator);
                         let time = timer.stop();
+
+                        if let Some(perf) = &mut perf {
+                            perf.disable();
+                        }
 
                         drop(allocator);
                         drop(local);
