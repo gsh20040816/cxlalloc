@@ -10,7 +10,7 @@ use rapidhash::RapidHasher;
 
 use crate::Allocator;
 use crate::Index;
-use crate::Pointer as _;
+use crate::allocator::Handle as _;
 
 // Open-addressed, linear probing hashmap.
 pub struct LinearHashMap {
@@ -68,7 +68,7 @@ impl<A: Allocator> Index<A> for LinearHashMap {
                 // Wait for link operation to complete
                 u64::MAX => hint::spin_loop(),
                 offset => {
-                    let handle = allocator.offset_to_pointer(offset).unwrap();
+                    let handle = allocator.offset_to_handle(offset).unwrap();
                     let pointer_key = handle.as_ptr().cast::<u64>();
 
                     match key == unsafe { pointer_key.read() } {

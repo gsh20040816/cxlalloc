@@ -10,7 +10,7 @@ use rapidhash::RapidHasher;
 
 use crate::Allocator;
 use crate::Index;
-use crate::Pointer as _;
+use crate::allocator::Handle as _;
 
 /// Separate chaining hashmap
 ///
@@ -80,7 +80,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         loop {
             let handle = match head {
                 0 => return false,
-                offset => allocator.offset_to_pointer(offset).unwrap(),
+                offset => allocator.offset_to_handle(offset).unwrap(),
             };
 
             let pointer_next = handle.as_ptr().cast::<u64>();

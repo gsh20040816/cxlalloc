@@ -6,8 +6,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
 
-use crate::Backend;
 use crate::Index;
+use crate::allocator::Backend;
 use crate::benchmark;
 use crate::context;
 

@@ -13,8 +13,8 @@ pub use lightning::Lightning;
 use serde::Deserialize;
 use serde::Serialize;
 
+use allocator_bench::allocator::Backend;
 use allocator_bench::index;
-use allocator_bench::Backend;
 use clap::ValueEnum;
 
 #[derive(Clone, Debug, Deserialize, Serialize, ValueEnum)]

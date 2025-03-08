@@ -19,7 +19,7 @@ unsafe impl Sync for Backend {}
 
 pub struct CxlShm(sys::cxl_shm);
 
-impl allocator_bench::Backend for Backend {
+impl allocator_bench::allocator::Backend for Backend {
     type Allocator = CxlShm;
 
     fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
@@ -53,26 +53,26 @@ impl allocator_bench::Allocator for CxlShm {
 
     unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Ptr) {
         unsafe {
-            let offset = self.pointer_to_offset(pointee);
+            let offset = self.handle_to_offset(pointee);
             self.0.link_reference(pointer, offset.get());
         }
     }
 
     unsafe fn deallocate(&mut self, _: Self::Ptr) {}
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
+    unsafe fn handle_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
         let address = sys::CXLRef_s_get_addr(pointer as *const Self::Ptr as *mut _);
         // The `link_reference` and `get_ref` functions expect the offset of the
         // `CXLObj` header, *not* the data.
         NonZeroU64::new(address as u64 - self.0.get_start() as u64 - 24).unwrap()
     }
 
-    fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {
+    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Ptr> {
         unsafe { Some(self.0.get_ref(offset)) }
     }
 }
 
-impl allocator_bench::Pointer for sys::CXLRef {
+impl allocator_bench::allocator::Handle for sys::CXLRef {
     fn as_ptr(&self) -> *mut core::ffi::c_void {
         unsafe { CXLRef_s_get_addr(self as *const _ as *mut _) }
     }

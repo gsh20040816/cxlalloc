@@ -49,7 +49,7 @@ pub struct Boost(SharedPtr<sys::ManagedExternalBuffer>);
 unsafe impl Send for Backend {}
 unsafe impl Sync for Backend {}
 
-impl allocator_bench::Backend for Backend {
+impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Boost;
     fn create(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
         unsafe {
@@ -87,7 +87,7 @@ impl allocator_bench::Allocator for Boost {
         sys::managed_deallocate(self.inner(), pointer.as_ptr().cast())
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
+    unsafe fn handle_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(sys::managed_address_to_handle(
             self.inner(),
             pointer.as_ptr().cast(),
@@ -95,7 +95,7 @@ impl allocator_bench::Allocator for Boost {
         .unwrap()
     }
 
-    fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
+    fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         unsafe { NonNull::new(sys::managed_handle_to_address(self.inner(), offset).cast()) }
     }
 }

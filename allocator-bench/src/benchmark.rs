@@ -4,11 +4,11 @@ use std::thread;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::Backend;
 use crate::Barrier;
 use crate::Index;
 use crate::Metrics;
 use crate::Timer;
+use crate::allocator::Backend;
 use crate::context;
 
 mod thread_test;

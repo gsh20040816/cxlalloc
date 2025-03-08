@@ -37,7 +37,7 @@ pub struct Lightning {
 unsafe impl Send for sys::LightningAllocator {}
 unsafe impl Sync for sys::LightningAllocator {}
 
-impl allocator_bench::Backend for Backend {
+impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Lightning;
 
     fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
@@ -108,12 +108,12 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
+    unsafe fn handle_to_offset(&mut self, pointer: &Self::Ptr) -> NonZeroU64 {
         NonZeroU64::new(LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr()) as u64)
             .unwrap()
     }
 
-    fn offset_to_pointer(&mut self, offset: u64) -> Option<Self::Ptr> {
+    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Ptr> {
         NonNull::new(unsafe { LightningAllocator_OffsetToPointer(self.as_ptr(), offset as i64) })
     }
 }

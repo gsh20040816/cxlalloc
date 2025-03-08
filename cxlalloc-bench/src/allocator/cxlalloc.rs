@@ -27,7 +27,7 @@ fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::
 
 pub struct Cxlalloc(cxlalloc::Allocator<'static>);
 
-impl allocator_bench::Backend for Backend {
+impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Cxlalloc;
 
     fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
@@ -88,11 +88,11 @@ impl allocator_bench::Allocator for Cxlalloc {
         self.0.free_untyped(pointer)
     }
 
-    unsafe fn pointer_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
+    unsafe fn handle_to_offset(&mut self, pointer: &NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(self.0.pointer_to_offset(*pointer) as u64 + 1).unwrap()
     }
 
-    fn offset_to_pointer(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
+    fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         Some(self.0.offset_to_pointer(offset as usize - 1))
     }
 }
