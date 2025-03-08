@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::Backend;
 use crate::Barrier;
+use crate::Index;
 use crate::Metrics;
 use crate::Timer;
 use crate::context;
@@ -13,7 +14,7 @@ use crate::context;
 mod thread_test;
 pub mod ycsb;
 
-pub trait Interface<B: Backend>: Sync {
+pub trait Interface<B: Backend, I: Index<B::Allocator>>: Sync {
     const NAME: &str;
 
     type Global: Sync;

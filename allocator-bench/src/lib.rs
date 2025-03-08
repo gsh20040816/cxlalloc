@@ -1,10 +1,11 @@
 pub mod barrier;
 pub mod benchmark;
 pub mod context;
-mod index;
+pub mod index;
 
 pub use barrier::Barrier;
 pub use benchmark::Benchmark;
+pub use index::Index;
 
 use core::cell::Cell;
 use core::ffi;

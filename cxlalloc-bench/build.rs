@@ -57,7 +57,7 @@ fn boost() {
     println!("cargo:rerun-if-changed={}", header.display());
     println!("cargo:rerun-if-changed={}", source.display());
 
-    cxx_build::bridge("src/process/boost.rs")
+    cxx_build::bridge("src/allocator/boost.rs")
         .file("src/cpp/boost.cpp")
         .opt_level(3)
         .compile("boost");

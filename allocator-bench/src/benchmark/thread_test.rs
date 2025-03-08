@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::Allocator;
 use crate::Backend;
+use crate::Index;
 use crate::benchmark;
 use crate::context;
 
@@ -21,7 +22,7 @@ pub struct ThreadTest {
     pub(crate) object_size: usize,
 }
 
-impl<B: Backend> benchmark::Interface<B> for ThreadTest {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for ThreadTest {
     const NAME: &str = "tt";
     type Global = usize;
     type Local = Vec<Option<<B::Allocator as Allocator>::Ptr>>;

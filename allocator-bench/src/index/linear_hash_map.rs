@@ -8,23 +8,35 @@ use std::io;
 
 use rapidhash::RapidHasher;
 
+use crate::Allocator;
+use crate::Index;
+use crate::Pointer as _;
+
+// Open-addressed, linear probing hashmap.
 pub struct LinearHashMap {
     len: usize,
     raw: shm::Raw,
 }
 
-impl LinearHashMap {
-    pub fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
+impl<A: Allocator> Index<A> for LinearHashMap {
+    fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
             len,
             raw: shm::Raw::new(numa, CString::new(name).unwrap(), len * 8, populate)?,
         })
     }
 
-    pub fn insert<K: Hash>(&self, key: K) -> &AtomicU64 {
+    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: u64, size: usize, with: F) {
         let view = self.view();
-        let index = self.index(key);
+        let index = self.index(&key);
         let mut probe = 0;
+
+        let handle = allocator.allocate(8 + size).unwrap();
+
+        unsafe {
+            handle.as_ptr().cast::<u64>().write(key);
+            with(handle.as_ptr().byte_add(8).cast::<u8>())
+        }
 
         loop {
             while view[(index + probe) % view.len()].load(Ordering::Acquire) > 0 {
@@ -37,34 +49,48 @@ impl LinearHashMap {
                 .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                break slot;
+                unsafe {
+                    allocator.link(slot.as_ptr(), &handle);
+                }
+                return;
             }
         }
     }
 
-    pub fn get<K: Hash, F: FnMut(u64) -> Option<T>, T>(&self, key: K, mut compare: F) -> Option<T> {
+    fn get<F: FnOnce(*const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
         let view = self.view();
-        let index = self.index(key);
+        let index = self.index(&key);
         let mut probe = 0;
 
         loop {
             match view[(index + probe) % view.len()].load(Ordering::Acquire) {
-                0 => return None,
+                0 => return false,
                 // Wait for link operation to complete
                 u64::MAX => hint::spin_loop(),
-                offset => match compare(offset) {
-                    value @ Some(_) => return value,
-                    None => probe += 1,
-                },
+                offset => {
+                    let handle = allocator.offset_to_pointer(offset).unwrap();
+                    let pointer_key = handle.as_ptr().cast::<u64>();
+
+                    match key == unsafe { pointer_key.read() } {
+                        false => probe += 1,
+                        true => {
+                            let pointer_value = unsafe { handle.as_ptr().byte_add(8).cast::<u8>() };
+                            with(pointer_value);
+                            return true;
+                        }
+                    }
+                }
             }
         }
     }
 
-    pub fn unlink(&mut self) -> io::Result<()> {
+    fn unlink(&mut self) -> io::Result<()> {
         self.raw.unlink()
     }
+}
 
-    fn index<K: Hash>(&self, key: K) -> usize {
+impl LinearHashMap {
+    fn index<K: Hash>(&self, key: &K) -> usize {
         let mut hasher = RapidHasher::default();
         key.hash(&mut hasher);
         hasher.finish() as usize % self.len

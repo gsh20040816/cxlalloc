@@ -13,6 +13,7 @@ pub use lightning::Lightning;
 use serde::Deserialize;
 use serde::Serialize;
 
+use allocator_bench::index;
 use allocator_bench::Backend;
 use clap::ValueEnum;
 
@@ -49,13 +50,16 @@ impl Cli {
     pub fn run<B: Backend>(&self) {
         match &self.benchmark {
             allocator_bench::Benchmark::ThreadTest(thread_test) => {
-                <_ as allocator_bench::benchmark::Interface<B>>::run_process(
+                <_ as allocator_bench::benchmark::Interface<B, index::LinearHashMap>>::run_process(
                     thread_test,
                     &self.context,
                 )
             }
             allocator_bench::Benchmark::Ycsb(ycsb) => {
-                <_ as allocator_bench::benchmark::Interface<B>>::run_process(ycsb, &self.context)
+                <_ as allocator_bench::benchmark::Interface<B, index::LinearHashMap>>::run_process(
+                    ycsb,
+                    &self.context,
+                )
             }
         }
     }
