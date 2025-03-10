@@ -8,6 +8,7 @@ use std::ffi::OsStr;
 use std::io;
 use std::sync::Arc;
 
+use allocator_bench::allocator::Config;
 use sys::LightningAllocator_Free;
 use sys::LightningAllocator_Initialize;
 use sys::LightningAllocator_Malloc;
@@ -40,14 +41,19 @@ unsafe impl Sync for sys::LightningAllocator {}
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Lightning;
 
-    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
-        let shm = shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, populate)?;
+    fn open(config: &Config, name: &str) -> io::Result<Self> {
+        let shm = shm::Raw::new(
+            Some(config.numa),
+            CString::new(name).unwrap(),
+            config.size,
+            config.populate,
+        )?;
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(
                 store.as_mut_ptr(),
                 shm.address_mut().cast(),
-                size as _,
+                config.size as _,
             );
             store.assume_init()
         });

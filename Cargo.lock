@@ -491,6 +491,7 @@ dependencies = [
  "allocator-bench",
  "anyhow",
  "bindgen",
+ "bon",
  "cartesian",
  "clap",
  "cxlalloc",

@@ -9,21 +9,31 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Cli {
+pub struct Config {
+    pub config_global: allocator_bench::config::Global,
+    pub config_allocator: allocator_bench::allocator::Config,
+    pub config_benchmark: allocator_bench::benchmark::Config,
+
     pub allocator: Allocator,
-
     pub index: Index,
+}
 
-    pub control: allocator_bench::context::Global,
-
-    #[serde(flatten)]
-    pub benchmark: allocator_bench::Benchmark,
+impl Config {
+    pub fn with_process_id(&self, process_id: usize) -> worker::Config {
+        worker::Config {
+            config_process: self.config_global.with_process_id(process_id),
+            config_allocator: self.config_allocator,
+            config_benchmark: self.config_benchmark.clone(),
+            allocator: self.allocator,
+            index: self.index,
+        }
+    }
 }
 
 #[derive(Serialize)]
 pub struct Observation {
     #[serde(flatten)]
-    pub inputs: Cli,
+    pub config: Config,
 
     #[serde(flatten)]
     pub outputs: allocator_bench::Metrics,

@@ -1,24 +1,14 @@
 use std::io;
 use std::io::Write as _;
 
-use cxlalloc_bench::worker;
 use cxlalloc_bench::Observation;
 
 fn main() -> anyhow::Result<()> {
     let stdin = io::stdin().lock();
-    let cli = serde_json::from_reader::<_, cxlalloc_bench::Cli>(stdin)?;
-    (0..cli.control.process_count)
+    let config = serde_json::from_reader::<_, cxlalloc_bench::Config>(stdin)?;
+    (0..config.config_global.process_count)
         .map(|process_id| {
-            let command = serde_json::to_vec(&worker::Cli {
-                allocator: cli.allocator.clone(),
-                index: cli.index,
-                context: allocator_bench::context::Process {
-                    global: cli.control,
-                    process_id,
-                },
-                benchmark: cli.benchmark.clone(),
-            })
-            .unwrap();
+            let command = serde_json::to_vec(&config.with_process_id(process_id)).unwrap();
             let empty: [String; 0] = [];
 
             duct::cmd(
@@ -46,7 +36,7 @@ fn main() -> anyhow::Result<()> {
         })
         .map(Result::unwrap)
         .map(|outputs| Observation {
-            inputs: cli.clone(),
+            config: config.clone(),
             outputs,
         })
         .for_each(|output| {

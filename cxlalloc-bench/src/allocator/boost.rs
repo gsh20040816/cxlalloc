@@ -4,6 +4,7 @@ use core::ptr::NonNull;
 use std::ffi::CString;
 use std::io;
 
+use allocator_bench::allocator::Config;
 use cxx::SharedPtr;
 
 #[cxx::bridge]
@@ -51,18 +52,28 @@ unsafe impl Sync for Backend {}
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Boost;
-    fn create(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
+    fn create(config: &Config, name: &str) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, populate)?;
-            let inner = sys::managed_create(shm.address_mut().cast(), size);
+            let shm = shm::Raw::new(
+                Some(config.numa),
+                CString::new(name).unwrap(),
+                config.size,
+                config.populate,
+            )?;
+            let inner = sys::managed_create(shm.address_mut().cast(), config.size);
             Ok(Self { shm, inner })
         }
     }
 
-    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
+    fn open(config: &Config, name: &str) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, populate)?;
-            let inner = sys::managed_open(shm.address_mut().cast(), size);
+            let shm = shm::Raw::new(
+                Some(config.numa),
+                CString::new(name).unwrap(),
+                config.size,
+                config.populate,
+            )?;
+            let inner = sys::managed_open(shm.address_mut().cast(), config.size);
             Ok(Self { shm, inner })
         }
     }

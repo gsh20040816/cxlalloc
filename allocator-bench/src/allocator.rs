@@ -5,13 +5,29 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::io;
 
+use bon::Builder;
+use serde::Deserialize;
+use serde::Serialize;
+
+#[derive(Builder, Copy, Clone, Debug, Deserialize, Serialize)]
+pub struct Config {
+    /// NUMA node for remote memory
+    pub numa: usize,
+
+    /// Initial heap size
+    pub size: usize,
+
+    /// Eagerly populate page tables
+    pub populate: bool,
+}
+
 pub trait Backend: Send + Sync + Sized {
     type Allocator: Allocator;
-    fn create(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
-        Self::open(numa, populate, name, size)
+    fn create(config: &Config, name: &str) -> io::Result<Self> {
+        Self::open(config, name)
     }
 
-    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self>;
+    fn open(config: &Config, name: &str) -> io::Result<Self>;
 
     fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
@@ -57,7 +73,7 @@ pub struct Libc;
 impl Backend for Libc {
     type Allocator = Self;
 
-    fn open(_numa: usize, _populate: bool, _name: &str, _size: usize) -> io::Result<Self> {
+    fn open(_config: &Config, _name: &str) -> io::Result<Self> {
         Ok(Self)
     }
 

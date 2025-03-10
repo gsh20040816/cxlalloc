@@ -1,12 +1,11 @@
 pub mod allocator;
 pub mod barrier;
 pub mod benchmark;
-pub mod context;
+pub mod config;
 pub mod index;
 
 pub use allocator::Allocator;
 pub use barrier::Barrier;
-pub use benchmark::Benchmark;
 pub use index::Index;
 
 use core::cell::Cell;

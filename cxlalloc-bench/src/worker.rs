@@ -1,5 +1,6 @@
 use allocator_bench::benchmark;
 use allocator_bench::index;
+use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -10,15 +11,17 @@ use crate::allocator::lightning;
 use crate::Allocator;
 use crate::Index;
 
-#[derive(Clone, Deserialize, Serialize)]
-pub struct Cli {
+#[derive(Builder, Clone, Deserialize, Serialize)]
+pub struct Config {
+    pub config_process: allocator_bench::config::Process,
+    pub config_allocator: allocator_bench::allocator::Config,
+    pub config_benchmark: allocator_bench::benchmark::Config,
+
     pub allocator: Allocator,
     pub index: Index,
-    pub context: allocator_bench::context::Process,
-    pub benchmark: allocator_bench::Benchmark,
 }
 
-impl Cli {
+impl Config {
     pub fn run(&self) {
         self.specialize_allocator()
     }
@@ -45,22 +48,22 @@ impl Cli {
     >(
         &self,
     ) {
-        match self.benchmark.clone() {
-            benchmark::Benchmark::ThreadTest(thread_test) => {
+        match self.config_benchmark.clone() {
+            benchmark::Config::ThreadTest(thread_test) => {
                 self.run_benchmark::<A, I, _>(thread_test)
             }
-            benchmark::Benchmark::Ycsb(ycsb) => self.run_benchmark::<A, I, _>(ycsb),
+            benchmark::Config::Ycsb(ycsb) => self.run_benchmark::<A, I, _>(ycsb),
         }
     }
 
     fn run_benchmark<
         A: allocator_bench::allocator::Backend,
         I: allocator_bench::index::Index<A::Allocator>,
-        B: benchmark::Interface<A, I>,
+        B: benchmark::Benchmark<A, I>,
     >(
         &self,
         benchmark: B,
     ) {
-        benchmark.run_process(&self.context)
+        benchmark.run_process(&self.config_process, &self.config_allocator)
     }
 }

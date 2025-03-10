@@ -6,9 +6,10 @@ use serde::Serialize;
 
 use crate::Allocator;
 use crate::Index;
+use crate::allocator;
 use crate::allocator::Backend;
 use crate::benchmark;
-use crate::context;
+use crate::config;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct ThreadTest {
@@ -22,13 +23,17 @@ pub struct ThreadTest {
     pub(crate) object_size: usize,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for ThreadTest {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTest {
     const NAME: &str = "tt";
     type Global = usize;
     type Local = Vec<Option<<B::Allocator as Allocator>::Handle>>;
 
-    fn setup_process(&self, context: &context::Process) -> Self::Global {
-        let thread_total = context.thread_total();
+    fn setup_process(
+        &self,
+        config: &config::Process,
+        _allocator: &allocator::Config,
+    ) -> Self::Global {
+        let thread_total = config.thread_total();
         assert_eq!(
             self.object_count % thread_total,
             0,
@@ -40,7 +45,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for ThreadTe
 
     fn setup_thread(
         &self,
-        _context: &context::Thread,
+        _config: &config::Thread,
         object_count: &Self::Global,
         _allocator: &mut B::Allocator,
     ) -> Self::Local {
@@ -49,7 +54,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for ThreadTe
 
     fn run_thread(
         &self,
-        _context: &context::Thread,
+        _config: &config::Thread,
         _: &Self::Global,
         handles: &mut Self::Local,
         allocator: &mut B::Allocator,

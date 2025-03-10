@@ -2,33 +2,29 @@ use core::mem;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
 
+use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
 
 use crate::Allocator;
 use crate::Index;
+use crate::allocator;
 use crate::allocator::Backend;
 use crate::allocator::Handle as _;
 use crate::benchmark;
-use crate::context;
+use crate::config;
+use crate::index;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Ycsb {
     /// Whether to measure loading only (or else running phase only)
-    pub load: bool,
+    load: bool,
 
-    /// Whether to inline the value into index entries (or else allocate separately)
-    pub index_inline: bool,
-
-    /// Size of hash map backing array
-    pub index_len: usize,
-
-    /// Whether to map populate the index
-    pub index_populate: bool,
+    index: index::Config,
 
     #[serde(flatten)]
-    pub workload: ycsb::Workload,
+    workload: ycsb::Workload,
 }
 
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
@@ -49,18 +45,18 @@ struct Field {
 
 unsafe impl<I> Sync for Global<I> {}
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     const NAME: &str = "ycsb";
     type Global = Global<I>;
     type Local = ();
 
-    fn setup_process(&self, context: &context::Process) -> Global<I> {
+    fn setup_process(&self, _config: &config::Process, allocator: &allocator::Config) -> Global<I> {
         Global {
             index: I::new(
-                Some(context.allocator_numa),
+                Some(allocator.numa),
                 "index",
-                self.index_len,
-                self.index_populate,
+                self.index.len,
+                self.index.populate,
             )
             .unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
@@ -69,7 +65,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
 
     fn setup_thread(
         &self,
-        context: &context::Thread,
+        config: &config::Thread,
         global: &Self::Global,
         allocator: &mut B::Allocator,
     ) -> Self::Local {
@@ -77,23 +73,23 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
             return;
         }
 
-        match self.index_inline {
-            true => load::<true, _, _>(&self.workload, context, allocator, &global.index),
-            false => load::<false, _, _>(&self.workload, context, allocator, &global.index),
+        match self.index.inline {
+            true => load::<true, _, _>(&self.workload, config, allocator, &global.index),
+            false => load::<false, _, _>(&self.workload, config, allocator, &global.index),
         }
     }
 
     fn run_thread(
         &self,
-        context: &context::Thread,
+        config: &config::Thread,
         global: &Self::Global,
         _local: &mut Self::Local,
         allocator: &mut B::Allocator,
     ) {
         if self.load {
-            match self.index_inline {
-                true => load::<true, _, _>(&self.workload, context, allocator, &global.index),
-                false => load::<false, _, _>(&self.workload, context, allocator, &global.index),
+            match self.index.inline {
+                true => load::<true, _, _>(&self.workload, config, allocator, &global.index),
+                false => load::<false, _, _>(&self.workload, config, allocator, &global.index),
             }
 
             return;
@@ -103,17 +99,17 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
-        match self.index_inline {
+        match self.index.inline {
             true => run::<true, _, _>(
                 self.workload.operation_count(),
-                context,
+                config,
                 &mut runner,
                 allocator,
                 &global.index,
             ),
             false => run::<false, _, _>(
                 self.workload.operation_count(),
-                context,
+                config,
                 &mut runner,
                 allocator,
                 &global.index,
@@ -121,8 +117,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
         }
     }
 
-    fn teardown_process(&self, context: &context::Process, mut global: Self::Global) {
-        if context.process_id != 0 {
+    fn teardown_process(&self, config: &config::Process, mut global: Self::Global) {
+        if config.process_id != 0 {
             return;
         }
 
@@ -133,11 +129,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Interface<B, I> for Ycsb {
 
 fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
     workload: &ycsb::Workload,
-    context: &context::Thread,
+    config: &config::Thread,
     allocator: &mut A,
     index: &I,
 ) {
-    let mut loader = workload.loader(context.thread_total(), context.thread_id);
+    let mut loader = workload.loader(config.thread_total(), config.thread_id);
 
     while let Some(key) = loader.next_key() {
         insert::<INLINE, _, _>(allocator, index, &key);
@@ -146,14 +142,14 @@ fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
 
 fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
     operation_count: usize,
-    context: &context::Thread,
+    config: &config::Thread,
     runner: &mut ycsb::Runner,
     allocator: &mut A,
     index: &I,
 ) {
     let mut rng = rand::rng();
 
-    for _ in 0..operation_count / context.thread_total() {
+    for _ in 0..operation_count / config.thread_total() {
         let key = runner.next_key(&mut rng);
         match runner.next_operation(&mut rng) {
             ycsb::Operation::Read => {

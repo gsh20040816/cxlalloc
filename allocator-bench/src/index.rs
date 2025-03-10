@@ -1,12 +1,28 @@
 mod linear_hash_map;
 mod linked_hash_map;
 
+use bon::Builder;
 pub use linear_hash_map::LinearHashMap;
 pub use linked_hash_map::LinkedHashMap;
 
 use std::io;
 
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::Allocator;
+
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+pub struct Config {
+    /// Whether to inline the value into index entries (or else allocate separately)
+    pub(crate) inline: bool,
+
+    /// Size of hash map backing array
+    pub(crate) len: usize,
+
+    /// Whether to map populate the index
+    pub(crate) populate: bool,
+}
 
 pub trait Index<A>
 where

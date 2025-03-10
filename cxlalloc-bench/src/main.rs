@@ -120,28 +120,35 @@ fn main() -> anyhow::Result<()> {
                 let thread_count = thread_total / process_count;
 
                 cli.run(
-                    &cxlalloc_bench::Cli {
+                    &cxlalloc_bench::Config {
                         allocator,
                         index,
-                        control: allocator_bench::context::Global {
-                            allocator_numa: cli.allocator_numa,
-                            allocator_size: cli.allocator_size,
-                            allocator_populate: cli.allocator_populate,
-                            process_count,
-                            thread_count,
-                        },
-                        benchmark: allocator_bench::Benchmark::Ycsb(
-                            allocator_bench::benchmark::ycsb::Ycsb {
-                                load: true,
-                                index_len: *index_len,
-                                index_inline: *index_inline,
-                                index_populate: *index_populate,
-                                workload: ycsb::Workload {
-                                    record_count: *record_count,
-                                    operation_count: *operation_count,
-                                    ..ycsb::workload::A.clone()
-                                },
-                            },
+                        config_allocator: allocator_bench::allocator::Config::builder()
+                            .numa(cli.allocator_numa)
+                            .size(cli.allocator_size)
+                            .populate(cli.allocator_populate)
+                            .build(),
+                        config_global: allocator_bench::config::Global::builder()
+                            .process_count(process_count)
+                            .thread_count(thread_count)
+                            .build(),
+                        config_benchmark: allocator_bench::benchmark::Config::Ycsb(
+                            allocator_bench::benchmark::ycsb::Ycsb::builder()
+                                .load(true)
+                                .index(
+                                    allocator_bench::index::Config::builder()
+                                        .inline(*index_inline)
+                                        .populate(*index_populate)
+                                        .len(*index_len)
+                                        .build(),
+                                )
+                                .workload(
+                                    ycsb::Workload::builder()
+                                        .record_count(*record_count)
+                                        .operation_count(*operation_count)
+                                        .build(),
+                                )
+                                .build(),
                         ),
                     },
                     &mut out,
@@ -176,30 +183,36 @@ fn main() -> anyhow::Result<()> {
                 let thread_count = thread_total / process_count;
 
                 cli.run(
-                    &cxlalloc_bench::Cli {
+                    &cxlalloc_bench::Config {
                         allocator,
                         index,
-                        control: allocator_bench::context::Global {
-                            allocator_numa: cli.allocator_numa,
-                            allocator_size: cli.allocator_size,
-                            allocator_populate: cli.allocator_populate,
-                            process_count,
-                            thread_count,
-                        },
-                        benchmark: allocator_bench::Benchmark::Ycsb(
-                            allocator_bench::benchmark::ycsb::Ycsb {
-                                load: false,
-                                index_len: *index_len,
-                                index_inline: *index_inline,
-                                index_populate: *index_populate,
-                                workload: ycsb::Workload {
+                        config_allocator: allocator_bench::allocator::Config::builder()
+                            .numa(cli.allocator_numa)
+                            .size(cli.allocator_size)
+                            .populate(cli.allocator_populate)
+                            .build(),
+                        config_global: allocator_bench::config::Global::builder()
+                            .process_count(process_count)
+                            .thread_count(thread_count)
+                            .build(),
+                        config_benchmark: allocator_bench::benchmark::Config::Ycsb(
+                            allocator_bench::benchmark::ycsb::Ycsb::builder()
+                                .load(false)
+                                .index(
+                                    allocator_bench::index::Config::builder()
+                                        .len(*index_len)
+                                        .inline(*index_inline)
+                                        .populate(*index_populate)
+                                        .build(),
+                                )
+                                .workload(ycsb::Workload {
                                     record_count: *record_count,
                                     operation_count: *operation_count,
                                     insert_proportion,
                                     read_proportion: 1.0 - insert_proportion,
                                     ..ycsb::workload::D.clone()
-                                },
-                            },
+                                })
+                                .build(),
                         ),
                     },
                     &mut out,
@@ -212,7 +225,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 impl Cli {
-    fn run(&self, cli: &cxlalloc_bench::Cli, out: &mut File) -> anyhow::Result<()> {
+    fn run(&self, cli: &cxlalloc_bench::Config, out: &mut File) -> anyhow::Result<()> {
         const EMPTY: [String; 0] = [];
 
         let handle = duct::cmd(&self.coordinator, EMPTY)

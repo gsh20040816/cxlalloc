@@ -1,19 +1,11 @@
 use core::ops::Deref;
 
+use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Builder, Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Global {
-    /// NUMA node for remote memory
-    pub allocator_numa: usize,
-
-    /// Initial heap size
-    pub allocator_size: usize,
-
-    /// Eagerly populate page tables
-    pub allocator_populate: bool,
-
     /// Number of processes
     pub process_count: usize,
 
@@ -24,6 +16,13 @@ pub struct Global {
 impl Global {
     pub fn thread_total(&self) -> usize {
         self.process_count * self.thread_count
+    }
+
+    pub fn with_process_id(&self, process_id: usize) -> Process {
+        Process {
+            global: *self,
+            process_id,
+        }
     }
 }
 

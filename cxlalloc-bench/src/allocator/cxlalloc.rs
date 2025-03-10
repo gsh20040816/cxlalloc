@@ -7,6 +7,8 @@ use std::ffi::OsStr;
 use std::io;
 use std::sync::OnceLock;
 
+use allocator_bench::allocator::Config;
+
 pub struct Backend(String);
 
 static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
@@ -30,15 +32,15 @@ pub struct Cxlalloc(cxlalloc::Allocator<'static>);
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Cxlalloc;
 
-    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
+    fn open(config: &Config, name: &str) -> io::Result<Self> {
         RAW.get_or_init(|| {
             cxlalloc::raw::Builder::default()
                 .backend(cxlalloc::raw::backend::Shm {
-                    numa: Some(numa),
-                    populate,
+                    numa: Some(config.numa),
+                    populate: config.populate,
                 })
-                .size_small(size / 2)
-                .size_large(size / 2)
+                .size_small(config.size / 2)
+                .size_large(config.size / 2)
                 .build(name)
                 .unwrap()
         });

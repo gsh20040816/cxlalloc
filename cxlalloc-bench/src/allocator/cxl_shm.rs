@@ -3,6 +3,7 @@ use core::num::NonZeroU64;
 use std::ffi::CString;
 use std::io;
 
+use allocator_bench::allocator::Config;
 use sys::cxl_shm_cxl_shm2;
 use sys::cxl_shm_thread_init;
 use sys::CXLRef_s_get_addr;
@@ -22,8 +23,14 @@ pub struct CxlShm(sys::cxl_shm);
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = CxlShm;
 
-    fn open(numa: usize, populate: bool, name: &str, size: usize) -> io::Result<Self> {
-        shm::Raw::new(Some(numa), CString::new(name).unwrap(), size, populate).map(Self)
+    fn open(config: &Config, name: &str) -> io::Result<Self> {
+        shm::Raw::new(
+            Some(config.numa),
+            CString::new(name).unwrap(),
+            config.size,
+            config.populate,
+        )
+        .map(Self)
     }
 
     fn unlink(mut self) -> io::Result<()> {
