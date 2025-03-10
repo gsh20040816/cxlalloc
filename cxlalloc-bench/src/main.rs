@@ -10,20 +10,20 @@ use cxlalloc_bench::Index;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short, long, value_delimiter = ',')]
-    allocators: Vec<Allocator>,
+    #[arg(short, long, value_delimiter = ',', default_value = "cxlalloc,cxl-shm")]
+    allocator: Vec<Allocator>,
 
     #[arg(short, long, value_delimiter = ',', default_value = "1")]
-    process_counts: Vec<usize>,
+    process_count: Vec<usize>,
 
     #[arg(long, default_value_t = 1)]
     allocator_numa: usize,
 
-    #[arg(long, default_value_t = 2usize.pow(34))]
+    #[arg(long, default_value_t = 2usize.pow(35))]
     allocator_size: usize,
 
-    #[arg(long)]
-    allocator_populate: bool,
+    #[arg(long, value_delimiter = ',', default_value = "false,true")]
+    allocator_populate: Vec<bool>,
 
     #[arg(
         short,
@@ -42,27 +42,27 @@ struct Cli {
 #[derive(Parser)]
 enum Experiment {
     Ycsb {
-        #[arg(short, long, value_delimiter = ',')]
-        indexes: Vec<Index>,
-
         #[arg(long, default_value_t = 10_000_000)]
         record_count: usize,
 
         #[arg(long, default_value_t = 1_000_000)]
         operation_count: usize,
 
-        #[arg(long, default_value_t = 1 << 24)]
+        #[arg(short, long, value_delimiter = ',', default_value = "linear,linked")]
+        index: Vec<Index>,
+
+        #[arg(long, default_value_t = 1 << 25)]
         index_len: usize,
 
-        #[arg(long)]
-        index_inline: bool,
+        #[arg(long, value_delimiter = ',', default_value = "false,true")]
+        index_inline: Vec<bool>,
 
-        #[arg(long)]
-        index_populate: bool,
+        #[arg(long, value_delimiter = ',', default_value = "false,true")]
+        index_populate: Vec<bool>,
 
         /// Whether to write value or not
-        #[arg(long)]
-        write: bool,
+        #[arg(long, value_delimiter = ',', default_value = "false,true")]
+        write: Vec<bool>,
 
         #[command(subcommand)]
         workload: Workload,
@@ -73,7 +73,7 @@ enum Experiment {
 enum Workload {
     Load {
         #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
-        thread_totals: Vec<usize>,
+        thread_total: Vec<usize>,
     },
     D {
         #[arg(short, long, default_value_t = 40)]
@@ -85,7 +85,7 @@ enum Workload {
             value_delimiter = ',',
             default_value = "0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0"
         )]
-        insert_proportions: Vec<f32>,
+        insert_proportion: Vec<f32>,
     },
 }
 
@@ -98,20 +98,33 @@ fn main() -> anyhow::Result<()> {
 
     match &cli.experiment {
         Experiment::Ycsb {
-            indexes,
             record_count,
             operation_count,
+            index,
             index_len,
             index_inline,
             index_populate,
             write,
-            workload: Workload::Load { thread_totals },
+            workload: Workload::Load { thread_total },
         } => {
-            for (&allocator, &index, &process_count, &thread_total) in cartesian!(
-                cli.allocators.iter(),
-                indexes.iter(),
-                cli.process_counts.iter(),
-                thread_totals.iter()
+            for (
+                &allocator,
+                &allocator_populate,
+                &index,
+                &index_inline,
+                &index_populate,
+                &write,
+                &process_count,
+                &thread_total,
+            ) in cartesian!(
+                cli.allocator.iter(),
+                cli.allocator_populate.iter(),
+                index.iter(),
+                index_inline.iter(),
+                index_populate.iter(),
+                write.iter(),
+                cli.process_count.iter(),
+                thread_total.iter()
             ) {
                 if thread_total % process_count != 0 {
                     continue;
@@ -131,7 +144,7 @@ fn main() -> anyhow::Result<()> {
                         config_allocator: allocator_bench::allocator::Config::builder()
                             .numa(cli.allocator_numa)
                             .size(cli.allocator_size)
-                            .populate(cli.allocator_populate)
+                            .populate(allocator_populate)
                             .build(),
                         config_global: allocator_bench::config::Global::builder()
                             .process_count(process_count)
@@ -140,11 +153,11 @@ fn main() -> anyhow::Result<()> {
                         config_benchmark: allocator_bench::benchmark::Config::Ycsb(
                             allocator_bench::benchmark::ycsb::Ycsb::builder()
                                 .load(true)
-                                .write(*write)
+                                .write(write)
                                 .index(
                                     allocator_bench::index::Config::builder()
-                                        .inline(*index_inline)
-                                        .populate(*index_populate)
+                                        .inline(index_inline)
+                                        .populate(index_populate)
                                         .len(*index_len)
                                         .build(),
                                 )
@@ -162,7 +175,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Experiment::Ycsb {
-            indexes,
+            index,
             record_count,
             operation_count,
             index_len,
@@ -172,14 +185,27 @@ fn main() -> anyhow::Result<()> {
             workload:
                 Workload::D {
                     thread_total,
-                    insert_proportions,
+                    insert_proportion,
                 },
         } => {
-            for (&allocator, &index, &process_count, &insert_proportion) in cartesian!(
-                cli.allocators.iter(),
-                indexes.iter(),
-                cli.process_counts.iter(),
-                insert_proportions.iter()
+            for (
+                &allocator,
+                &allocator_populate,
+                &index,
+                &index_inline,
+                &index_populate,
+                &write,
+                &process_count,
+                &insert_proportion,
+            ) in cartesian!(
+                cli.allocator.iter(),
+                cli.allocator_populate.iter(),
+                index.iter(),
+                index_inline.iter(),
+                index_populate.iter(),
+                write.iter(),
+                cli.process_count.iter(),
+                insert_proportion.iter()
             ) {
                 if thread_total % process_count != 0 {
                     continue;
@@ -196,7 +222,7 @@ fn main() -> anyhow::Result<()> {
                         config_allocator: allocator_bench::allocator::Config::builder()
                             .numa(cli.allocator_numa)
                             .size(cli.allocator_size)
-                            .populate(cli.allocator_populate)
+                            .populate(allocator_populate)
                             .build(),
                         config_global: allocator_bench::config::Global::builder()
                             .process_count(process_count)
@@ -205,12 +231,12 @@ fn main() -> anyhow::Result<()> {
                         config_benchmark: allocator_bench::benchmark::Config::Ycsb(
                             allocator_bench::benchmark::ycsb::Ycsb::builder()
                                 .load(false)
-                                .write(*write)
+                                .write(write)
                                 .index(
                                     allocator_bench::index::Config::builder()
                                         .len(*index_len)
-                                        .inline(*index_inline)
-                                        .populate(*index_populate)
+                                        .inline(index_inline)
+                                        .populate(index_populate)
                                         .build(),
                                 )
                                 .workload(ycsb::Workload {
