@@ -23,6 +23,9 @@ pub struct Ycsb {
 
     index: index::Config,
 
+    /// Whether to write value
+    write: bool,
+
     #[serde(flatten)]
     workload: ycsb::Workload,
 }
@@ -74,8 +77,12 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         }
 
         match self.index.inline {
-            true => load::<true, _, _>(&self.workload, config, allocator, &global.index),
-            false => load::<false, _, _>(&self.workload, config, allocator, &global.index),
+            true => {
+                load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
+            }
+            false => {
+                load::<false, _, _>(self.write, &self.workload, config, allocator, &global.index)
+            }
         }
     }
 
@@ -88,8 +95,16 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     ) {
         if self.load {
             match self.index.inline {
-                true => load::<true, _, _>(&self.workload, config, allocator, &global.index),
-                false => load::<false, _, _>(&self.workload, config, allocator, &global.index),
+                true => {
+                    load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
+                }
+                false => load::<false, _, _>(
+                    self.write,
+                    &self.workload,
+                    config,
+                    allocator,
+                    &global.index,
+                ),
             }
 
             return;
@@ -101,6 +116,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 
         match self.index.inline {
             true => run::<true, _, _>(
+                self.write,
                 self.workload.operation_count(),
                 config,
                 &mut runner,
@@ -108,6 +124,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
                 &global.index,
             ),
             false => run::<false, _, _>(
+                self.write,
                 self.workload.operation_count(),
                 config,
                 &mut runner,
@@ -128,6 +145,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 }
 
 fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
+    write: bool,
     workload: &ycsb::Workload,
     config: &config::Thread,
     allocator: &mut A,
@@ -136,11 +154,12 @@ fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
     let mut loader = workload.loader(config.thread_total(), config.thread_id);
 
     while let Some(key) = loader.next_key() {
-        insert::<INLINE, _, _>(allocator, index, &key);
+        insert::<INLINE, _, _>(write, allocator, index, &key);
     }
 }
 
 fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
+    write: bool,
     operation_count: usize,
     config: &config::Thread,
     runner: &mut ycsb::Runner,
@@ -169,7 +188,7 @@ fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
             }
             ycsb::Operation::Scan => todo!(),
             ycsb::Operation::Insert => {
-                insert::<INLINE, _, _>(allocator, index, &key);
+                insert::<INLINE, _, _>(write, allocator, index, &key);
             }
             ycsb::Operation::ReadModifyWrite => todo!(),
         }
@@ -177,14 +196,29 @@ fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
 }
 
 fn insert<const INLINE: bool, A: Allocator, I: Index<A>>(
+    write: bool,
     allocator: &mut A,
     index: &I,
     key: &ycsb::Key,
 ) {
+    const SIZE: usize = mem::size_of::<Record>();
     match INLINE {
-        true => index.insert(allocator, key.id(), mem::size_of::<Record>(), |_, _| ()),
+        true => index.insert(allocator, key.id(), SIZE, |_, pointer| {
+            if write {
+                unsafe {
+                    libc::memset(pointer.cast(), 0xff, SIZE);
+                }
+            }
+        }),
         false => {
-            let value = allocator.allocate(mem::size_of::<Record>()).unwrap();
+            let value = allocator.allocate(SIZE).unwrap();
+
+            if write {
+                unsafe {
+                    libc::memset(value.as_ptr(), 0xff, SIZE);
+                }
+            }
+
             index.insert(
                 allocator,
                 key.id(),

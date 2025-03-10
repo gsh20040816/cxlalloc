@@ -60,6 +60,10 @@ enum Experiment {
         #[arg(long)]
         index_populate: bool,
 
+        /// Whether to write value or not
+        #[arg(long)]
+        write: bool,
+
         #[command(subcommand)]
         workload: Workload,
     },
@@ -100,6 +104,7 @@ fn main() -> anyhow::Result<()> {
             index_len,
             index_inline,
             index_populate,
+            write,
             workload: Workload::Load { thread_totals },
         } => {
             for (&allocator, &index, &process_count, &thread_total) in cartesian!(
@@ -135,6 +140,7 @@ fn main() -> anyhow::Result<()> {
                         config_benchmark: allocator_bench::benchmark::Config::Ycsb(
                             allocator_bench::benchmark::ycsb::Ycsb::builder()
                                 .load(true)
+                                .write(*write)
                                 .index(
                                     allocator_bench::index::Config::builder()
                                         .inline(*index_inline)
@@ -162,6 +168,7 @@ fn main() -> anyhow::Result<()> {
             index_len,
             index_inline,
             index_populate,
+            write,
             workload:
                 Workload::D {
                     thread_total,
@@ -198,6 +205,7 @@ fn main() -> anyhow::Result<()> {
                         config_benchmark: allocator_bench::benchmark::Config::Ycsb(
                             allocator_bench::benchmark::ycsb::Ycsb::builder()
                                 .load(false)
+                                .write(*write)
                                 .index(
                                     allocator_bench::index::Config::builder()
                                         .len(*index_len)
