@@ -1,8 +1,7 @@
 import sys
-import copy
 
 import dash
-from dash import Dash, html, dcc, Input, Output, callback, ctx
+from dash import Dash, html, dcc, Input, Output, callback
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import polars as pl
@@ -13,9 +12,8 @@ df = pl.read_ndjson(sys.argv[1])
 
 TYPE_VARYING = "varying"
 TYPE_STORE = "store"
-ID_FIGURE = "figure"
 
-SELECTORS = {}
+ID_FIGURE = "figure"
 
 OUTPUTS = ["process_id", "thread_id", "time"]
 VARYING = []
@@ -33,12 +31,10 @@ CHOICES = [
 
 
 def main():
-    layout = []
-
     fixed = []
     varying = []
 
-    for name, selector in recurse(df.drop(OUTPUTS)):
+    for name, selector in flatten(df.drop(OUTPUTS)):
         values = unique(selector)
 
         if len(values) == 1:
@@ -55,51 +51,47 @@ def main():
                 )
             )
             continue
-        else:
-            SELECTORS[name] = selector
-            VARYING.append(name)
-            varying.append(
-                dbc.Row(
-                    [
-                        dcc.Store(
-                            id={"type": TYPE_STORE, "index": name},
-                            storage_type="local",
-                        ),
-                        dbc.Col(html.Span(name)),
-                        dbc.Col(
-                            dcc.Dropdown(
-                                CHOICES
-                                + [
-                                    {"label": f"Filter to {value}", "value": value}
-                                    for value in values.to_list()
-                                ],
-                                id={"type": TYPE_VARYING, "index": name},
-                            )
-                        ),
-                    ]
-                )
-            )
 
-    layout.append(
+        VARYING.append((name, selector))
+        varying.append(
+            dbc.Row(
+                [
+                    dcc.Store(
+                        id={"type": TYPE_STORE, "index": name},
+                        storage_type="local",
+                    ),
+                    dbc.Col(html.Span(name)),
+                    dbc.Col(
+                        dcc.Dropdown(
+                            CHOICES
+                            + [
+                                {"label": f"Filter to {value}", "value": value}
+                                for value in values.to_list()
+                            ],
+                            id={"type": TYPE_VARYING, "index": name},
+                        )
+                    ),
+                ]
+            )
+        )
+
+    app = Dash(
+        external_stylesheets=[dbc.themes.BOOTSTRAP],
+    )
+    app.layout = [
         dbc.Row(
             [
                 dbc.Col(fixed),
                 dbc.Col(varying),
             ]
-        )
-    )
-
-    layout.append(dcc.Graph(figure={}, id=ID_FIGURE))
-
-    app = Dash(
-        external_stylesheets=[dbc.themes.BOOTSTRAP],
-    )
-    app.layout = layout
+        ),
+        dcc.Graph(figure={}, id=ID_FIGURE),
+    ]
     app.run(debug=True)
 
 
-def recurse(df):
-    def inner(columns, namespace, selector):
+def flatten(df):
+    def recurse(columns, namespace, selector):
         select = pl.col if selector is None else lambda col: selector.struct.field(col)
 
         for col in columns:
@@ -107,7 +99,7 @@ def recurse(df):
             name = col if namespace == "" else f"{namespace}/{col}"
 
             if hasattr(dtype, "fields"):
-                yield from inner(
+                yield from recurse(
                     [field.name for field in dtype.fields],
                     name,
                     select(col),
@@ -115,7 +107,7 @@ def recurse(df):
             else:
                 yield (name, select(col))
 
-    yield from inner(df.columns, "", None)
+    yield from recurse(df.columns, "", None)
 
 
 def unique(field):
@@ -154,8 +146,7 @@ def update(
     filters = []
 
     # Validate
-    for name, value in zip(VARYING, varying):
-        selector = SELECTORS[name]
+    for (name, selector), value in zip(VARYING, varying):
         if value == "x":
             if x is not None:
                 return {}
@@ -177,15 +168,21 @@ def update(
 
     filtered = df.filter(*filters)
 
-    filtered = (
-        filtered.group_by(cs.exclude(*OUTPUTS))
-        .agg(
-            x[1].first().alias(x[0]),
-            time_mean=pl.col("time").mean() / 1e6,
-            time_std=pl.col("time").std() / 1e6,
-        )
-        .sort(x[1])
-    )
+    sorts = [x[0]]
+    cols = [
+        x[1].first().alias(x[0]),
+        pl.col("time").mean().alias("time_mean") / 1e6,
+        pl.col("time").std().alias("time_std") / 1e6,
+    ]
+
+    for name, selector in [
+        v for v in [facet_row, facet_column, facet_color] if v is not None
+    ]:
+        sorts.append(name)
+        if name not in filtered.columns:
+            cols.append(selector.first().alias(name))
+
+    filtered = filtered.group_by(cs.exclude(*OUTPUTS)).agg(cols).sort(sorts)
 
     fig = px.line(
         filtered,
