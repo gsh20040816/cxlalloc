@@ -144,7 +144,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "name")]
 pub enum Config {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),
