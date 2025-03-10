@@ -12,13 +12,15 @@ def main():
     else:
         fig = plot_insert_proportion(df)
 
+    fig.write_image("plot.svg")
     fig.show()
 
 
 def plot_load(df):
     df = (
-        df.group_by("allocator", "control", "ycsb")
+        df.group_by("allocator", "control", "ycsb", "index")
         .agg(
+            index_inline=pl.col("ycsb").struct["index_inline"].first(),
             time_mean=pl.col("time").mean() / 1e6,
             time_std=pl.col("time").std() / 1e6,
         )
@@ -33,8 +35,10 @@ def plot_load(df):
         df,
         x="thread_total",
         y="time_mean",
-        # error_y="time_std",
+        error_y="time_std",
         color="allocator",
+        facet_col="index_inline",
+        facet_row="index",
         markers=True,
     )
 
@@ -45,10 +49,12 @@ def plot_load(df):
 
 def plot_insert_proportion(df):
     df = (
-        df.group_by("allocator", "control", "ycsb")
+        df.group_by("allocator", "index", "control", "ycsb")
         .agg(
             pl.col("ycsb").struct["insert_proportion"].first(),
-            pl.col("time").max() / 1e6,
+            pl.col("ycsb").struct["index_inline"].first(),
+            time_mean=pl.col("time").max() / 1e6,
+            time_std=pl.col("time").std() / 1e6,
         )
         .sort("allocator", "insert_proportion")
     )
@@ -56,8 +62,11 @@ def plot_insert_proportion(df):
     fig = px.line(
         df,
         x="insert_proportion",
-        y="time",
+        y="time_mean",
+        error_y="time_std",
         color="allocator",
+        facet_col="index_inline",
+        facet_row="index",
         markers=True,
     )
 
