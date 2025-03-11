@@ -26,6 +26,7 @@ CHOICES = [
         ("Facet along row", "facet_row"),
         ("Facet along column", "facet_column"),
         ("Facet along color", "facet_color"),
+        ("Ignore", "ignore"),
     ]
 ]
 
@@ -163,6 +164,8 @@ def update(
             if facet_color is not None:
                 return None
             facet_color = (name, selector)
+        elif value == "ignore":
+            continue
         else:
             filters.append(selector == value)
 
