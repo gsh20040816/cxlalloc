@@ -77,7 +77,7 @@ impl<'raw, B> Slab<'raw, B> {
     }
 }
 
-impl<'raw, B> Slab<'raw, B>
+impl<B> Slab<'_, B>
 where
     B: size::Bracket,
 {

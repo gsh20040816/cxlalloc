@@ -5,6 +5,7 @@ mod r#box;
 mod cas;
 mod coherence;
 mod data;
+mod error;
 mod heap;
 mod huge;
 pub mod raw;
@@ -29,10 +30,10 @@ mod crash {
 
 use core::ops::Deref;
 use core::ops::DerefMut;
-use std::io;
 
 pub use atomic::Atomic;
 pub(crate) use data::Data;
+pub use error::Error;
 pub(crate) use heap::Heap;
 pub(crate) use huge::Huge;
 pub use r#box::Box;
@@ -78,12 +79,3 @@ impl<S, O> DerefMut for Allocator<'_, S, O> {
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("out-of-bounds memory access")]
-    OutOfBounds,
-
-    #[error(transparent)]
-    Io(#[from] io::Error),
-}

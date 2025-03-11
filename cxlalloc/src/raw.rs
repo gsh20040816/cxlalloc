@@ -13,7 +13,6 @@ use core::cell::UnsafeCell;
 use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
-use std::io;
 
 use crate::allocator;
 use crate::heap;
@@ -106,7 +105,7 @@ impl Raw {
             thread_count,
             free,
         }: Builder,
-    ) -> io::Result<Raw> {
+    ) -> crate::Result<Raw> {
         log::info!(
             "Requesting heap with \
             backend = {}, \

@@ -49,12 +49,12 @@ impl Reservation {
     // In order to keep heap regions contiguous when extending, we need
     // to reserve an unbacked region of virtual address space,
     // and then overwrite it later via `mmap` with `MMAP_FIXED`.
-    pub(crate) fn new() -> io::Result<Self> {
+    pub(crate) fn new() -> crate::Result<Self> {
         let address = Self::mmap(Self::SIZE)?;
         Ok(Self(address))
     }
 
-    pub(crate) fn new_contiguous<const COUNT: usize>() -> io::Result<[Self; COUNT]> {
+    pub(crate) fn new_contiguous<const COUNT: usize>() -> crate::Result<[Self; COUNT]> {
         let total = NonZeroUsize::new(Self::SIZE.get() * COUNT).unwrap();
         let address = Self::mmap(total)?;
         Ok(std::array::from_fn(|i| {
@@ -62,7 +62,7 @@ impl Reservation {
         }))
     }
 
-    fn mmap(size: NonZeroUsize) -> io::Result<NonNull<Page>> {
+    fn mmap(size: NonZeroUsize) -> crate::Result<NonNull<Page>> {
         match unsafe {
             libc::mmap64(
                 ptr::null_mut(),
@@ -73,12 +73,12 @@ impl Reservation {
                 0,
             )
         } {
-            libc::MAP_FAILED => Err(io::Error::last_os_error()),
+            libc::MAP_FAILED => Err(crate::Error::Mmap(io::Error::last_os_error())),
             actual => Ok(NonNull::new(actual).unwrap().cast::<Page>()),
         }
     }
 
-    fn munmap(&self) -> io::Result<()> {
+    fn munmap(&self) -> crate::Result<()> {
         unsafe { munmap(self.0, Self::SIZE) }
     }
 
@@ -95,7 +95,7 @@ pub(crate) trait Region {
     fn address(&self) -> NonNull<Page>;
     fn is_clean(&self) -> bool;
     fn id(&self) -> &str;
-    fn unmap(&self) -> io::Result<()>;
+    fn unmap(&self) -> crate::Result<()>;
 }
 
 pub(crate) struct Fixed {
@@ -118,7 +118,7 @@ pub(crate) struct Random {
 }
 
 impl Fixed {
-    pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> io::Result<Self> {
+    pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
         let file = backend.allocate(id.clone(), size)?;
         let address = unsafe { mmap(None, size, backend.numa(), backend.populate(), &file)? };
@@ -144,7 +144,7 @@ impl Region for Fixed {
         &self.id.0
     }
 
-    fn unmap(&self) -> io::Result<()> {
+    fn unmap(&self) -> crate::Result<()> {
         unsafe { munmap(self.address, self.size) }
     }
 }
@@ -156,7 +156,7 @@ impl Sequential {
         reservation: Reservation,
         size: NonZeroUsize,
         lazy: bool,
-    ) -> io::Result<Self> {
+    ) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
 
         let clean = match lazy {
@@ -184,7 +184,7 @@ impl Sequential {
         })
     }
 
-    pub(crate) fn map(&self, backend: &Backend, offset: usize) -> io::Result<()> {
+    pub(crate) fn map(&self, backend: &Backend, offset: usize) -> crate::Result<()> {
         let index = offset / self.size.get();
         let file = backend.allocate(self.id.with_suffix(index), self.size)?;
 
@@ -216,7 +216,7 @@ impl Region for Sequential {
     }
 
     /// Remove all virtual address space mappings for this region.
-    fn unmap(&self) -> io::Result<()> {
+    fn unmap(&self) -> crate::Result<()> {
         self.reservation.munmap()
     }
 }
@@ -235,7 +235,7 @@ impl Random {
         backend: &Backend,
         offset: usize,
         size: NonZeroUsize,
-    ) -> io::Result<()> {
+    ) -> crate::Result<()> {
         let file = backend.allocate(self.id.with_suffix(format_args!("{:#x}", offset)), size)?;
         unsafe {
             mmap(
@@ -264,15 +264,15 @@ impl Region for Random {
         &self.id.0
     }
 
-    fn unmap(&self) -> io::Result<()> {
+    fn unmap(&self) -> crate::Result<()> {
         self.reservation.munmap()
     }
 }
 
-unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
+unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> crate::Result<()> {
     match unsafe { libc::munmap(address.as_ptr().cast(), size.get()) } {
         0 => Ok(()),
-        _ => Err(io::Error::last_os_error()),
+        _ => Err(crate::Error::Munmap(io::Error::last_os_error())),
     }
 }
 
@@ -282,7 +282,7 @@ unsafe fn mmap(
     numa: Option<usize>,
     populate: bool,
     file: &backend::File,
-) -> io::Result<NonNull<Page>> {
+) -> crate::Result<NonNull<Page>> {
     let actual = match libc::mmap64(
         address
             .map(NonNull::as_ptr)
@@ -294,7 +294,7 @@ unsafe fn mmap(
         file.fd(),
         file.offset,
     ) {
-        libc::MAP_FAILED => return Err(io::Error::last_os_error()),
+        libc::MAP_FAILED => return Err(crate::Error::Mmap(io::Error::last_os_error())),
         actual => NonNull::new(actual).unwrap().cast::<Page>(),
     };
 
@@ -313,19 +313,19 @@ unsafe fn mmap(
     Ok(actual)
 }
 
-unsafe fn madvise(address: NonNull<Page>, size: NonZeroUsize) -> io::Result<()> {
+unsafe fn madvise(address: NonNull<Page>, size: NonZeroUsize) -> crate::Result<()> {
     match libc::madvise(
         address.as_ptr().cast(),
         size.get(),
         libc::MADV_POPULATE_WRITE,
     ) {
-        -1 => Err(io::Error::last_os_error()),
+        -1 => Err(crate::Error::Madvise(io::Error::last_os_error())),
         _ => Ok(()),
     }
 }
 
 // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize, numa: usize) -> io::Result<()> {
+unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize, numa: usize) -> crate::Result<()> {
     let mask = 1u64 << numa;
     match libc::syscall(
         libc::SYS_mbind,
@@ -339,6 +339,6 @@ unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize, numa: usize) -> io::
         1,
     ) {
         0 => Ok(()),
-        _ => Err(io::Error::last_os_error()),
+        _ => Err(crate::Error::Mbind(io::Error::last_os_error())),
     }
 }

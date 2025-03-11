@@ -1,5 +1,3 @@
-use std::io;
-
 use crate::raw::backend;
 use crate::raw::Backend;
 use crate::Raw;
@@ -13,7 +11,7 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub fn build(self, id: &str) -> io::Result<Raw> {
+    pub fn build(self, id: &str) -> crate::Result<Raw> {
         Raw::new(id, self)
     }
 

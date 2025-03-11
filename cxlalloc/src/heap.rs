@@ -66,7 +66,7 @@ where
     }
 }
 
-impl<'raw, L, B> Heap<'raw, L, B>
+impl<L, B> Heap<'_, L, B>
 where
     L: view::Lens,
     B: size::Bracket,

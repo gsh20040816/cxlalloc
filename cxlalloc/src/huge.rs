@@ -4,7 +4,6 @@ use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering;
-use std::io;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -188,7 +187,7 @@ impl<'raw> Huge<'raw> {
         self.map_descriptor(descriptor).map_err(crate::Error::from)
     }
 
-    fn map_descriptor(&self, descriptor: &Descriptor) -> io::Result<()> {
+    fn map_descriptor(&self, descriptor: &Descriptor) -> crate::Result<()> {
         self.region.map(
             self.backend,
             u64::from(descriptor.offset) as usize,
