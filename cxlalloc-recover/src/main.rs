@@ -2,6 +2,7 @@ use core::sync::atomic::Ordering;
 use std::sync::Barrier;
 
 use clap::Parser;
+use cxlalloc_recover::clevel;
 use cxlalloc_recover::queue;
 use cxlalloc_recover::queue::Mmt;
 use cxlalloc_recover::BARRIER;
@@ -12,6 +13,7 @@ use cxlalloc_recover::CRASH;
 use cxlalloc_recover::CRASH_THREAD;
 use cxlalloc_recover::FINAL;
 use cxlalloc_recover::GLOBAL;
+use memento::ds::clevel::Clevel;
 use memento::ds::queue::Queue;
 
 use memento::pmem::PPtr;
@@ -70,12 +72,40 @@ fn main() {
     FINAL.store(queue::sum(cli.objects) * threads, Ordering::Relaxed);
     BARRIER.get_or_init(|| Barrier::new(threads as usize));
 
-    let pool = Pool::create::<Queue<PPtr<u64>>, queue::Mmt>(&cli.path, cli.size, threads as usize)
-        .unwrap();
+    // let pool = Pool::create::<Queue<PPtr<u64>>, queue::Mmt>(&cli.path, cli.size, threads as usize)
+    //     .unwrap();
+    //
+    // pool.execute::<Queue<PPtr<u64>>, Mmt>();
+    // assert_eq!(
+    //     GLOBAL.load(Ordering::Relaxed),
+    //     FINAL.load(Ordering::Relaxed),
+    // );
 
-    pool.execute::<Queue<PPtr<u64>>, Mmt>();
-    assert_eq!(
-        GLOBAL.load(Ordering::Relaxed),
-        FINAL.load(Ordering::Relaxed),
-    );
+    let (send, recv) = crossbeam_channel::bounded(8);
+    unsafe {
+        clevel::SEND = Some(core::array::from_fn(|_| None));
+        clevel::SEND.as_mut().unwrap()[2] = Some(send);
+        clevel::RECV = Some(recv);
+    }
+
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            // .stack_size(
+            //     std::env::var("RUST_MIN_STACK")
+            //         .ok()
+            //         .and_then(|size| size.parse::<usize>().ok())
+            //         .unwrap(),
+            // )
+            .spawn_scoped(scope, || {
+                let pool = Pool::create::<Clevel<u64, u64>, clevel::Mmt>(
+                    &cli.path,
+                    cli.size,
+                    threads as usize,
+                )
+                .unwrap();
+
+                pool.execute::<Clevel<u64, u64>, clevel::Mmt>();
+            })
+            .unwrap();
+    });
 }
