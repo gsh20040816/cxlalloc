@@ -21,10 +21,11 @@ use memento::Memento;
 
 use crate::BARRIER;
 use crate::BLOCK;
-use crate::COUNT_OBJECTS;
+use crate::CORES;
 use crate::CRASH;
-use crate::CRASH_THREAD;
-use crate::FINAL;
+use crate::CRASH_DETECT;
+use crate::CRASH_VICTIM;
+use crate::OBJECT_COUNT;
 use crate::SEED;
 use crate::STOP;
 
@@ -42,17 +43,22 @@ pub struct Mmt {
 
 impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
+        core_affinity::set_for_current(CORES[handle.tid % CORES.len()]);
+
         let mut rng = fastrand::Rng::with_seed(SEED.wrapping_mul(handle.tid as u64));
+
         let block = BLOCK.load(Ordering::Relaxed);
-        let crash_thread = CRASH_THREAD.load(Ordering::Relaxed);
-        let (recover, crash) = if handle.tid == crash_thread {
-            let poisoned = CRASH.is_poisoned();
-            CRASH.clear_poison();
-            (poisoned, &mut *CRASH.lock().unwrap())
+        let crash_victim = CRASH_VICTIM.load(Ordering::Relaxed);
+        let object_count = OBJECT_COUNT.load(Ordering::Relaxed);
+        let crash = CRASH.load(Ordering::Relaxed);
+
+        let (recover, _detect) = if handle.tid == crash_victim {
+            let poisoned = CRASH_DETECT.is_poisoned();
+            CRASH_DETECT.clear_poison();
+            (poisoned, &mut *CRASH_DETECT.lock().unwrap())
         } else {
-            (false, &mut Vec::new())
+            (false, &mut ())
         };
-        let objects = COUNT_OBJECTS.load(Ordering::Relaxed);
 
         let tid = handle.tid;
 
@@ -60,7 +66,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
             // T1: Resize loop
             1 => {
                 let recv = unsafe { RECV.as_ref().unwrap() };
-                self.resize(&recv, &mut mmt.resize, handle);
+                self.resize(recv, &mut mmt.resize, handle);
             }
             _ => {
                 let mut i = 0;
@@ -78,7 +84,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
 
                 let mut value;
 
-                while i < objects {
+                while i < object_count {
                     (i, value) = mmt.i.checkpoint(
                         || {
                             (i + 1, {
@@ -107,7 +113,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                         actual
                     );
 
-                    if tid != crash_thread {
+                    if tid != crash_victim {
                         if !STOP.load(Ordering::Relaxed) {
                             continue;
                         }
@@ -120,8 +126,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                         }
                     }
 
-                    if crash.last().copied() == Some(i) {
-                        crash.pop();
+                    if i % crash == 0 {
                         handle.guard.flush();
                         match BLOCK.load(Ordering::Relaxed) {
                             false => {
@@ -133,7 +138,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                     }
                 }
 
-                for i in 1..=objects {
+                for i in 1..=object_count {
                     let key = (tid as u64) << 32 | i;
                     let value = *self.search(&key, handle).unwrap();
                     assert!(self.delete(&key, &mut mmt.delete, handle));

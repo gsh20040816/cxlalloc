@@ -19,12 +19,14 @@ use memento::Memento;
 
 use crate::BARRIER;
 use crate::BLOCK;
-use crate::COUNT_OBJECTS;
+use crate::CORES;
 use crate::CRASH;
-use crate::CRASH_THREAD;
+use crate::CRASH_DETECT;
+use crate::CRASH_VICTIM;
 use crate::FINAL;
 use crate::GLOBAL;
 use crate::LOCAL;
+use crate::OBJECT_COUNT;
 use crate::SEED;
 use crate::STOP;
 
@@ -37,21 +39,20 @@ pub struct Mmt {
 
 impl RootObj<Mmt> for Queue<PPtr<u64>> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
-        core_affinity::set_for_current(core_affinity::CoreId {
-            id: handle.tid + 39,
-        });
+        core_affinity::set_for_current(CORES[handle.tid % CORES.len()]);
 
         let mut rng = fastrand::Rng::with_seed(SEED.wrapping_mul(handle.tid as u64));
         let block = BLOCK.load(Ordering::Relaxed);
-        let crash_thread = CRASH_THREAD.load(Ordering::Relaxed);
-        let (recover, crash) = if handle.tid == crash_thread {
-            let poisoned = CRASH.is_poisoned();
-            CRASH.clear_poison();
-            (poisoned, &mut *CRASH.lock().unwrap())
+        let crash_victim = CRASH_VICTIM.load(Ordering::Relaxed);
+        let object_count = OBJECT_COUNT.load(Ordering::Relaxed);
+        let crash = CRASH.load(Ordering::Relaxed);
+        let (recover, _detect) = if handle.tid == crash_victim {
+            let poisoned = CRASH_DETECT.is_poisoned();
+            CRASH_DETECT.clear_poison();
+            (poisoned, &mut *CRASH_DETECT.lock().unwrap())
         } else {
-            (false, &mut Vec::new())
+            (false, &mut ())
         };
-        let objects = COUNT_OBJECTS.load(Ordering::Relaxed);
 
         let mut i = 0;
 
@@ -65,7 +66,7 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
             BARRIER.get().unwrap().wait();
         }
 
-        while i < objects {
+        while i < object_count {
             unsafe {
                 let pointer = handle.pool.alloc_layout::<u64>(
                     Layout::from_size_align(rng.u16(8..1024) as usize, 8).unwrap(),
@@ -77,7 +78,7 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
             };
 
             // Check for GC request
-            if handle.tid != crash_thread {
+            if handle.tid != crash_victim {
                 if !STOP.load(Ordering::Relaxed) {
                     continue;
                 }
@@ -88,8 +89,7 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
                 }
             }
 
-            if crash.last().copied() == Some(i) {
-                crash.pop();
+            if i % crash == 0 {
                 match BLOCK.load(Ordering::Relaxed) {
                     false => {
                         println!("LEAK:{}", unsafe { PMEMAllocator::measure() });
@@ -126,7 +126,7 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
                 }
             }
 
-            if handle.tid != crash_thread {
+            if handle.tid != crash_victim {
                 if !STOP.load(Ordering::Relaxed) {
                     continue;
                 }
