@@ -74,6 +74,11 @@ pub(crate) struct Context<'raw> {
 pub(crate) struct Shared<R> {
     root: Atomic<Option<data::Offset<size::Small>>>,
     _root: PhantomData<R>,
+
+    /// Untyped roots
+    /// Memento uses 512+ :(
+    roots: [Atomic<Option<data::Offset<size::Small>>>; 1024],
+
     pub(crate) help: cas::help::Array,
 }
 
@@ -124,6 +129,16 @@ where
             .pointer_to_offset(NonNull::from(root))
             .unwrap();
         self.shared.root.store(Some(offset));
+    }
+
+    pub fn root_untyped(&self, index: usize) -> Option<NonNull<ffi::c_void>> {
+        let offset = self.shared.roots[index].load()?;
+        Some(self.small.data.offset_to_pointer(offset))
+    }
+
+    pub fn set_root_untyped(&self, index: usize, pointer: NonNull<ffi::c_void>) {
+        let offset = self.small.data.pointer_to_offset(pointer);
+        self.shared.roots[index].store(offset);
     }
 
     pub fn root_owned(&self) -> Option<&'raw O> {

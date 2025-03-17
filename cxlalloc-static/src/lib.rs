@@ -347,19 +347,19 @@ pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mu
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_get_root(_index: usize) -> *mut ffi::c_void {
+pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
     ALLOCATOR.with_borrow(|allocator| {
         allocator
-            .root_shared()
-            .map(|pointer| pointer as *const _ as *mut _)
+            .root_untyped(index)
+            .map(NonNull::as_ptr)
             .unwrap_or_else(ptr::null_mut)
     })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_set_root(_index: usize, pointer: *mut ffi::c_void) {
+pub unsafe extern "C" fn cxlalloc_set_root(index: usize, pointer: *mut ffi::c_void) {
     ALLOCATOR
-        .with_borrow(|allocator| allocator.set_root_shared(pointer.cast::<()>().as_ref().unwrap()))
+        .with_borrow(|allocator| allocator.set_root_untyped(index, NonNull::new(pointer).unwrap()))
 }
 
 #[no_mangle]

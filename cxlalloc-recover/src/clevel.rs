@@ -1,3 +1,6 @@
+use core::alloc::Layout;
+use core::sync::atomic::Ordering;
+
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use memento::ds::clevel::Clevel;
@@ -8,25 +11,49 @@ use memento::ploc::Checkpoint;
 use memento::ploc::Handle;
 use memento::pmem::Collectable;
 use memento::pmem::GarbageCollection;
+use memento::pmem::PAllocator as _;
+use memento::pmem::PMEMAllocator;
+use memento::pmem::PPtr;
 use memento::pmem::PoolHandle;
 use memento::pmem::RootObj;
 use memento::Collectable;
 use memento::Memento;
+
+use crate::BARRIER;
+use crate::BLOCK;
+use crate::COUNT_OBJECTS;
+use crate::CRASH;
+use crate::CRASH_THREAD;
+use crate::FINAL;
+use crate::SEED;
+use crate::STOP;
 
 pub static mut SEND: Option<[Option<Sender<()>>; 64]> = None;
 pub static mut RECV: Option<Receiver<()>> = None;
 
 #[derive(Default, Collectable, Memento)]
 pub struct Mmt {
-    resize: Resize<u64, u64>,
+    resize: Resize<u64, PPtr<u64>>,
 
     i: Checkpoint<u64>,
-    insert: Insert<u64, u64>,
-    delete: Delete<u64, u64>,
+    insert: Insert<u64, PPtr<u64>>,
+    delete: Delete<u64, PPtr<u64>>,
 }
 
-impl RootObj<Mmt> for Clevel<u64, u64> {
+impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
+        let mut rng = fastrand::Rng::with_seed(SEED.wrapping_mul(handle.tid as u64));
+        let block = BLOCK.load(Ordering::Relaxed);
+        let crash_thread = CRASH_THREAD.load(Ordering::Relaxed);
+        let (recover, crash) = if handle.tid == crash_thread {
+            let poisoned = CRASH.is_poisoned();
+            CRASH.clear_poison();
+            (poisoned, &mut *CRASH.lock().unwrap())
+        } else {
+            (false, &mut Vec::new())
+        };
+        let objects = COUNT_OBJECTS.load(Ordering::Relaxed);
+
         let tid = handle.tid;
 
         match tid {
@@ -39,19 +66,69 @@ impl RootObj<Mmt> for Clevel<u64, u64> {
                 let mut i = 0;
                 let send = unsafe { SEND.as_ref().unwrap()[tid].as_ref().unwrap() };
 
-                while i < 1_000_000 {
+                if recover && block {
+                    STOP.store(true, Ordering::Release);
+                    BARRIER.get().unwrap().wait();
+                    unsafe {
+                        PMEMAllocator::gc();
+                    }
+                    STOP.store(false, Ordering::Release);
+                    BARRIER.get().unwrap().wait();
+                }
+
+                while i < objects {
                     i = mmt.i.checkpoint(|| i + 1, handle);
 
                     let key = (tid as u64) << 32 | i;
-                    let value = key * 2;
+                    let value = unsafe {
+                        handle.pool.alloc_layout::<u64>(
+                            Layout::from_size_align(rng.u16(8..1024) as usize, 8).unwrap(),
+                        )
+                    };
 
                     assert!(self
                         .insert(key, value, send, &mut mmt.insert, handle)
                         .is_ok());
-                    assert_eq!(self.search(&key, handle), Some(&value));
+                    let actual = self.search(&key, handle);
+                    assert_eq!(
+                        actual,
+                        Some(&value),
+                        "expected {:#x?}, found {:#x?}",
+                        value,
+                        actual
+                    );
 
+                    if tid != crash_thread {
+                        if !STOP.load(Ordering::Relaxed) {
+                            continue;
+                        }
+
+                        BARRIER.get().unwrap().wait();
+                        BARRIER.get().unwrap().wait();
+
+                        unsafe {
+                            PMEMAllocator::invalidate();
+                        }
+                    }
+
+                    if crash.last().copied() == Some(i) {
+                        crash.pop();
+                        handle.guard.flush();
+                        match BLOCK.load(Ordering::Relaxed) {
+                            false => {
+                                println!("LEAK:{}", unsafe { PMEMAllocator::measure() });
+                                panic!();
+                            }
+                            true => panic!(),
+                        }
+                    }
+                }
+
+                for i in 1..=objects {
+                    let key = (tid as u64) << 32 | i;
+                    let value = *self.search(&key, handle).unwrap();
                     assert!(self.delete(&key, &mut mmt.delete, handle));
-                    assert_eq!(self.search(&value, handle), None);
+                    handle.pool.free(value);
                 }
 
                 unsafe {

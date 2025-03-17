@@ -4,7 +4,6 @@ use std::sync::Barrier;
 use clap::Parser;
 use cxlalloc_recover::clevel;
 use cxlalloc_recover::queue;
-use cxlalloc_recover::queue::Mmt;
 use cxlalloc_recover::BARRIER;
 use cxlalloc_recover::BLOCK;
 use cxlalloc_recover::COUNT_OBJECTS;
@@ -12,9 +11,7 @@ use cxlalloc_recover::COUNT_THREADS;
 use cxlalloc_recover::CRASH;
 use cxlalloc_recover::CRASH_THREAD;
 use cxlalloc_recover::FINAL;
-use cxlalloc_recover::GLOBAL;
 use memento::ds::clevel::Clevel;
-use memento::ds::queue::Queue;
 
 use memento::pmem::PPtr;
 use memento::pmem::Pool;
@@ -84,28 +81,16 @@ fn main() {
     let (send, recv) = crossbeam_channel::bounded(8);
     unsafe {
         clevel::SEND = Some(core::array::from_fn(|_| None));
-        clevel::SEND.as_mut().unwrap()[2] = Some(send);
+        for i in (2..).take(threads as usize - 1) {
+            clevel::SEND.as_mut().unwrap()[i] = Some(send.clone());
+        }
         clevel::RECV = Some(recv);
+        drop(send);
     }
 
-    std::thread::scope(|scope| {
-        std::thread::Builder::new()
-            // .stack_size(
-            //     std::env::var("RUST_MIN_STACK")
-            //         .ok()
-            //         .and_then(|size| size.parse::<usize>().ok())
-            //         .unwrap(),
-            // )
-            .spawn_scoped(scope, || {
-                let pool = Pool::create::<Clevel<u64, u64>, clevel::Mmt>(
-                    &cli.path,
-                    cli.size,
-                    threads as usize,
-                )
-                .unwrap();
-
-                pool.execute::<Clevel<u64, u64>, clevel::Mmt>();
-            })
+    let pool =
+        Pool::create::<Clevel<u64, PPtr<u64>>, clevel::Mmt>(&cli.path, cli.size, threads as usize)
             .unwrap();
-    });
+
+    pool.execute::<Clevel<u64, PPtr<u64>>, clevel::Mmt>();
 }
