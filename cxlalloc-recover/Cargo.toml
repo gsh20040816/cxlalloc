@@ -9,8 +9,10 @@ cxlalloc = ["memento/cxlalloc"]
 [dependencies]
 clap.workspace = true
 core_affinity.workspace = true
-fastrand.workspace = true
-memento = { path = "../extern/memento", features = ["no_persist", "use_clwb"] }
 crossbeam-channel = { path = "../extern/memento/crossbeam-persistency/crossbeam-channel" }
 crossbeam-epoch = { path = "../extern/memento/crossbeam-persistency/crossbeam-epoch" }
 crossbeam-utils = { path = "../extern/memento/crossbeam-persistency/crossbeam-utils" }
+fastrand.workspace = true
+memento = { path = "../extern/memento", features = ["no_persist", "use_clwb"] }
+serde.workspace = true
+serde_json.workspace = true

@@ -27,6 +27,9 @@ pub static BARRIER: OnceLock<Barrier> = OnceLock::new();
 pub static FINAL: AtomicU64 = AtomicU64::new(0);
 pub static GLOBAL: AtomicU64 = AtomicU64::new(0);
 
+pub static CACHE_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static CACHE_SIZE: AtomicUsize = AtomicUsize::new(0);
+
 thread_local! {
     pub static LOCAL: Cell<u64> = const { Cell::new(0) };
 }

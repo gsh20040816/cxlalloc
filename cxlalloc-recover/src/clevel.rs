@@ -21,6 +21,8 @@ use memento::Memento;
 
 use crate::BARRIER;
 use crate::BLOCK;
+use crate::CACHE_COUNT;
+use crate::CACHE_SIZE;
 use crate::CORES;
 use crate::CRASH;
 use crate::CRASH_DETECT;
@@ -130,7 +132,14 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                         handle.guard.flush();
                         match BLOCK.load(Ordering::Relaxed) {
                             false => {
-                                println!("LEAK:{}", unsafe { PMEMAllocator::measure() });
+                                CACHE_COUNT.fetch_add(
+                                    unsafe { PMEMAllocator::cache_count() },
+                                    Ordering::AcqRel,
+                                );
+                                CACHE_SIZE.fetch_add(
+                                    unsafe { PMEMAllocator::cache_size() },
+                                    Ordering::AcqRel,
+                                );
                                 panic!();
                             }
                             true => panic!(),

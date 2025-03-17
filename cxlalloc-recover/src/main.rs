@@ -1,5 +1,7 @@
 use core::sync::atomic::Ordering;
+use std::io;
 use std::sync::Barrier;
+use std::time::Instant;
 
 use clap::Parser;
 use clap::ValueEnum;
@@ -7,6 +9,8 @@ use cxlalloc_recover::clevel;
 use cxlalloc_recover::queue;
 use cxlalloc_recover::BARRIER;
 use cxlalloc_recover::BLOCK;
+use cxlalloc_recover::CACHE_COUNT;
+use cxlalloc_recover::CACHE_SIZE;
 use cxlalloc_recover::CRASH;
 use cxlalloc_recover::CRASH_VICTIM;
 use cxlalloc_recover::FINAL;
@@ -16,11 +20,14 @@ use cxlalloc_recover::THREAD_COUNT;
 use memento::ds::clevel::Clevel;
 
 use memento::ds::queue::Queue;
+use memento::pmem::PAllocator as _;
+use memento::pmem::PMEMAllocator;
 use memento::pmem::PPtr;
 use memento::pmem::Pool;
+use serde::Serialize;
 
-#[derive(Parser)]
-struct Cli {
+#[derive(Parser, Serialize)]
+struct Config {
     /// Crash this thread
     #[arg(long)]
     crash_victim: Option<usize>,
@@ -32,6 +39,7 @@ struct Cli {
     block: bool,
 
     /// File name
+    #[serde(skip)]
     #[arg(long, default_value = "/dev/shm/pool")]
     path: String,
 
@@ -49,57 +57,78 @@ struct Cli {
     workload: Workload,
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Workload {
     Queue,
     Clevel,
 }
 
-fn main() {
-    let cli = Cli::parse();
+#[derive(Serialize)]
+pub struct Experiment {
+    config: Config,
+    output: Output,
+}
 
-    if let Some(thread) = cli.crash_victim {
+#[derive(Serialize)]
+pub struct Output {
+    time: u128,
+    gc_time: usize,
+    gc_count: usize,
+    cache_count: usize,
+    cache_size: usize,
+}
+
+fn main() {
+    let config = Config::parse();
+
+    if let Some(thread) = config.crash_victim {
         CRASH_VICTIM.store(thread, Ordering::Relaxed);
     }
 
-    THREAD_COUNT.store(cli.thread_count, Ordering::Relaxed);
-    OBJECT_COUNT.store(cli.object_count, Ordering::Relaxed);
+    THREAD_COUNT.store(config.thread_count, Ordering::Relaxed);
+    OBJECT_COUNT.store(config.object_count, Ordering::Relaxed);
     CRASH.store(
-        cli.object_count
-            .checked_div(cli.crash_count)
+        config
+            .object_count
+            .checked_div(config.crash_count)
             .unwrap_or(u64::MAX),
         Ordering::Relaxed,
     );
 
-    BLOCK.store(cli.block, Ordering::Relaxed);
+    BLOCK.store(config.block, Ordering::Relaxed);
 
-    match cli.workload {
+    let time;
+
+    match config.workload {
         Workload::Queue => {
             FINAL.store(
-                queue::sum(cli.object_count) * cli.thread_count,
+                queue::sum(config.object_count) * config.thread_count,
                 Ordering::Relaxed,
             );
-            BARRIER.get_or_init(|| Barrier::new(cli.thread_count as usize));
+            BARRIER.get_or_init(|| Barrier::new(config.thread_count as usize));
 
             let pool = Pool::create::<Queue<PPtr<u64>>, queue::Mmt>(
-                &cli.path,
-                cli.heap_size,
-                cli.thread_count as usize,
+                &config.path,
+                config.heap_size,
+                config.thread_count as usize,
             )
             .unwrap();
 
+            let start = Instant::now();
             pool.execute::<Queue<PPtr<u64>>, queue::Mmt>();
+            time = start.elapsed();
             assert_eq!(
                 GLOBAL.load(Ordering::Relaxed),
                 FINAL.load(Ordering::Relaxed),
             );
         }
         Workload::Clevel => {
-            BARRIER.get_or_init(|| Barrier::new(cli.thread_count as usize - 1));
+            BARRIER.get_or_init(|| Barrier::new(config.thread_count as usize - 1));
             let (send, recv) = crossbeam_channel::bounded(8);
             unsafe {
                 clevel::SEND = Some(core::array::from_fn(|_| None));
-                for i in (2..).take(cli.thread_count as usize - 1) {
+                for i in (2..).take(config.thread_count as usize - 1) {
                     clevel::SEND.as_mut().unwrap()[i] = Some(send.clone());
                 }
                 clevel::RECV = Some(recv);
@@ -107,13 +136,26 @@ fn main() {
             }
 
             let pool = Pool::create::<Clevel<u64, PPtr<u64>>, clevel::Mmt>(
-                &cli.path,
-                cli.heap_size,
-                cli.thread_count as usize,
+                &config.path,
+                config.heap_size,
+                config.thread_count as usize,
             )
             .unwrap();
 
+            let start = Instant::now();
             pool.execute::<Clevel<u64, PPtr<u64>>, clevel::Mmt>();
+            time = start.elapsed();
         }
     }
+
+    let output = Output {
+        time: time.as_micros(),
+        cache_count: CACHE_COUNT.load(Ordering::Relaxed),
+        cache_size: CACHE_SIZE.load(Ordering::Relaxed),
+        gc_count: unsafe { PMEMAllocator::gc_count() },
+        gc_time: unsafe { PMEMAllocator::gc_time() },
+    };
+
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer(&mut stdout, &Experiment { config, output }).unwrap();
 }
