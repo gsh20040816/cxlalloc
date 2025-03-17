@@ -11,8 +11,10 @@ use cxlalloc_recover::COUNT_THREADS;
 use cxlalloc_recover::CRASH;
 use cxlalloc_recover::CRASH_THREAD;
 use cxlalloc_recover::FINAL;
+use cxlalloc_recover::GLOBAL;
 use memento::ds::clevel::Clevel;
 
+use memento::ds::queue::Queue;
 use memento::pmem::PPtr;
 use memento::pmem::Pool;
 
@@ -67,17 +69,18 @@ fn main() {
     COUNT_OBJECTS.store(cli.objects, Ordering::Relaxed);
     BLOCK.store(cli.block, Ordering::Relaxed);
     FINAL.store(queue::sum(cli.objects) * threads, Ordering::Relaxed);
-    BARRIER.get_or_init(|| Barrier::new(threads as usize));
 
+    // BARRIER.get_or_init(|| Barrier::new(threads as usize));
     // let pool = Pool::create::<Queue<PPtr<u64>>, queue::Mmt>(&cli.path, cli.size, threads as usize)
     //     .unwrap();
     //
-    // pool.execute::<Queue<PPtr<u64>>, Mmt>();
+    // pool.execute::<Queue<PPtr<u64>>, queue::Mmt>();
     // assert_eq!(
     //     GLOBAL.load(Ordering::Relaxed),
     //     FINAL.load(Ordering::Relaxed),
     // );
 
+    BARRIER.get_or_init(|| Barrier::new(threads as usize - 1));
     let (send, recv) = crossbeam_channel::bounded(8);
     unsafe {
         clevel::SEND = Some(core::array::from_fn(|_| None));

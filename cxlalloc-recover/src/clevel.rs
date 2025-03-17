@@ -35,7 +35,7 @@ pub static mut RECV: Option<Receiver<()>> = None;
 pub struct Mmt {
     resize: Resize<u64, PPtr<u64>>,
 
-    i: Checkpoint<u64>,
+    i: Checkpoint<(u64, PPtr<u64>)>,
     insert: Insert<u64, PPtr<u64>>,
     delete: Delete<u64, PPtr<u64>>,
 }
@@ -76,15 +76,24 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                     BARRIER.get().unwrap().wait();
                 }
 
+                let mut value;
+
                 while i < objects {
-                    i = mmt.i.checkpoint(|| i + 1, handle);
+                    (i, value) = mmt.i.checkpoint(
+                        || {
+                            (i + 1, {
+                                unsafe {
+                                    handle.pool.alloc_layout::<u64>(
+                                        Layout::from_size_align(rng.u16(8..1024) as usize, 8)
+                                            .unwrap(),
+                                    )
+                                }
+                            })
+                        },
+                        handle,
+                    );
 
                     let key = (tid as u64) << 32 | i;
-                    let value = unsafe {
-                        handle.pool.alloc_layout::<u64>(
-                            Layout::from_size_align(rng.u16(8..1024) as usize, 8).unwrap(),
-                        )
-                    };
 
                     assert!(self
                         .insert(key, value, send, &mut mmt.insert, handle)
