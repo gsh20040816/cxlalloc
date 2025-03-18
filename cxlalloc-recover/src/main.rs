@@ -2,6 +2,8 @@ use core::sync::atomic::Ordering;
 use std::io;
 use std::sync::Barrier;
 use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use clap::Parser;
 use clap::ValueEnum;
@@ -95,6 +97,7 @@ pub struct Experiment {
 #[derive(Serialize)]
 pub struct Output {
     time: u128,
+    date: u64,
     gc_time: usize,
     gc_count: usize,
     cache_count: usize,
@@ -173,6 +176,10 @@ fn main() {
 
     let output = Output {
         time: time.as_micros(),
+        date: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
         cache_count: CACHE_COUNT.load(Ordering::Relaxed),
         cache_size: CACHE_SIZE.load(Ordering::Relaxed),
         gc_count: unsafe { PMEMAllocator::gc_count() },

@@ -24,6 +24,7 @@ pub struct Timer {}
 pub struct Metrics {
     process_id: usize,
     thread_id: usize,
+    date: u64,
     time: u128,
 }
 

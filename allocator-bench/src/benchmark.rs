@@ -1,6 +1,9 @@
+use core::iter;
 use std::env;
 use std::io::Write as _;
 use std::thread;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -66,6 +69,10 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         let timer = &Timer::new();
         let global = self.setup_process(config, allocator);
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
+        let date = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
 
         thread::scope(|scope| {
             let handles = (config.process_id * config.thread_count..)
@@ -127,6 +134,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                     serde_json::ser::to_writer(&mut stdout, &Metrics {
                         process_id: config.process_id,
                         thread_id,
+                        date,
                         time,
                     })
                     .unwrap();
