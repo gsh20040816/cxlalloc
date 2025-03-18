@@ -158,7 +158,7 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
         }
 
         if handle.tid != crash_victim {
-            while crash_count > 0 {
+            while block && crash_count > 0 {
                 BARRIER.get().unwrap().wait();
                 BARRIER.get().unwrap().wait();
                 crash_count -= 1;
