@@ -489,6 +489,7 @@ dependencies = [
  "cartesian",
  "clap",
  "cxlalloc",
+ "cxlalloc-global",
  "cxx",
  "cxx-build",
  "duct",

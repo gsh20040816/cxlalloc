@@ -3,6 +3,10 @@ name = "cxlalloc-global"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+backend-shm = ["cxlalloc/backend-shm"]
+validate = ["cxlalloc/validate"]
+
 [dependencies]
-cxlalloc.path = "../cxlalloc"
+cxlalloc = { path = "../cxlalloc" }
 libc.workspace = true

@@ -1,66 +1,36 @@
 use core::ffi;
-use core::mem;
 use core::num::NonZeroU64;
-use core::ptr;
 use core::ptr::NonNull;
 use std::ffi::OsStr;
 use std::io;
-use std::sync::OnceLock;
 
 use allocator_bench::allocator::Config;
 
 pub struct Backend(String);
 
-static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
-
-fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
-    let address = unsafe { info.read().si_addr() };
-
-    if RAW.get().unwrap().map(address) {
-        return;
-    }
-
-    unsafe {
-        let mut action = mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = libc::SIG_DFL;
-        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
-    }
-}
-
-pub struct Cxlalloc(cxlalloc::Allocator<'static>);
+pub struct Cxlalloc;
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Cxlalloc;
 
     fn open(config: &Config, name: &str) -> io::Result<Self> {
-        RAW.get_or_init(|| {
+        cxlalloc_global::initialize_process(
             cxlalloc::raw::Builder::default()
                 .backend(cxlalloc::raw::backend::Shm {
                     numa: Some(config.numa),
                     populate: config.populate,
                 })
                 .size_small(config.size / 2)
-                .size_large(config.size / 2)
-                .build(name)
-                .unwrap()
-        });
-
-        let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
-        action.sa_sigaction = handle_sigsegv as _;
-        action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
-        unsafe {
-            libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
-        }
+                .size_large(config.size / 2),
+            name,
+        );
 
         Ok(Self(name.to_owned()))
     }
 
     fn allocator(&self, thread_id: usize) -> Cxlalloc {
-        Cxlalloc(
-            RAW.get()
-                .unwrap()
-                .allocator(unsafe { cxlalloc::thread::Id::new(thread_id as u16) }),
-        )
+        cxlalloc_global::initialize_thread(thread_id.try_into().unwrap());
+        Cxlalloc
     }
 
     fn unlink(self) -> io::Result<()> {
@@ -82,19 +52,23 @@ impl allocator_bench::allocator::Backend for Backend {
 impl allocator_bench::Allocator for Cxlalloc {
     type Handle = NonNull<ffi::c_void>;
 
+    #[inline]
     fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {
-        NonNull::new(self.0.allocate_untyped(size))
+        cxlalloc_global::allocate_untyped(size)
     }
 
+    #[inline]
     unsafe fn deallocate(&mut self, handle: NonNull<ffi::c_void>) {
-        self.0.free_untyped(handle)
+        cxlalloc_global::deallocate_untyped(handle.as_ptr())
     }
 
+    #[inline]
     unsafe fn handle_to_offset(&mut self, handle: &NonNull<ffi::c_void>) -> NonZeroU64 {
-        NonZeroU64::new(self.0.pointer_to_offset(*handle) as u64 + 1).unwrap()
+        NonZeroU64::new(cxlalloc_global::pointer_to_offset(*handle) as u64 + 1).unwrap()
     }
 
+    #[inline]
     fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
-        Some(self.0.offset_to_pointer(offset as usize - 1))
+        Some(cxlalloc_global::offset_to_pointer(offset as usize - 1))
     }
 }

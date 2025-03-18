@@ -2,7 +2,6 @@ use core::cell::Cell;
 use core::cell::RefCell;
 use core::ffi;
 use core::mem;
-use core::num::NonZeroU64;
 use core::ptr;
 use core::ptr::NonNull;
 use std::sync::OnceLock;
@@ -34,21 +33,25 @@ pub fn initialize_thread(id: u16) {
     ALLOCATOR.with(|_| ())
 }
 
+#[inline]
 pub fn allocate_untyped(size: usize) -> Option<NonNull<ffi::c_void>> {
     NonNull::new(with(|allocator| allocator.allocate_untyped(size)))
 }
 
-pub fn free_untyped(pointer: *mut ffi::c_void) {
+#[inline]
+pub fn deallocate_untyped(pointer: *mut ffi::c_void) {
     let Some(pointer) = NonNull::new(pointer) else {
         return;
     };
     with(|allocator| allocator.free_untyped(pointer))
 }
 
+#[inline]
 pub fn pointer_to_offset(pointer: NonNull<ffi::c_void>) -> usize {
     with(|allocator| allocator.pointer_to_offset(pointer))
 }
 
+#[inline]
 pub fn offset_to_pointer(offset: usize) -> NonNull<ffi::c_void> {
     with(|allocator| allocator.offset_to_pointer(offset))
 }
