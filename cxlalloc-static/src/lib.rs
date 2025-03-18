@@ -358,8 +358,7 @@ pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_set_root(index: usize, pointer: *mut ffi::c_void) {
-    ALLOCATOR
-        .with_borrow(|allocator| allocator.set_root_untyped(index, NonNull::new(pointer).unwrap()))
+    ALLOCATOR.with_borrow(|allocator| allocator.set_root_untyped(index, pointer))
 }
 
 #[no_mangle]

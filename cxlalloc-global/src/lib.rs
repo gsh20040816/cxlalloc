@@ -56,6 +56,21 @@ pub fn offset_to_pointer(offset: usize) -> NonNull<ffi::c_void> {
     with(|allocator| allocator.offset_to_pointer(offset))
 }
 
+#[inline]
+pub fn is_clean() -> bool {
+    RAW.get().unwrap().is_clean()
+}
+
+#[inline]
+pub fn set_root_untyped(index: usize, root: *mut ffi::c_void) {
+    with(|allocator| allocator.set_root_untyped(index, root))
+}
+
+#[inline]
+pub fn root_untyped(index: usize) -> Option<NonNull<ffi::c_void>> {
+    with(|allocator| allocator.root_untyped(index))
+}
+
 fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
 

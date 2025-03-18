@@ -133,11 +133,15 @@ where
 
     pub fn root_untyped(&self, index: usize) -> Option<NonNull<ffi::c_void>> {
         let offset = self.shared.roots[index].load()?;
-        Some(self.small.data.offset_to_pointer(offset))
+        let pointer = self.small.data.offset_to_pointer(offset);
+        log::trace!("get root {} {:?} {:#x?}", index, offset, pointer);
+        Some(pointer)
     }
 
-    pub fn set_root_untyped(&self, index: usize, pointer: NonNull<ffi::c_void>) {
-        let offset = self.small.data.pointer_to_offset(pointer);
+    pub fn set_root_untyped(&self, index: usize, pointer: *mut ffi::c_void) {
+        let offset =
+            NonNull::new(pointer).and_then(|pointer| self.small.data.pointer_to_offset(pointer));
+        log::trace!("set root {} {:?} {:#x?}", index, offset, pointer);
         self.shared.roots[index].store(offset);
     }
 
@@ -214,7 +218,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return ptr::null_mut();
         };
 
-        self.small.pop(context, class, index)
+        let p = self.small.pop(context, class, index);
+        log::trace!("allocate small {:#x} {:#x?}", size, p);
+        p
     }
 
     #[inline]
@@ -250,7 +256,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return ptr::null_mut();
         };
 
-        self.large.pop(context, class, index)
+        let p = self.large.pop(context, class, index);
+        log::trace!("allocate large {:#x} {:#x?}", size, p);
+        p
     }
 
     #[cold]
@@ -281,6 +289,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
         // FIXME: pop before mmap in `self.huge.allocate` or check if
         // allocated on recovery
+        log::trace!("allocate huge {:#x} {:#x?}", size, allocation);
         self.small.pop(context, class, index);
         allocation
     }
