@@ -29,6 +29,9 @@ use serde::Serialize;
 
 #[derive(Parser, Serialize)]
 struct Config {
+    #[arg(skip)]
+    allocator: Allocator,
+
     /// Crash this thread
     #[arg(long)]
     crash_victim: Option<usize>,
@@ -57,6 +60,23 @@ struct Config {
 
     #[arg(long)]
     workload: Workload,
+}
+
+#[derive(Clone, ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Allocator {
+    Cxlalloc,
+    Ralloc,
+}
+
+impl Default for Allocator {
+    fn default() -> Self {
+        if cfg!(feature = "cxlalloc") {
+            Allocator::Cxlalloc
+        } else {
+            Allocator::Ralloc
+        }
+    }
 }
 
 #[derive(Clone, ValueEnum, Serialize)]
