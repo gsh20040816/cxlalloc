@@ -4,7 +4,9 @@ import subprocess as sp
 
 # https://stackoverflow.com/questions/5137497/find-the-current-directory-and-files-directory
 ROOT = os.path.dirname(os.path.realpath(__file__))
-OBJECTS = 100000
+OBJECT_COUNT = 100000
+CRASH_COUNTS = [0, 1, 2, 4, 8]
+WORKLOADS = ["queue", "clevel"]
 ITERATIONS = 10
 
 
@@ -12,48 +14,51 @@ def main():
     compile("ralloc")
 
     for block in [True, False]:
-        for count in [0, 1, 2, 4, 8]:
-            crash("ralloc", block, count, 36)
+        for workload in WORKLOADS:
+            for crash_count in CRASH_COUNTS:
+                run("ralloc", workload, block, crash_count, 36)
 
     compile("cxlalloc")
 
-    for count in [0, 1, 2, 4, 8]:
-        crash("cxlalloc", False, count, 36)
+    for workload in WORKLOADS:
+        for crash_count in CRASH_COUNTS:
+            run("cxlalloc", workload, False, crash_count, 36)
 
 
-def crash(allocator: str, block: bool, count: int, size: int):
+def run(allocator: str, workload: str, block: bool, crash_count: int, heap_size: int):
     for i in range(ITERATIONS):
         for path in glob.glob("/dev/shm/pool*"):
             os.remove(path)
 
         print(
-            f"Running {allocator}, block={block}, count={count}, size={size} ({i + 1}/{ITERATIONS})"
+            f"Running {allocator}, {workload}, block={block}, count={crash_count}, size={heap_size} ({i + 1}/{ITERATIONS})"
         )
-        interval = OBJECTS // (count + 1)
-        crashes = [interval * i for i in range(1, count + 1)]
         output = sp.run(
             [
                 "env",
-                "CXL_NUMA_NODE=2",
+                "CXL_NUMA_NODE=1",
                 "numactl",
-                "--cpunodebind=1",
-                "--membind=1",
-                "/usr/bin/time",
-                "-f",
-                "%E %M %U %S %F %R",
+                "--cpunodebind=0",
+                "--membind=0",
+                # "/usr/bin/time",
+                # "-f",
+                # "%E %M %U %S %F %R",
                 f"{ROOT}/../target/release/cxlalloc-recover",
-                "--thread",
+                "--workload",
+                workload,
+                "--crash-victim",
                 "40",
-                *(["--crash", ",".join(map(str, crashes))] if len(crashes) > 0 else []),
-                "--objects",
-                str(OBJECTS),
+                "--crash-count",
+                str(crash_count),
+                "--object-count",
+                str(OBJECT_COUNT),
                 "--path",
                 "/dev/shm/pool",
-                "--threads",
+                "--thread-count",
                 "40",
                 *(["--block"] if block else []),
-                "--size",
-                str(2**size),
+                "--heap-size",
+                str(2**heap_size),
             ],
             stdout=sp.PIPE,
             stderr=sp.STDOUT,
@@ -61,8 +66,8 @@ def crash(allocator: str, block: bool, count: int, size: int):
         )
 
         with open(
-            f"{ROOT}/{allocator}-{'block' if block else 'leak'}-c{count}-s{size}-{i}.log",
-            "w",
+            "recover.ndjson",
+            "a",
         ) as file:
             file.write(output.stdout)
 
