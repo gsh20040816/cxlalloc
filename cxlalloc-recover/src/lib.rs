@@ -13,7 +13,8 @@ use std::sync::OnceLock;
 pub const SEED: u64 = 0xdeadbeef;
 
 pub static CRASH_VICTIM: AtomicUsize = AtomicUsize::new(0);
-pub static CRASH_DETECT: Mutex<()> = Mutex::new(());
+pub static CRASH_DETECT: Mutex<u64> = Mutex::new(0);
+pub static CRASH_COUNT: AtomicU64 = AtomicU64::new(0);
 pub static CRASH: AtomicU64 = AtomicU64::new(0);
 
 pub static THREAD_COUNT: AtomicU64 = AtomicU64::new(0);

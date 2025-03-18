@@ -12,6 +12,7 @@ use cxlalloc_recover::BLOCK;
 use cxlalloc_recover::CACHE_COUNT;
 use cxlalloc_recover::CACHE_SIZE;
 use cxlalloc_recover::CRASH;
+use cxlalloc_recover::CRASH_COUNT;
 use cxlalloc_recover::CRASH_VICTIM;
 use cxlalloc_recover::FINAL;
 use cxlalloc_recover::GLOBAL;
@@ -32,6 +33,7 @@ struct Config {
     #[arg(long)]
     crash_victim: Option<usize>,
 
+    #[arg(long)]
     crash_count: u64,
 
     /// Block for garbage collection
@@ -88,11 +90,12 @@ fn main() {
 
     THREAD_COUNT.store(config.thread_count, Ordering::Relaxed);
     OBJECT_COUNT.store(config.object_count, Ordering::Relaxed);
+    CRASH_COUNT.store(config.crash_count, Ordering::Relaxed);
     CRASH.store(
-        config
-            .object_count
-            .checked_div(config.crash_count)
-            .unwrap_or(u64::MAX),
+        match config.crash_count {
+            0 => u64::MAX,
+            crash_count => config.object_count / (crash_count + 1),
+        },
         Ordering::Relaxed,
     );
 

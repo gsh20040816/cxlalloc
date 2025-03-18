@@ -23,6 +23,7 @@ use crate::CACHE_COUNT;
 use crate::CACHE_SIZE;
 use crate::CORES;
 use crate::CRASH;
+use crate::CRASH_COUNT;
 use crate::CRASH_DETECT;
 use crate::CRASH_VICTIM;
 use crate::FINAL;
@@ -34,7 +35,7 @@ use crate::STOP;
 
 #[derive(Memento, Default, Collectable)]
 pub struct Mmt {
-    i: Checkpoint<u64>,
+    i: Checkpoint<(u64, PPtr<u64>)>,
     enq: Enqueue<PPtr<u64>>,
     deq: Dequeue<PPtr<u64>>,
 }
@@ -48,15 +49,15 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
         let crash_victim = CRASH_VICTIM.load(Ordering::Relaxed);
         let object_count = OBJECT_COUNT.load(Ordering::Relaxed);
         let crash = CRASH.load(Ordering::Relaxed);
-        let (recover, _detect) = if handle.tid == crash_victim {
+        let mut crash_count = CRASH_COUNT.load(Ordering::Relaxed);
+
+        let (recover, detect) = if handle.tid == crash_victim {
             let poisoned = CRASH_DETECT.is_poisoned();
             CRASH_DETECT.clear_poison();
             (poisoned, &mut *CRASH_DETECT.lock().unwrap())
         } else {
-            (false, &mut ())
+            (false, &mut 0)
         };
-
-        let mut i = 0;
 
         if recover && block {
             STOP.store(true, Ordering::Release);
@@ -68,15 +69,25 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
             BARRIER.get().unwrap().wait();
         }
 
+        let mut i = 0;
+        let mut value;
+
         while i < object_count {
             unsafe {
-                let pointer = handle.pool.alloc_layout::<u64>(
-                    Layout::from_size_align(rng.u16(8..1024) as usize, 8).unwrap(),
-                );
+                (i, value) = mmt.i.checkpoint(
+                    || {
+                        (i + 1, {
+                            let pointer = handle.pool.alloc_layout::<u64>(
+                                Layout::from_size_align(rng.u16(8..1024) as usize, 8).unwrap(),
+                            );
 
-                *pointer.deref_mut(handle.pool) = i;
-                self.enqueue(pointer, &mut mmt.enq, handle);
-                i = mmt.i.checkpoint(|| i + 1, handle);
+                            *pointer.deref_mut(handle.pool) = i;
+                            pointer
+                        })
+                    },
+                    handle,
+                );
+                self.enqueue(value, &mut mmt.enq, handle);
             };
 
             // Check for GC request
@@ -86,12 +97,14 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
                 }
                 BARRIER.get().unwrap().wait();
                 BARRIER.get().unwrap().wait();
+                crash_count -= 1;
                 unsafe {
                     PMEMAllocator::invalidate();
                 }
             }
 
-            if i % crash == 0 {
+            if i % crash == 0 && i > *detect && *detect / crash < crash_count {
+                *detect = i;
                 match BLOCK.load(Ordering::Relaxed) {
                     false => {
                         CACHE_COUNT
@@ -137,9 +150,18 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
                 }
                 BARRIER.get().unwrap().wait();
                 BARRIER.get().unwrap().wait();
+                crash_count -= 1;
                 unsafe {
                     PMEMAllocator::invalidate();
                 }
+            }
+        }
+
+        if handle.tid != crash_victim {
+            while crash_count > 0 {
+                BARRIER.get().unwrap().wait();
+                BARRIER.get().unwrap().wait();
+                crash_count -= 1;
             }
         }
     }

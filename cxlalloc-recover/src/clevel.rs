@@ -25,6 +25,7 @@ use crate::CACHE_COUNT;
 use crate::CACHE_SIZE;
 use crate::CORES;
 use crate::CRASH;
+use crate::CRASH_COUNT;
 use crate::CRASH_DETECT;
 use crate::CRASH_VICTIM;
 use crate::OBJECT_COUNT;
@@ -53,13 +54,14 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
         let crash_victim = CRASH_VICTIM.load(Ordering::Relaxed);
         let object_count = OBJECT_COUNT.load(Ordering::Relaxed);
         let crash = CRASH.load(Ordering::Relaxed);
+        let mut crash_count = CRASH_COUNT.load(Ordering::Relaxed);
 
-        let (recover, _detect) = if handle.tid == crash_victim {
+        let (recover, detect) = if handle.tid == crash_victim {
             let poisoned = CRASH_DETECT.is_poisoned();
             CRASH_DETECT.clear_poison();
             (poisoned, &mut *CRASH_DETECT.lock().unwrap())
         } else {
-            (false, &mut ())
+            (false, &mut 0)
         };
 
         let tid = handle.tid;
@@ -123,12 +125,14 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                         BARRIER.get().unwrap().wait();
                         BARRIER.get().unwrap().wait();
 
+                        crash_count -= 1;
                         unsafe {
                             PMEMAllocator::invalidate();
                         }
                     }
 
-                    if i % crash == 0 {
+                    if i % crash == 0 && i > *detect && *detect / crash < crash_count {
+                        *detect = i;
                         handle.guard.flush();
                         match BLOCK.load(Ordering::Relaxed) {
                             false => {
@@ -152,6 +156,28 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                     let value = *self.search(&key, handle).unwrap();
                     assert!(self.delete(&key, &mut mmt.delete, handle));
                     handle.pool.free(value);
+
+                    if tid != crash_victim {
+                        if !STOP.load(Ordering::Relaxed) {
+                            continue;
+                        }
+
+                        BARRIER.get().unwrap().wait();
+                        BARRIER.get().unwrap().wait();
+
+                        crash_count -= 1;
+                        unsafe {
+                            PMEMAllocator::invalidate();
+                        }
+                    }
+                }
+
+                if handle.tid != crash_victim {
+                    while crash_count > 0 {
+                        BARRIER.get().unwrap().wait();
+                        BARRIER.get().unwrap().wait();
+                        crash_count -= 1;
+                    }
                 }
 
                 unsafe {
