@@ -5,6 +5,7 @@ members = [
     "cxlalloc",
     "cxlalloc-bench",
     "cxlalloc-dynamic",
+    "cxlalloc-global",
     "cxlalloc-recover",
     "cxlalloc-static",
     "cxlalloc-test",

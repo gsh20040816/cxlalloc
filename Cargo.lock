@@ -513,6 +513,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cxlalloc-global"
+version = "0.1.0"
+dependencies = [
+ "cxlalloc",
+ "libc",
+]
+
+[[package]]
 name = "cxlalloc-recover"
 version = "0.1.0"
 dependencies = [
@@ -1000,16 +1008,16 @@ dependencies = [
  "array-init",
  "atomic",
  "cfg-if",
+ "core_affinity",
  "crossbeam-channel 0.1.0",
  "crossbeam-epoch",
  "crossbeam-utils 0.8.5",
- "cxlalloc-static",
+ "cxlalloc",
  "etrace",
  "itertools",
  "lazy_static",
  "libc",
  "mmt_derive",
- "num_cpus",
  "rapidhash",
  "tempfile",
  "tinyvec",
