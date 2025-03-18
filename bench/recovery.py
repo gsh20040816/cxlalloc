@@ -61,7 +61,6 @@ def run(allocator: str, workload: str, block: bool, crash_count: int, heap_size:
                 str(2**heap_size),
             ],
             stdout=sp.PIPE,
-            stderr=sp.STDOUT,
             text=True,
         )
 
@@ -70,6 +69,7 @@ def run(allocator: str, workload: str, block: bool, crash_count: int, heap_size:
             "a",
         ) as file:
             file.write(output.stdout)
+            file.write("\n")
 
 
 def compile(allocator: str):
