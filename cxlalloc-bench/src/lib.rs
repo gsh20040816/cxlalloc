@@ -35,6 +35,5 @@ pub struct Observation {
     #[serde(flatten)]
     pub config: Config,
 
-    #[serde(flatten)]
-    pub outputs: allocator_bench::Metrics,
+    pub output: allocator_bench::Metrics,
 }
