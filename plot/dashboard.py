@@ -214,7 +214,7 @@ def update(
     if x is None or y is None:
         raise dash.exceptions.PreventUpdate
 
-    filtered = DF.filter(*filters)
+    filtered = DF.filter(*filters) if len(filters) > 0 else DF
 
     sorts = [x.name]
     cols = [
