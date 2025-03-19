@@ -1014,6 +1014,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils 0.8.5",
  "cxlalloc",
+ "cxlalloc-global",
  "etrace",
  "itertools",
  "lazy_static",

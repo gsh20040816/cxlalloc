@@ -18,7 +18,11 @@ use crate::allocator::Backend;
 use crate::config;
 
 mod thread_test;
+mod xmalloc;
 pub mod ycsb;
+
+pub use thread_test::ThreadTest;
+pub use xmalloc::Xmalloc;
 
 pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
     const NAME: &str;
@@ -38,6 +42,8 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         global: &Self::Global,
         allocator: &mut B::Allocator,
     ) -> Self::Local;
+
+    fn run_coordinator(&self, _config: &config::Process, _global: &Self::Global) {}
 
     fn run_thread(
         &self,
@@ -105,7 +111,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                             perf.enable();
                         }
 
-                        barrier.wait(config.thread_total() as u64, 1);
+                        barrier.wait(config.thread_total() as u64 + 1, 1);
                         timer.start();
                         self.run_thread(&config, global, &mut local, &mut allocator);
                         let time = timer.stop();
@@ -117,9 +123,18 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                         drop(allocator);
                         drop(local);
 
-                        time
+                        Some(time)
                     });
                     (thread_id, handle)
+                })
+                .chain({
+                    let thread_id = config.thread_total();
+                    let handle = scope.spawn(|| {
+                        barrier.wait(config.thread_total() as u64 + 1, 1);
+                        self.run_coordinator(config, &global);
+                        None
+                    });
+                    iter::once((thread_id, handle))
                 })
                 .collect::<Vec<_>>();
 
@@ -129,6 +144,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
                 .into_iter()
+                .filter_map(|(thread_id, time)| Some((thread_id, time?)))
                 .for_each(|(thread_id, time)| {
                     let mut stdout = std::io::stdout().lock();
                     serde_json::ser::to_writer(&mut stdout, &Metrics {
