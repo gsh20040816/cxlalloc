@@ -235,9 +235,9 @@ def update(
         x=x.name,
         y=f"{y.name}_mean",
         error_y=f"{y.name}_std",
-        facet_row=facet_row[0] if facet_row is not None else None,
-        facet_col=facet_column[0] if facet_column is not None else None,
-        color=facet_color[0] if facet_color is not None else None,
+        facet_row=facet_row.name if facet_row is not None else None,
+        facet_col=facet_column.name if facet_column is not None else None,
+        color=facet_color.name if facet_color is not None else None,
         markers=True,
     )
 
