@@ -83,6 +83,11 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
             .unwrap_or_default()
             .as_secs();
 
+        let mut perf = match (env::var("PERF_CTL_FIFO"), env::var("PERF_ACK_FIFO")) {
+            (Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
+            _ => None,
+        };
+
         thread::scope(|scope| {
             let handles = (config.process_id * config.thread_count..)
                 .take(config.thread_count)
@@ -101,25 +106,9 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                         let mut allocator = backend.allocator(thread_id);
                         let mut local = self.setup_thread(&config, global, &mut allocator);
 
-                        let mut perf = match (
-                            thread_id,
-                            env::var("PERF_CTL_FIFO"),
-                            env::var("PERF_ACK_FIFO"),
-                        ) {
-                            (0, Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
-                            _ => None,
-                        };
-
-                        if let Some(perf) = &mut perf {
-                            perf.enable();
-                        }
-
                         barrier.wait(1);
                         let data = self.run_thread(&config, global, &mut local, &mut allocator);
-
-                        if let Some(perf) = &mut perf {
-                            perf.disable();
-                        }
+                        barrier.wait(1);
 
                         drop(allocator);
                         drop(local);
@@ -131,8 +120,18 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                 .chain({
                     let thread_id = config.thread_total();
                     let handle = scope.spawn(|| {
+                        if let Some(perf) = &mut perf {
+                            perf.enable();
+                        }
+
                         barrier.wait(1);
                         self.run_coordinator(config, &global);
+                        barrier.wait(1);
+
+                        if let Some(perf) = &mut perf {
+                            perf.disable();
+                        }
+
                         None
                     });
                     iter::once((thread_id, handle))
