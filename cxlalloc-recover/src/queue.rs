@@ -101,9 +101,7 @@ impl RootObj<Mmt> for Queue<PPtr<u64>> {
                 unsafe {
                     PMEMAllocator::invalidate();
                 }
-            }
-
-            if i % crash == 0 && i > *detect && *detect / crash < crash_count {
+            } else if i % crash == 0 && i > *detect && *detect / crash < crash_count {
                 *detect = i;
                 match BLOCK.load(Ordering::Relaxed) {
                     false => {

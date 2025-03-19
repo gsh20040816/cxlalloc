@@ -129,9 +129,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                         unsafe {
                             PMEMAllocator::invalidate();
                         }
-                    }
-
-                    if i % crash == 0 && i > *detect && *detect / crash < crash_count {
+                    } else if i % crash == 0 && i > *detect && *detect / crash < crash_count {
                         *detect = i;
                         handle.guard.flush();
                         match BLOCK.load(Ordering::Relaxed) {
