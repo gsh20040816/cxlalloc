@@ -60,10 +60,13 @@ impl allocator_bench::allocator::Backend for Backend {
         Ok(Self { shm, inner })
     }
 
+    fn create(config: &Config, name: &str) -> io::Result<Self> {
+        let lightning = Self::open(config, name)?;
+        unsafe { LightningAllocator_Initialize(lightning.inner.deref() as *const _ as *mut _, 0) }
+        Ok(lightning)
+    }
+
     fn allocator(&self, id: usize) -> Self::Allocator {
-        if id == 0 {
-            unsafe { LightningAllocator_Initialize(self.inner.deref() as *const _ as *mut _, 0) }
-        }
         Lightning {
             id,
             store: Arc::clone(&self.inner),

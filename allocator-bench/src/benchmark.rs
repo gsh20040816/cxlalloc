@@ -65,7 +65,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match config.process_id {
             0 => {
-                let backend = B::open(allocator, Self::NAME);
+                let backend = B::create(allocator, Self::NAME);
                 barrier.wait(thread_count);
                 backend
             }

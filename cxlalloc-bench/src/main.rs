@@ -71,6 +71,10 @@ enum Experiment {
         #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
         thread_total: Vec<usize>,
     },
+    ThreadTest {
+        #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
+        thread_total: Vec<usize>,
+    },
 }
 
 #[derive(Parser)]
@@ -286,11 +290,51 @@ fn main() -> anyhow::Result<()> {
                             allocator_bench::allocator::Config::builder()
                                 .numa(0)
                                 .populate(allocator_populate)
-                                .size(1 << 32)
+                                .size(cli.allocator_size)
                                 .build(),
                         )
                         .config_benchmark(allocator_bench::benchmark::Config::Xmalloc(
                             allocator_bench::benchmark::Xmalloc::builder().build(),
+                        ))
+                        .build(),
+                    &mut out,
+                )?;
+            }
+        }
+        Experiment::ThreadTest { thread_total } => {
+            for (&allocator, &allocator_populate, &process_count, &thread_total) in cartesian!(
+                cli.allocator.iter(),
+                cli.allocator_populate.iter(),
+                cli.process_count.iter(),
+                thread_total.iter()
+            ) {
+                if thread_total % process_count != 0 {
+                    continue;
+                }
+
+                eprintln!("thread-test | {:16}", allocator);
+
+                let thread_count = thread_total / process_count;
+
+                cli.run(
+                    &cxlalloc_bench::Config::builder()
+                        .allocator(allocator)
+                        .index(Index::Linear)
+                        .config_global(
+                            allocator_bench::config::Global::builder()
+                                .process_count(process_count)
+                                .thread_count(thread_count)
+                                .build(),
+                        )
+                        .config_allocator(
+                            allocator_bench::allocator::Config::builder()
+                                .numa(0)
+                                .populate(allocator_populate)
+                                .size(cli.allocator_size)
+                                .build(),
+                        )
+                        .config_benchmark(allocator_bench::benchmark::Config::ThreadTest(
+                            allocator_bench::benchmark::ThreadTest::builder().build(),
                         ))
                         .build(),
                     &mut out,
