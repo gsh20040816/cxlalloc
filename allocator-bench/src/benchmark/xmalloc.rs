@@ -73,12 +73,18 @@ pub struct Global {
     stop: AtomicBool,
 }
 
+#[derive(Serialize)]
+pub struct Data {
+    operations: u64,
+}
+
 unsafe impl Sync for Global {}
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc {
     const NAME: &str = "xm";
     type Global = Global;
     type Local = rand::rngs::ThreadRng;
+    type Data = Data;
 
     fn setup_process(
         &self,
@@ -132,8 +138,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
         global: &Self::Global,
         rng: &mut Self::Local,
         allocator: &mut B::Allocator,
-    ) {
+    ) -> Self::Data {
         // Allocator
+        let mut operations = 0;
+
         if config.thread_id & 1 == 0 {
             while !global.stop.load(Ordering::Relaxed) {
                 let batch = allocator.allocate(mem::size_of::<Batch>()).unwrap();
@@ -154,6 +162,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
                     }
                 }
 
+                operations += OBJECTS_PER_BATCH + 1;
                 global.push(self, allocator, batch);
             }
         // Releaser
@@ -175,7 +184,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
                 unsafe {
                     allocator.deallocate(handle);
                 }
+
+                operations += OBJECTS_PER_BATCH + 1;
             }
+        }
+
+        Data {
+            operations: operations as u64,
         }
     }
 }
@@ -255,6 +270,10 @@ impl Global {
             unsafe {
                 libc::pthread_cond_signal(&root.full as *const _ as *mut _);
             }
+        }
+
+        unsafe {
+            libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
         }
 
         handle.filter(|handle| !handle.as_ptr().is_null())

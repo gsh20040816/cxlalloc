@@ -12,7 +12,6 @@ use crate::Barrier;
 use crate::Index;
 use crate::Metrics;
 use crate::Perf;
-use crate::Timer;
 use crate::allocator;
 use crate::allocator::Backend;
 use crate::config;
@@ -29,6 +28,8 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 
     type Global: Sync;
     type Local;
+
+    type Data: Send + Serialize;
 
     fn setup_process(
         &self,
@@ -51,28 +52,30 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         global: &Self::Global,
         local: &mut Self::Local,
         allocator: &mut B::Allocator,
-    );
+    ) -> Self::Data;
 
     fn teardown_process(&self, _config: &config::Process, _global: Self::Global) {}
 
     fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
-        let mut barrier = Barrier::new().unwrap();
+        let thread_count = config.thread_count as u64 + 1;
+        let thread_total = config.process_count as u64 * thread_count;
+
+        let mut barrier = Barrier::new(thread_total).unwrap();
 
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match config.process_id {
             0 => {
                 let backend = B::open(allocator, Self::NAME);
-                barrier.wait(config.thread_total() as u64, config.thread_count as u64);
+                barrier.wait(thread_count);
                 backend
             }
             _ => {
-                barrier.wait(config.thread_total() as u64, config.thread_count as u64);
+                barrier.wait(thread_count);
                 B::open(allocator, Self::NAME)
             }
         }
         .unwrap();
 
-        let timer = &Timer::new();
         let global = self.setup_process(config, allocator);
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
         let date = SystemTime::now()
@@ -111,10 +114,8 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                             perf.enable();
                         }
 
-                        barrier.wait(config.thread_total() as u64 + 1, 1);
-                        timer.start();
-                        self.run_thread(&config, global, &mut local, &mut allocator);
-                        let time = timer.stop();
+                        barrier.wait(1);
+                        let data = self.run_thread(&config, global, &mut local, &mut allocator);
 
                         if let Some(perf) = &mut perf {
                             perf.disable();
@@ -123,14 +124,14 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                         drop(allocator);
                         drop(local);
 
-                        Some(time)
+                        Some(data)
                     });
                     (thread_id, handle)
                 })
                 .chain({
                     let thread_id = config.thread_total();
                     let handle = scope.spawn(|| {
-                        barrier.wait(config.thread_total() as u64 + 1, 1);
+                        barrier.wait(1);
                         self.run_coordinator(config, &global);
                         None
                     });
@@ -140,18 +141,18 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 
             handles
                 .into_iter()
-                .map(|(thread_id, handle)| handle.join().map(|output| (thread_id, output)))
+                .map(|(thread_id, handle)| handle.join().map(|data| (thread_id, data)))
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
                 .into_iter()
-                .filter_map(|(thread_id, time)| Some((thread_id, time?)))
-                .for_each(|(thread_id, time)| {
+                .filter_map(|(thread_id, data)| Some((thread_id, data?)))
+                .for_each(|(thread_id, data)| {
                     let mut stdout = std::io::stdout().lock();
                     serde_json::ser::to_writer(&mut stdout, &Metrics {
+                        date,
                         process_id: config.process_id,
                         thread_id,
-                        date,
-                        time,
+                        data: serde_json::to_value(data).unwrap(),
                     })
                     .unwrap();
                     stdout.write_all(b"\n").unwrap();
@@ -172,4 +173,5 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 pub enum Config {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),
+    Xmalloc(xmalloc::Xmalloc),
 }

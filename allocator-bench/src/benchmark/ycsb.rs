@@ -1,6 +1,7 @@
 use core::mem;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
+use std::time::Instant;
 
 use bon::Builder;
 use serde::Deserialize;
@@ -41,6 +42,11 @@ pub struct Global<I> {
 
 struct Record([Field; 10]);
 
+#[derive(Serialize)]
+pub struct Data {
+    time: u128,
+}
+
 #[repr(C)]
 struct Field {
     value: [AtomicU8; 96],
@@ -52,6 +58,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     const NAME: &str = "ycsb";
     type Global = Global<I>;
     type Local = ();
+    type Data = Data;
 
     fn setup_process(&self, _config: &config::Process, allocator: &allocator::Config) -> Global<I> {
         Global {
@@ -92,8 +99,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         global: &Self::Global,
         _local: &mut Self::Local,
         allocator: &mut B::Allocator,
-    ) {
+    ) -> Self::Data {
         if self.load {
+            let start = Instant::now();
             match self.index.inline {
                 true => {
                     load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
@@ -107,13 +115,16 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
                 ),
             }
 
-            return;
+            return Data {
+                time: start.elapsed().as_micros(),
+            };
         }
 
         let mut runner = self
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
+        let start = Instant::now();
         match self.index.inline {
             true => run::<true, _, _>(
                 self.write,
@@ -131,6 +142,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
                 allocator,
                 &global.index,
             ),
+        }
+
+        Data {
+            time: start.elapsed().as_micros(),
         }
     }
 

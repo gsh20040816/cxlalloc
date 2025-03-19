@@ -5,10 +5,11 @@ pub mod worker;
 pub use allocator::Allocator;
 pub use index::Index;
 
+use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub config_global: allocator_bench::config::Global,
     pub config_allocator: allocator_bench::allocator::Config,

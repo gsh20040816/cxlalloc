@@ -35,9 +35,9 @@ fn main() -> anyhow::Result<()> {
                 .collect::<Vec<_>>()
         })
         .map(Result::unwrap)
-        .map(|outputs| Observation {
+        .map(|output| Observation {
             config: config.clone(),
-            outputs,
+            output,
         })
         .for_each(|output| {
             let mut stdout = std::io::stdout().lock();

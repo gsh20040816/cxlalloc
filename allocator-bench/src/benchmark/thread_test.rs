@@ -1,5 +1,7 @@
 // https://github.com/emeryberger/Hoard/blob/f021bdb810332c9c9f5a11ae5404aaa38fe129c0/benchmarks/threadtest/threadtest.cpp
 
+use std::time::Instant;
+
 use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
@@ -23,10 +25,16 @@ pub struct ThreadTest {
     pub(crate) object_size: usize,
 }
 
+#[derive(Serialize)]
+pub struct Data {
+    time: u128,
+}
+
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTest {
     const NAME: &str = "tt";
     type Global = usize;
     type Local = Vec<Option<<B::Allocator as Allocator>::Handle>>;
+    type Data = Data;
 
     fn setup_process(
         &self,
@@ -58,7 +66,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
         _: &Self::Global,
         handles: &mut Self::Local,
         allocator: &mut B::Allocator,
-    ) {
+    ) -> Self::Data {
+        let start = Instant::now();
+
         for _ in 0..self.iteration_count {
             for handle in &mut *handles {
                 *handle = allocator.allocate(self.object_size);
@@ -70,6 +80,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
                     allocator.deallocate(handle);
                 }
             }
+        }
+
+        Data {
+            time: start.elapsed().as_micros(),
         }
     }
 }
