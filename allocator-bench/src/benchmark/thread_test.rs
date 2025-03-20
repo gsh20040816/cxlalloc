@@ -26,7 +26,7 @@ pub struct ThreadTest {
 }
 
 #[derive(Serialize)]
-pub struct Data {
+pub struct Output {
     time: u128,
 }
 
@@ -36,7 +36,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
 
     type Coordinator = ();
     type Worker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
-    type Data = Data;
+
+    type Thread = Output;
+    type Process = ();
+    type Output = Output;
 
     fn setup_process(
         &self,
@@ -69,13 +72,21 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
         (0..*object_count).map(|_| None).collect()
     }
 
+    fn run_coordinator(
+        &self,
+        _config: &config::Process,
+        _global: &Self::Global,
+        _coordinator: &mut Self::Coordinator,
+    ) -> Self::Process {
+    }
+
     fn run_worker(
         &self,
         _config: &config::Thread,
         _: &Self::Global,
         handles: &mut Self::Worker,
         allocator: &mut B::Allocator,
-    ) -> Self::Data {
+    ) -> Self::Thread {
         let start = Instant::now();
 
         for _ in 0..self.iteration_count {
@@ -91,8 +102,15 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
             }
         }
 
-        Data {
+        Output {
             time: start.elapsed().as_micros(),
+        }
+    }
+
+    fn aggregate((): Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
+        let total = threads.iter().map(|Output { time }| *time).sum::<u128>();
+        Output {
+            time: total / threads.len() as u128,
         }
     }
 }

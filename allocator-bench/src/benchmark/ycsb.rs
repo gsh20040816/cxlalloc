@@ -30,9 +30,9 @@ pub struct Ycsb {
 
     index: index::Config,
 
-    throughput: usize,
+    throughput: u64,
 
-    time: usize,
+    time: u64,
 
     /// Whether to write value
     write: bool,
@@ -54,18 +54,16 @@ pub struct Global<I> {
 
 struct Record([Field; 10]);
 
+pub struct OutputThread {
+    latency: Histogram<u64>,
+}
+
 #[derive(Serialize)]
-#[serde(untagged)]
-pub enum Data {
-    Load {
-        time: u128,
-    },
-    D {
-        mean: u64,
-        p50: u64,
-        p90: u64,
-        p99: u64,
-    },
+pub struct Output {
+    latency_mean: u64,
+    latency_p50: u64,
+    latency_p90: u64,
+    latency_p99: u64,
 }
 
 #[repr(C)]
@@ -88,7 +86,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     type Coordinator = Coordinator;
     type Worker = ();
 
-    type Data = Data;
+    type Thread = OutputThread;
+    type Process = ();
+    type Output = Output;
 
     fn setup_process(
         &self,
@@ -117,7 +117,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     ) -> Self::Coordinator {
         Coordinator {
             interval: Duration::from_nanos(
-                (10usize.pow(9) * config.process_count / self.throughput) as u64,
+                10u64.pow(9) * (config.process_count as u64) / self.throughput,
             ),
             sleeper: SpinSleeper::default().with_spin_strategy(SpinStrategy::SpinLoopHint),
             tx: global.tx.lock().unwrap().take(),
@@ -149,13 +149,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         _config: &config::Process,
         _global: &Self::Global,
         coordinator: &mut Self::Coordinator,
-    ) {
+    ) -> Self::Process {
         if self.load {
-            return;
+            todo!()
         }
 
         let tx = coordinator.tx.take().unwrap();
-        let mut count = 0usize;
+        let mut count = 0u64;
         let start = Instant::now();
         let mut ts = start;
 
@@ -166,7 +166,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             let next = ts + coordinator.interval;
             coordinator.sleeper.sleep_until(next);
 
-            if next.saturating_duration_since(start).as_secs() >= self.time as u64 {
+            if next.saturating_duration_since(start).as_secs() > self.time {
                 break;
             } else {
                 ts = next;
@@ -175,7 +175,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 
         let expected = self.time * self.throughput;
         assert!(
-            count.abs_diff(expected) * 100 / expected < 5,
+            count.abs_diff(expected) * 100 / expected < 1,
             "actual op count {count}, expected {expected}"
         );
     }
@@ -186,9 +186,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         global: &Self::Global,
         _local: &mut Self::Worker,
         allocator: &mut B::Allocator,
-    ) -> Self::Data {
+    ) -> Self::Thread {
         if self.load {
-            let start = Instant::now();
             match self.index.inline {
                 true => {
                     load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
@@ -202,9 +201,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
                 ),
             }
 
-            return Data::Load {
-                time: start.elapsed().as_micros(),
-            };
+            todo!()
         }
 
         let mut runner = self
@@ -224,6 +221,23 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 
         global.index.unlink().unwrap();
         global.acked.unlink().unwrap();
+    }
+
+    fn aggregate((): Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
+        let latency = threads.into_iter().fold(
+            Histogram::new(3).unwrap(),
+            |mut acc, OutputThread { latency }| {
+                acc.add(latency).unwrap();
+                acc
+            },
+        );
+
+        Output {
+            latency_mean: latency.mean() as u64,
+            latency_p50: latency.value_at_quantile(0.5),
+            latency_p90: latency.value_at_quantile(0.9),
+            latency_p99: latency.value_at_quantile(0.99),
+        }
     }
 }
 
@@ -246,7 +260,7 @@ fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
     runner: &mut ycsb::Runner,
     allocator: &mut A,
     global: &Global<I>,
-) -> Data {
+) -> OutputThread {
     let mut rng = rand::rng();
     let mut latency = Histogram::<u64>::new(3).unwrap();
 
@@ -276,15 +290,10 @@ fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
             ycsb::Operation::ReadModifyWrite => todo!(),
         }
 
-        latency.record(ts.elapsed().as_micros() as u64).unwrap();
+        latency.record(ts.elapsed().as_nanos() as u64).unwrap();
     }
 
-    Data::D {
-        mean: latency.mean() as u64,
-        p50: latency.value_at_quantile(0.5),
-        p90: latency.value_at_quantile(0.9),
-        p99: latency.value_at_quantile(0.99),
-    }
+    OutputThread { latency }
 }
 
 fn insert<const INLINE: bool, A: Allocator, I: Index<A>>(

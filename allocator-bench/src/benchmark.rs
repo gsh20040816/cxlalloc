@@ -1,6 +1,4 @@
-use core::iter;
 use std::env;
-use std::io::Write as _;
 use std::thread;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -31,7 +29,9 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
     type Coordinator;
     type Worker;
 
-    type Data: Send + Serialize;
+    type Thread: Send;
+    type Process: Send;
+    type Output: Serialize;
 
     fn setup_process(
         &self,
@@ -57,8 +57,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         _config: &config::Process,
         _global: &Self::Global,
         _coordinator: &mut Self::Coordinator,
-    ) {
-    }
+    ) -> Self::Process;
 
     fn run_worker(
         &self,
@@ -66,9 +65,11 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         global: &Self::Global,
         local: &mut Self::Worker,
         allocator: &mut B::Allocator,
-    ) -> Self::Data;
+    ) -> Self::Thread;
 
     fn teardown_process(&self, _config: &config::Process, _global: Self::Global) {}
+
+    fn aggregate(process: Self::Process, threads: Vec<Self::Thread>) -> Self::Output;
 
     fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
         let thread_count = config.thread_count as u64 + 1;
@@ -97,13 +98,17 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
             .unwrap_or_default()
             .as_secs();
 
-        let mut perf = match (env::var("PERF_CTL_FIFO"), env::var("PERF_ACK_FIFO")) {
-            (Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
+        let mut perf = match (
+            config.process_id,
+            env::var("PERF_CTL_FIFO"),
+            env::var("PERF_ACK_FIFO"),
+        ) {
+            (0, Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
             _ => None,
         };
 
         thread::scope(|scope| {
-            let handles = (config.process_id * config.thread_count..)
+            let workers = (config.process_id * config.thread_count..)
                 .take(config.thread_count)
                 .map(|thread_id| {
                     let barrier = &barrier;
@@ -126,52 +131,46 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 
                         drop(allocator);
                         drop(local);
-
-                        Some(data)
+                        data
                     });
-                    (thread_id, handle)
-                })
-                .chain({
-                    let thread_id = config.thread_total();
-                    let handle = scope.spawn(|| {
-                        let mut coordinator = self.setup_coordinator(config, &global);
-
-                        if let Some(perf) = &mut perf {
-                            perf.enable();
-                        }
-
-                        barrier.wait(1);
-                        self.run_coordinator(config, &global, &mut coordinator);
-                        barrier.wait(1);
-
-                        if let Some(perf) = &mut perf {
-                            perf.disable();
-                        }
-
-                        None
-                    });
-                    iter::once((thread_id, handle))
+                    handle
                 })
                 .collect::<Vec<_>>();
 
-            handles
+            let coordinator = scope.spawn(|| {
+                let mut coordinator = self.setup_coordinator(config, &global);
+
+                if let Some(perf) = &mut perf {
+                    perf.enable();
+                }
+
+                barrier.wait(1);
+                let output = self.run_coordinator(config, &global, &mut coordinator);
+                barrier.wait(1);
+
+                if let Some(perf) = &mut perf {
+                    perf.disable();
+                }
+
+                output
+            });
+
+            let output_workers = workers
                 .into_iter()
-                .map(|(thread_id, handle)| handle.join().map(|data| (thread_id, data)))
+                .map(|handle| handle.join())
                 .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-                .into_iter()
-                .filter_map(|(thread_id, data)| Some((thread_id, data?)))
-                .for_each(|(thread_id, data)| {
-                    let mut stdout = std::io::stdout().lock();
-                    serde_json::ser::to_writer(&mut stdout, &Metrics {
-                        date,
-                        process_id: config.process_id,
-                        thread_id,
-                        data: serde_json::to_value(data).unwrap(),
-                    })
-                    .unwrap();
-                    stdout.write_all(b"\n").unwrap();
-                });
+                .unwrap();
+
+            let output_coordinator = coordinator.join().unwrap();
+            let output = Self::aggregate(output_coordinator, output_workers);
+
+            let mut stdout = std::io::stdout().lock();
+            serde_json::ser::to_writer(&mut stdout, &Metrics {
+                date,
+                process_id: config.process_id,
+                data: serde_json::to_value(output).unwrap(),
+            })
+            .unwrap();
         });
 
         self.teardown_process(config, global);

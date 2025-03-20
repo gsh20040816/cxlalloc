@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -88,10 +89,10 @@ enum Workload {
         thread_total: usize,
 
         #[arg(long, default_value_t = 5)]
-        time: usize,
+        time: u64,
 
         #[arg(long, value_delimiter = ',', default_value = "100,1000,10000,100000")]
-        throughput: Vec<usize>,
+        throughput: Vec<u64>,
 
         #[arg(
             short,
@@ -377,6 +378,8 @@ impl Cli {
                 output.status,
             ));
         }
+
+        out.write_all(b"\n")?;
 
         Ok(())
     }

@@ -22,7 +22,6 @@ pub struct Timer {}
 pub struct Metrics {
     date: u64,
     process_id: usize,
-    thread_id: usize,
 
     #[serde(flatten)]
     data: serde_json::Value,

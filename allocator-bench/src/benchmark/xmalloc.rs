@@ -33,7 +33,7 @@ pub struct Xmalloc {
     time: u64,
 }
 
-const OBJECTS_PER_BATCH: usize = 4096;
+const OBJECTS_PER_BATCH: usize = 120;
 const POSSIBLE_SIZES: &[usize] = &[
     8,
     12,
@@ -49,9 +49,9 @@ const POSSIBLE_SIZES: &[usize] = &[
     (256 * 3) / 2,
     512,
     (512 * 3) / 2,
-    1024,
-    (1024 * 3) / 2,
-    2048,
+    // 1024,
+    // (1024 * 3) / 2,
+    // 2048,
 ];
 
 struct Batch {
@@ -74,8 +74,13 @@ pub struct Global {
 }
 
 #[derive(Serialize)]
-pub struct Data {
+pub struct OutputThread {
     operations: u64,
+}
+
+#[derive(Serialize)]
+pub struct Output {
+    throughput: u64,
 }
 
 unsafe impl Sync for Global {}
@@ -85,7 +90,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
     type Global = Global;
     type Coordinator = ();
     type Worker = rand::rngs::ThreadRng;
-    type Data = Data;
+
+    type Thread = OutputThread;
+    type Process = u64;
+    type Output = Output;
 
     fn setup_process(
         &self,
@@ -140,9 +148,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
         _: &config::Process,
         global: &Self::Global,
         (): &mut Self::Coordinator,
-    ) {
+    ) -> Self::Process {
         std::thread::sleep(Duration::from_secs(self.time));
         global.stop.store(true, Ordering::Relaxed);
+        self.time
     }
 
     fn run_worker(
@@ -151,7 +160,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
         global: &Self::Global,
         rng: &mut Self::Worker,
         allocator: &mut B::Allocator,
-    ) -> Self::Data {
+    ) -> Self::Thread {
         // Allocator
         let mut operations = 0;
 
@@ -202,8 +211,19 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
             }
         }
 
-        Data {
+        OutputThread {
             operations: operations as u64,
+        }
+    }
+
+    fn aggregate(time: Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
+        let operations = threads
+            .iter()
+            .map(|OutputThread { operations }| *operations)
+            .sum::<u64>();
+
+        Output {
+            throughput: operations / time,
         }
     }
 }
