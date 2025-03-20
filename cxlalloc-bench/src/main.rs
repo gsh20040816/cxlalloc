@@ -10,6 +10,16 @@ use clap::Parser;
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Index;
 
+const CONSISTENCY: Consistency = if cfg!(feature = "consistency-sfence") {
+    Consistency::Sfence
+} else if cfg!(feature = "consistency-clflush") {
+    Consistency::Clflush
+} else if cfg!(feature = "consistency-clflushopt") {
+    Consistency::Clflushopt
+} else {
+    Consistency::None
+};
+
 #[derive(Parser)]
 struct Cli {
     #[arg(short, long, value_delimiter = ',', default_value = "cxlalloc,cxl-shm")]
@@ -161,7 +171,7 @@ fn main() -> anyhow::Result<()> {
                             .numa(cli.allocator_numa)
                             .size(cli.allocator_size)
                             .populate(allocator_populate)
-                            .consistency(Consistency::None)
+                            .consistency(CONSISTENCY)
                             .build(),
                         config_global: allocator_bench::config::Global::builder()
                             .process_count(process_count)
@@ -243,7 +253,7 @@ fn main() -> anyhow::Result<()> {
                             .numa(cli.allocator_numa)
                             .size(cli.allocator_size)
                             .populate(allocator_populate)
-                            .consistency(Consistency::None)
+                            .consistency(CONSISTENCY)
                             .build(),
                         config_global: allocator_bench::config::Global::builder()
                             .process_count(process_count)
@@ -305,7 +315,7 @@ fn main() -> anyhow::Result<()> {
                                 .numa(0)
                                 .populate(allocator_populate)
                                 .size(cli.allocator_size)
-                                .consistency(Consistency::None)
+                                .consistency(CONSISTENCY)
                                 .build(),
                         )
                         .config_benchmark(allocator_bench::benchmark::Config::Xmalloc(
@@ -346,7 +356,7 @@ fn main() -> anyhow::Result<()> {
                                 .numa(0)
                                 .populate(allocator_populate)
                                 .size(cli.allocator_size)
-                                .consistency(Consistency::None)
+                                .consistency(CONSISTENCY)
                                 .build(),
                         )
                         .config_benchmark(allocator_bench::benchmark::Config::ThreadTest(

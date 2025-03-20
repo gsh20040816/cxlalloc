@@ -12,6 +12,14 @@ path = "src/bin/worker.rs"
 name = "cxlalloc-bench-coordinator"
 path = "src/bin/coordinator.rs"
 
+[features]
+consistency-sfence = ["cxlalloc-global/arch-gpf"]
+consistency-clflush = []
+consistency-clflushopt = [
+    "cxlalloc-global/arch-clflushopt",
+    "cxlalloc-global/arch-clwb",
+]
+
 [dependencies]
 allocator-bench.path = "../allocator-bench"
 anyhow.workspace = true
