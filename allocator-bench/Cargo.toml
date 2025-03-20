@@ -6,11 +6,14 @@ edition = "2024"
 [dependencies]
 bon.workspace = true
 core_affinity.workspace = true
+crossbeam-channel.workspace = true
+hdrhistogram.workspace = true
 libc.workspace = true
 rand.workspace = true
 rapidhash.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shm.path = "../shm"
+spin_sleep.workspace = true
 toml.workspace = true
 ycsb.path = "../ycsb"

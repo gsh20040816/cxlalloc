@@ -27,7 +27,9 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
     const NAME: &str;
 
     type Global: Sync;
-    type Local;
+
+    type Coordinator;
+    type Worker;
 
     type Data: Send + Serialize;
 
@@ -37,20 +39,32 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
         allocator: &allocator::Config,
     ) -> Self::Global;
 
-    fn setup_thread(
+    fn setup_coordinator(
+        &self,
+        config: &config::Process,
+        global: &Self::Global,
+    ) -> Self::Coordinator;
+
+    fn setup_worker(
         &self,
         config: &config::Thread,
         global: &Self::Global,
         allocator: &mut B::Allocator,
-    ) -> Self::Local;
+    ) -> Self::Worker;
 
-    fn run_coordinator(&self, _config: &config::Process, _global: &Self::Global) {}
+    fn run_coordinator(
+        &self,
+        _config: &config::Process,
+        _global: &Self::Global,
+        _coordinator: &mut Self::Coordinator,
+    ) {
+    }
 
-    fn run_thread(
+    fn run_worker(
         &self,
         config: &config::Thread,
         global: &Self::Global,
-        local: &mut Self::Local,
+        local: &mut Self::Worker,
         allocator: &mut B::Allocator,
     ) -> Self::Data;
 
@@ -104,10 +118,10 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                         core_affinity::set_for_current(cores[core]);
 
                         let mut allocator = backend.allocator(thread_id);
-                        let mut local = self.setup_thread(&config, global, &mut allocator);
+                        let mut local = self.setup_worker(&config, global, &mut allocator);
 
                         barrier.wait(1);
-                        let data = self.run_thread(&config, global, &mut local, &mut allocator);
+                        let data = self.run_worker(&config, global, &mut local, &mut allocator);
                         barrier.wait(1);
 
                         drop(allocator);
@@ -120,12 +134,14 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                 .chain({
                     let thread_id = config.thread_total();
                     let handle = scope.spawn(|| {
+                        let mut coordinator = self.setup_coordinator(config, &global);
+
                         if let Some(perf) = &mut perf {
                             perf.enable();
                         }
 
                         barrier.wait(1);
-                        self.run_coordinator(config, &global);
+                        self.run_coordinator(config, &global, &mut coordinator);
                         barrier.wait(1);
 
                         if let Some(perf) = &mut perf {

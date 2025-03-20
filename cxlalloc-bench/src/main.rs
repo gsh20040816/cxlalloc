@@ -87,6 +87,12 @@ enum Workload {
         #[arg(short, long, default_value_t = 40)]
         thread_total: usize,
 
+        #[arg(long, default_value_t = 5)]
+        time: usize,
+
+        #[arg(long, value_delimiter = ',', default_value = "100,1000,10000,100000")]
+        throughput: Vec<usize>,
+
         #[arg(
             short,
             long,
@@ -175,6 +181,8 @@ fn main() -> anyhow::Result<()> {
                                         .operation_count(*operation_count)
                                         .build(),
                                 )
+                                .throughput(0)
+                                .time(0)
                                 .build(),
                         ),
                     },
@@ -194,6 +202,8 @@ fn main() -> anyhow::Result<()> {
                 Workload::D {
                     thread_total,
                     insert_proportion,
+                    time,
+                    throughput,
                 },
         } => {
             for (
@@ -205,6 +215,7 @@ fn main() -> anyhow::Result<()> {
                 &write,
                 &process_count,
                 &insert_proportion,
+                &throughput,
             ) in cartesian!(
                 cli.allocator.iter(),
                 cli.allocator_populate.iter(),
@@ -213,7 +224,8 @@ fn main() -> anyhow::Result<()> {
                 index_populate.iter(),
                 write.iter(),
                 cli.process_count.iter(),
-                insert_proportion.iter()
+                insert_proportion.iter(),
+                throughput.iter()
             ) {
                 if thread_total % process_count != 0 {
                     continue;
@@ -254,6 +266,8 @@ fn main() -> anyhow::Result<()> {
                                     read_proportion: 1.0 - insert_proportion,
                                     ..ycsb::workload::D.clone()
                                 })
+                                .throughput(throughput)
+                                .time(*time)
                                 .build(),
                         ),
                     },

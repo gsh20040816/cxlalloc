@@ -33,7 +33,9 @@ pub struct Data {
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTest {
     const NAME: &str = "tt";
     type Global = usize;
-    type Local = Vec<Option<<B::Allocator as Allocator>::Handle>>;
+
+    type Coordinator = ();
+    type Worker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
     type Data = Data;
 
     fn setup_process(
@@ -51,20 +53,27 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
         self.object_count / thread_total
     }
 
-    fn setup_thread(
+    fn setup_coordinator(
+        &self,
+        _config: &config::Process,
+        _global: &Self::Global,
+    ) -> Self::Coordinator {
+    }
+
+    fn setup_worker(
         &self,
         _config: &config::Thread,
         object_count: &Self::Global,
         _allocator: &mut B::Allocator,
-    ) -> Self::Local {
+    ) -> Self::Worker {
         (0..*object_count).map(|_| None).collect()
     }
 
-    fn run_thread(
+    fn run_worker(
         &self,
         _config: &config::Thread,
         _: &Self::Global,
-        handles: &mut Self::Local,
+        handles: &mut Self::Worker,
         allocator: &mut B::Allocator,
     ) -> Self::Data {
         let start = Instant::now();

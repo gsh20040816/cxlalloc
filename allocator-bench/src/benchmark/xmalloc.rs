@@ -83,7 +83,8 @@ unsafe impl Sync for Global {}
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc {
     const NAME: &str = "xm";
     type Global = Global;
-    type Local = rand::rngs::ThreadRng;
+    type Coordinator = ();
+    type Worker = rand::rngs::ThreadRng;
     type Data = Data;
 
     fn setup_process(
@@ -118,25 +119,37 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
         Global { root, stop }
     }
 
-    fn setup_thread(
+    fn setup_coordinator(
+        &self,
+        _config: &config::Process,
+        _global: &Self::Global,
+    ) -> Self::Coordinator {
+    }
+
+    fn setup_worker(
         &self,
         _config: &config::Thread,
         _global: &Self::Global,
         _allocator: &mut B::Allocator,
-    ) -> Self::Local {
+    ) -> Self::Worker {
         rand::rng()
     }
 
-    fn run_coordinator(&self, _: &config::Process, global: &Self::Global) {
+    fn run_coordinator(
+        &self,
+        _: &config::Process,
+        global: &Self::Global,
+        (): &mut Self::Coordinator,
+    ) {
         std::thread::sleep(Duration::from_secs(self.time));
         global.stop.store(true, Ordering::Relaxed);
     }
 
-    fn run_thread(
+    fn run_worker(
         &self,
         config: &config::Thread,
         global: &Self::Global,
-        rng: &mut Self::Local,
+        rng: &mut Self::Worker,
         allocator: &mut B::Allocator,
     ) -> Self::Data {
         // Allocator

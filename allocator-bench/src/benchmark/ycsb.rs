@@ -1,12 +1,18 @@
 use core::mem;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
+use core::time::Duration;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use bon::Builder;
+use crossbeam_channel as mpmc;
+use hdrhistogram::Histogram;
 use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
+use spin_sleep::SpinSleeper;
+use spin_sleep::SpinStrategy;
 
 use crate::Allocator;
 use crate::Index;
@@ -24,6 +30,10 @@ pub struct Ycsb {
 
     index: index::Config,
 
+    throughput: usize,
+
+    time: usize,
+
     /// Whether to write value
     write: bool,
 
@@ -38,13 +48,24 @@ const MAX_SIZE: usize = 1_000;
 pub struct Global<I> {
     index: I,
     acked: Shm<ycsb::Acknowledged>,
+    tx: Mutex<Option<mpmc::Sender<Instant>>>,
+    rx: mpmc::Receiver<Instant>,
 }
 
 struct Record([Field; 10]);
 
 #[derive(Serialize)]
-pub struct Data {
-    time: u128,
+#[serde(untagged)]
+pub enum Data {
+    Load {
+        time: u128,
+    },
+    D {
+        mean: u64,
+        p50: u64,
+        p90: u64,
+        p99: u64,
+    },
 }
 
 #[repr(C)]
@@ -52,15 +73,29 @@ struct Field {
     value: [AtomicU8; 96],
 }
 
+pub struct Coordinator {
+    interval: Duration,
+    sleeper: SpinSleeper,
+    tx: Option<mpmc::Sender<Instant>>,
+}
+
 unsafe impl<I> Sync for Global<I> {}
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     const NAME: &str = "ycsb";
     type Global = Global<I>;
-    type Local = ();
+
+    type Coordinator = Coordinator;
+    type Worker = ();
+
     type Data = Data;
 
-    fn setup_process(&self, _config: &config::Process, allocator: &allocator::Config) -> Global<I> {
+    fn setup_process(
+        &self,
+        _config: &config::Process,
+        allocator: &allocator::Config,
+    ) -> Self::Global {
+        let (tx, rx) = mpmc::unbounded();
         Global {
             index: I::new(
                 Some(allocator.numa),
@@ -70,15 +105,31 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             )
             .unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
+            tx: Mutex::new(Some(tx)),
+            rx,
         }
     }
 
-    fn setup_thread(
+    fn setup_coordinator(
+        &self,
+        config: &config::Process,
+        global: &Self::Global,
+    ) -> Self::Coordinator {
+        Coordinator {
+            interval: Duration::from_nanos(
+                (10usize.pow(9) * config.process_count / self.throughput) as u64,
+            ),
+            sleeper: SpinSleeper::default().with_spin_strategy(SpinStrategy::SpinLoopHint),
+            tx: global.tx.lock().unwrap().take(),
+        }
+    }
+
+    fn setup_worker(
         &self,
         config: &config::Thread,
         global: &Self::Global,
         allocator: &mut B::Allocator,
-    ) -> Self::Local {
+    ) -> Self::Worker {
         if self.load {
             return;
         }
@@ -93,11 +144,47 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         }
     }
 
-    fn run_thread(
+    fn run_coordinator(
+        &self,
+        _config: &config::Process,
+        _global: &Self::Global,
+        coordinator: &mut Self::Coordinator,
+    ) {
+        if self.load {
+            return;
+        }
+
+        let tx = coordinator.tx.take().unwrap();
+        let mut count = 0usize;
+        let start = Instant::now();
+        let mut ts = start;
+
+        loop {
+            count += 1;
+            tx.send(ts).unwrap();
+
+            let next = ts + coordinator.interval;
+            coordinator.sleeper.sleep_until(next);
+
+            if next.saturating_duration_since(start).as_secs() >= self.time as u64 {
+                break;
+            } else {
+                ts = next;
+            }
+        }
+
+        let expected = self.time * self.throughput;
+        assert!(
+            count.abs_diff(expected) * 100 / expected < 5,
+            "actual op count {count}, expected {expected}"
+        );
+    }
+
+    fn run_worker(
         &self,
         config: &config::Thread,
         global: &Self::Global,
-        _local: &mut Self::Local,
+        _local: &mut Self::Worker,
         allocator: &mut B::Allocator,
     ) -> Self::Data {
         if self.load {
@@ -115,7 +202,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
                 ),
             }
 
-            return Data {
+            return Data::Load {
                 time: start.elapsed().as_micros(),
             };
         }
@@ -124,28 +211,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
-        let start = Instant::now();
         match self.index.inline {
-            true => run::<true, _, _>(
-                self.write,
-                self.workload.operation_count(),
-                config,
-                &mut runner,
-                allocator,
-                &global.index,
-            ),
-            false => run::<false, _, _>(
-                self.write,
-                self.workload.operation_count(),
-                config,
-                &mut runner,
-                allocator,
-                &global.index,
-            ),
-        }
-
-        Data {
-            time: start.elapsed().as_micros(),
+            true => run::<true, _, _>(self.write, &mut runner, allocator, global),
+            false => run::<false, _, _>(self.write, &mut runner, allocator, global),
         }
     }
 
@@ -175,19 +243,19 @@ fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
 
 fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
     write: bool,
-    operation_count: usize,
-    config: &config::Thread,
     runner: &mut ycsb::Runner,
     allocator: &mut A,
-    index: &I,
-) {
+    global: &Global<I>,
+) -> Data {
     let mut rng = rand::rng();
+    let mut latency = Histogram::<u64>::new(3).unwrap();
 
-    for _ in 0..operation_count / config.thread_total() {
+    while let Ok(ts) = global.rx.recv() {
         let key = runner.next_key(&mut rng);
-        match runner.next_operation(&mut rng) {
+        let operation = runner.next_operation(&mut rng);
+        match operation {
             ycsb::Operation::Read => {
-                with::<INLINE, _, _, _>(allocator, index, &key, |value| unsafe {
+                with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
                     let record = value.cast::<Record>().as_ref().unwrap();
                     for field in &record.0 {
                         (field as *const Field).read_volatile();
@@ -196,17 +264,26 @@ fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
             }
             ycsb::Operation::Update => {
                 let field = runner.next_field(&mut rng);
-                with::<INLINE, _, _, _>(allocator, index, &key, |value| unsafe {
+                with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
                     let record = value.cast::<Record>().as_ref().unwrap();
                     record.0[field as usize].value[0].store(1, Ordering::Release);
                 });
             }
             ycsb::Operation::Scan => todo!(),
             ycsb::Operation::Insert => {
-                insert::<INLINE, _, _>(write, allocator, index, &key);
+                insert::<INLINE, _, _>(write, allocator, &global.index, &key);
             }
             ycsb::Operation::ReadModifyWrite => todo!(),
         }
+
+        latency.record(ts.elapsed().as_micros() as u64).unwrap();
+    }
+
+    Data::D {
+        mean: latency.mean() as u64,
+        p50: latency.value_at_quantile(0.5),
+        p90: latency.value_at_quantile(0.9),
+        p99: latency.value_at_quantile(0.99),
     }
 }
 
