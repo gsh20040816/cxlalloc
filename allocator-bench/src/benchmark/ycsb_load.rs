@@ -43,6 +43,11 @@ pub(super) struct Field {
 
 unsafe impl<I> Sync for Global<I> {}
 
+#[derive(Serialize)]
+pub struct Output {
+    time: u128,
+}
+
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad {
     const NAME: &str = "ycsb";
     type StateGlobal = Global<I>;
@@ -52,7 +57,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
 
     type OutputWorker = u128;
     type OutputCoordinator = ();
-    type OutputGlobal = u128;
+    type OutputGlobal = Output;
 
     fn setup_process(
         &self,
@@ -125,7 +130,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
         workers: Vec<Self::OutputWorker>,
     ) -> Self::OutputGlobal {
         let total = workers.iter().sum::<u128>();
-        total / workers.len() as u128
+        let time = total / workers.len() as u128;
+        Output { time }
     }
 }
 

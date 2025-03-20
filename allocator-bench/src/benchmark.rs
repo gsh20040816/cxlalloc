@@ -8,11 +8,12 @@ use serde::Serialize;
 
 use crate::Barrier;
 use crate::Index;
-use crate::Metrics;
+use crate::Output;
 use crate::Perf;
 use crate::allocator;
 use crate::allocator::Backend;
 use crate::config;
+use crate::timeval_as_nanos;
 
 mod thread_test;
 mod xmalloc;
@@ -149,15 +150,17 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                     perf.enable();
                 }
 
+                let before = crate::rusage().unwrap();
                 barrier.wait(1);
                 let output = self.run_coordinator(config, &global, &mut coordinator);
                 barrier.wait(1);
+                let after = crate::rusage().unwrap();
 
                 if let Some(perf) = &mut perf {
                     perf.disable();
                 }
 
-                output
+                (before, output, after)
             });
 
             let output_workers = workers
@@ -166,12 +169,16 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
 
-            let output_coordinator = coordinator.join().unwrap();
+            let (before, output_coordinator, after) = coordinator.join().unwrap();
+
             let output = Self::aggregate(output_coordinator, output_workers);
 
             let mut stdout = std::io::stdout().lock();
-            serde_json::ser::to_writer(&mut stdout, &Metrics {
+            serde_json::ser::to_writer(&mut stdout, &Output {
                 date,
+                max_rss: after.ru_maxrss as u64 * 2u64.pow(10),
+                utime: timeval_as_nanos(after.ru_utime) - timeval_as_nanos(before.ru_utime),
+                stime: timeval_as_nanos(after.ru_stime) - timeval_as_nanos(before.ru_stime),
                 process_id: config.process_id,
                 data: serde_json::to_value(output).unwrap(),
             })

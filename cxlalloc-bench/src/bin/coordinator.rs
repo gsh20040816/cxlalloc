@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
             stdout
                 .trim_ascii()
                 .split(|byte| *byte == b'\n')
-                .map(serde_json::from_slice::<allocator_bench::Metrics>)
+                .map(serde_json::from_slice::<allocator_bench::Output>)
                 .collect::<Vec<_>>()
         })
         .map(Result::unwrap)
