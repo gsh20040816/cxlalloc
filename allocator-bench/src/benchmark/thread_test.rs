@@ -103,7 +103,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
         }
 
         Output {
-            time: start.elapsed().as_micros(),
+            time: start.elapsed().as_nanos(),
         }
     }
 

@@ -109,7 +109,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
                 load::<false, _, _>(self.write, &self.workload, config, allocator, &global.index)
             }
         }
-        start.elapsed().as_micros()
+        start.elapsed().as_nanos()
     }
 
     fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
