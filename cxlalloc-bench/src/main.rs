@@ -165,9 +165,8 @@ fn main() -> anyhow::Result<()> {
                             .process_count(process_count)
                             .thread_count(thread_count)
                             .build(),
-                        config_benchmark: allocator_bench::benchmark::Config::Ycsb(
-                            allocator_bench::benchmark::ycsb::Ycsb::builder()
-                                .load(true)
+                        config_benchmark: allocator_bench::benchmark::Config::YcsbLoad(
+                            allocator_bench::benchmark::YcsbLoad::builder()
                                 .write(write)
                                 .index(
                                     allocator_bench::index::Config::builder()
@@ -182,8 +181,6 @@ fn main() -> anyhow::Result<()> {
                                         .operation_count(*operation_count)
                                         .build(),
                                 )
-                                .throughput(0)
-                                .time(0)
                                 .build(),
                         ),
                     },
@@ -250,8 +247,7 @@ fn main() -> anyhow::Result<()> {
                             .thread_count(thread_count)
                             .build(),
                         config_benchmark: allocator_bench::benchmark::Config::Ycsb(
-                            allocator_bench::benchmark::ycsb::Ycsb::builder()
-                                .load(false)
+                            allocator_bench::benchmark::Ycsb::builder()
                                 .write(write)
                                 .index(
                                     allocator_bench::index::Config::builder()

@@ -16,10 +16,13 @@ use crate::config;
 
 mod thread_test;
 mod xmalloc;
-pub mod ycsb;
+mod ycsb;
+mod ycsb_load;
 
 pub use thread_test::ThreadTest;
 pub use xmalloc::Xmalloc;
+pub use ycsb::Ycsb;
+pub use ycsb_load::YcsbLoad;
 
 pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
     const NAME: &str;
@@ -187,5 +190,6 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 pub enum Config {
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),
+    YcsbLoad(ycsb_load::YcsbLoad),
     Xmalloc(xmalloc::Xmalloc),
 }

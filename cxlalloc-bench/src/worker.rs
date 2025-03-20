@@ -53,6 +53,7 @@ impl Config {
                 self.run_benchmark::<A, I, _>(thread_test)
             }
             benchmark::Config::Ycsb(ycsb) => self.run_benchmark::<A, I, _>(ycsb),
+            benchmark::Config::YcsbLoad(ycsb_load) => self.run_benchmark::<A, I, _>(ycsb_load),
             benchmark::Config::Xmalloc(xmalloc) => self.run_benchmark::<A, I, _>(xmalloc),
         }
     }

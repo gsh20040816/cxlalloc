@@ -1,4 +1,3 @@
-use core::mem;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
@@ -23,11 +22,11 @@ use crate::benchmark;
 use crate::config;
 use crate::index;
 
+use super::ycsb_load::insert;
+use super::ycsb_load::load;
+
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Ycsb {
-    /// Whether to measure loading only (or else running phase only)
-    load: bool,
-
     index: index::Config,
 
     throughput: u64,
@@ -130,10 +129,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         global: &Self::Global,
         allocator: &mut B::Allocator,
     ) -> Self::Worker {
-        if self.load {
-            return;
-        }
-
         match self.index.inline {
             true => {
                 load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
@@ -150,10 +145,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         _global: &Self::Global,
         coordinator: &mut Self::Coordinator,
     ) -> Self::Process {
-        if self.load {
-            todo!()
-        }
-
         let tx = coordinator.tx.take().unwrap();
         let mut count = 0u64;
         let start = Instant::now();
@@ -182,28 +173,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 
     fn run_worker(
         &self,
-        config: &config::Thread,
+        _config: &config::Thread,
         global: &Self::Global,
         _local: &mut Self::Worker,
         allocator: &mut B::Allocator,
     ) -> Self::Thread {
-        if self.load {
-            match self.index.inline {
-                true => {
-                    load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
-                }
-                false => load::<false, _, _>(
-                    self.write,
-                    &self.workload,
-                    config,
-                    allocator,
-                    &global.index,
-                ),
-            }
-
-            todo!()
-        }
-
         let mut runner = self
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
@@ -238,20 +212,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             latency_p90: latency.value_at_quantile(0.9),
             latency_p99: latency.value_at_quantile(0.99),
         }
-    }
-}
-
-fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
-    write: bool,
-    workload: &ycsb::Workload,
-    config: &config::Thread,
-    allocator: &mut A,
-    index: &I,
-) {
-    let mut loader = workload.loader(config.thread_total(), config.thread_id);
-
-    while let Some(key) = loader.next_key() {
-        insert::<INLINE, _, _>(write, allocator, index, &key);
     }
 }
 
@@ -294,42 +254,6 @@ fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
     }
 
     OutputThread { latency }
-}
-
-fn insert<const INLINE: bool, A: Allocator, I: Index<A>>(
-    write: bool,
-    allocator: &mut A,
-    index: &I,
-    key: &ycsb::Key,
-) {
-    const SIZE: usize = mem::size_of::<Record>();
-    match INLINE {
-        true => index.insert(allocator, key.id(), SIZE, |_, pointer| {
-            if write {
-                unsafe {
-                    libc::memset(pointer.cast(), 0xff, SIZE);
-                }
-            }
-        }),
-        false => {
-            let value = allocator.allocate(SIZE).unwrap();
-
-            if write {
-                unsafe {
-                    libc::memset(value.as_ptr(), 0xff, SIZE);
-                }
-            }
-
-            index.insert(
-                allocator,
-                key.id(),
-                mem::size_of::<u64>(),
-                |allocator, pointer| unsafe {
-                    allocator.link(pointer.cast(), &value);
-                },
-            );
-        }
-    }
 }
 
 fn with<const INLINE: bool, A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
