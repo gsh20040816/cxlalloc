@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::Write as _;
 use std::path::PathBuf;
 
+use allocator_bench::allocator::Consistency;
 use anyhow::anyhow;
 use cartesian::cartesian;
 use cartesian::TuplePrepend as _;
@@ -160,6 +161,7 @@ fn main() -> anyhow::Result<()> {
                             .numa(cli.allocator_numa)
                             .size(cli.allocator_size)
                             .populate(allocator_populate)
+                            .consistency(Consistency::None)
                             .build(),
                         config_global: allocator_bench::config::Global::builder()
                             .process_count(process_count)
@@ -241,6 +243,7 @@ fn main() -> anyhow::Result<()> {
                             .numa(cli.allocator_numa)
                             .size(cli.allocator_size)
                             .populate(allocator_populate)
+                            .consistency(Consistency::None)
                             .build(),
                         config_global: allocator_bench::config::Global::builder()
                             .process_count(process_count)
@@ -302,6 +305,7 @@ fn main() -> anyhow::Result<()> {
                                 .numa(0)
                                 .populate(allocator_populate)
                                 .size(cli.allocator_size)
+                                .consistency(Consistency::None)
                                 .build(),
                         )
                         .config_benchmark(allocator_bench::benchmark::Config::Xmalloc(
@@ -342,6 +346,7 @@ fn main() -> anyhow::Result<()> {
                                 .numa(0)
                                 .populate(allocator_populate)
                                 .size(cli.allocator_size)
+                                .consistency(Consistency::None)
                                 .build(),
                         )
                         .config_benchmark(allocator_bench::benchmark::Config::ThreadTest(

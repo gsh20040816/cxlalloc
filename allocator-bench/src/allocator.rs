@@ -19,6 +19,23 @@ pub struct Config {
 
     /// Eagerly populate page tables
     pub populate: bool,
+
+    pub consistency: Consistency,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Consistency {
+    None,
+
+    /// Only sfence
+    Sfence,
+
+    /// Only clflush
+    Clflush,
+
+    /// (clflush or clwb) and sfence
+    Clflushopt,
 }
 
 pub trait Backend: Send + Sync + Sized {
