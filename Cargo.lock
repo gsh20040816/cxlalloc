@@ -542,8 +542,8 @@ dependencies = [
  "crossbeam-channel 0.1.0",
  "crossbeam-epoch",
  "crossbeam-utils 0.8.5",
- "fastrand",
  "memento",
+ "rand 0.9.0",
  "serde",
  "serde_json",
 ]

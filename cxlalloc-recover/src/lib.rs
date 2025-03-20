@@ -19,6 +19,7 @@ pub static CRASH: AtomicU64 = AtomicU64::new(0);
 
 pub static THREAD_COUNT: AtomicU64 = AtomicU64::new(0);
 pub static OBJECT_COUNT: AtomicU64 = AtomicU64::new(0);
+
 pub static CORES: LazyLock<Vec<core_affinity::CoreId>> =
     LazyLock::new(|| core_affinity::get_core_ids().unwrap());
 pub static BLOCK: AtomicBool = AtomicBool::new(false);

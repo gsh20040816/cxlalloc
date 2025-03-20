@@ -12,6 +12,8 @@ use core::time::Duration;
 
 use bon::Builder;
 use rand::RngCore as _;
+use rand::SeedableRng as _;
+use rand::rngs::SmallRng;
 use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
@@ -89,7 +91,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
     const NAME: &str = "xm";
     type StateGlobal = Global;
     type StateCoordinator = ();
-    type StateWorker = rand::rngs::ThreadRng;
+    type StateWorker = SmallRng;
 
     type OutputWorker = OutputWorker;
     type OutputCoordinator = u64;
@@ -136,11 +138,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
 
     fn setup_worker(
         &self,
-        _config: &config::Thread,
+        config: &config::Thread,
         _global: &Self::StateGlobal,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        rand::rng()
+        SmallRng::seed_from_u64(config.thread_id as u64)
     }
 
     fn run_coordinator(

@@ -18,6 +18,11 @@ use memento::pmem::PoolHandle;
 use memento::pmem::RootObj;
 use memento::Collectable;
 use memento::Memento;
+use rand::distr::uniform::UniformFloat;
+use rand::distr::Uniform;
+use rand::rngs::SmallRng;
+use rand::Rng as _;
+use rand::SeedableRng;
 
 use crate::BARRIER;
 use crate::BLOCK;
@@ -48,7 +53,8 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
     fn run(&self, mmt: &mut Mmt, handle: &Handle) {
         core_affinity::set_for_current(CORES[handle.tid % CORES.len()]);
 
-        let mut rng = fastrand::Rng::with_seed(SEED.wrapping_mul(handle.tid as u64));
+        let mut rng = SmallRng::seed_from_u64(SEED.wrapping_mul(handle.tid as u64));
+        let distribution = Uniform::new(8, 1000).unwrap();
 
         let block = BLOCK.load(Ordering::Relaxed);
         let crash_victim = CRASH_VICTIM.load(Ordering::Relaxed);
@@ -94,8 +100,11 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                             (i + 1, {
                                 unsafe {
                                     handle.pool.alloc_layout::<u64>(
-                                        Layout::from_size_align(rng.u16(8..1024) as usize, 8)
-                                            .unwrap(),
+                                        Layout::from_size_align(
+                                            rng.sample(distribution) as usize,
+                                            8,
+                                        )
+                                        .unwrap(),
                                     )
                                 }
                             })

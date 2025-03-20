@@ -34,7 +34,6 @@ env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
     "humantime",
 ] }
-fastrand = "2.1"
 gcollections = "1.5"
 hdrhistogram = "7.5"
 homedir = "0.3"
@@ -48,7 +47,7 @@ mimalloc = "0.1"
 pkg-config = "0.3"
 proptest = "1.0"
 proptest-state-machine = "0.3"
-rand = "0.9"
+rand = { version = "0.9", features = ["small_rng"] }
 rand_distr = "0.5"
 rapidhash = "1.4"
 ribbit = { git = "https://github.com/nwtnni/ribbit.git" }

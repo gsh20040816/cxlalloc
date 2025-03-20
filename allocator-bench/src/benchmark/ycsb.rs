@@ -6,6 +6,8 @@ use std::time::Instant;
 use bon::Builder;
 use crossbeam_channel as mpmc;
 use hdrhistogram::Histogram;
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
@@ -167,7 +169,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 
     fn run_worker(
         &self,
-        _config: &config::Thread,
+        config: &config::Thread,
         global: &Self::StateGlobal,
         _worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
@@ -177,8 +179,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
         match self.index.inline {
-            true => run::<true, _, _>(self.write, &mut runner, allocator, global),
-            false => run::<false, _, _>(self.write, &mut runner, allocator, global),
+            true => run::<true, _, _>(config, self.write, &mut runner, allocator, global),
+            false => run::<false, _, _>(config, self.write, &mut runner, allocator, global),
         }
     }
 
@@ -213,12 +215,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
 }
 
 fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
+    config: &config::Thread,
     write: bool,
     runner: &mut ycsb::Runner,
     allocator: &mut A,
     global: &Global<I>,
 ) -> OutputThread {
-    let mut rng = rand::rng();
+    let mut rng = SmallRng::seed_from_u64(config.thread_id as u64);
     let mut latency = Histogram::<u64>::new(3).unwrap();
 
     while let Ok(ts) = global.rx.recv() {
