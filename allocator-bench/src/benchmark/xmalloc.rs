@@ -74,7 +74,7 @@ pub struct Global {
 }
 
 #[derive(Serialize)]
-pub struct OutputThread {
+pub struct OutputWorker {
     operations: u64,
 }
 
@@ -87,19 +87,19 @@ unsafe impl Sync for Global {}
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc {
     const NAME: &str = "xm";
-    type Global = Global;
-    type Coordinator = ();
-    type Worker = rand::rngs::ThreadRng;
+    type StateGlobal = Global;
+    type StateCoordinator = ();
+    type StateWorker = rand::rngs::ThreadRng;
 
-    type Thread = OutputThread;
-    type Process = u64;
-    type Output = Output;
+    type OutputWorker = OutputWorker;
+    type OutputCoordinator = u64;
+    type OutputGlobal = Output;
 
     fn setup_process(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
-    ) -> Self::Global {
+    ) -> Self::StateGlobal {
         let root = Shm::<Root>::new(Some(allocator.numa), c"xmalloc".to_owned(), false).unwrap();
         let stop = AtomicBool::new(false);
 
@@ -130,25 +130,25 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
     fn setup_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-    ) -> Self::Coordinator {
+        _global: &Self::StateGlobal,
+    ) -> Self::StateCoordinator {
     }
 
     fn setup_worker(
         &self,
         _config: &config::Thread,
-        _global: &Self::Global,
+        _global: &Self::StateGlobal,
         _allocator: &mut B::Allocator,
-    ) -> Self::Worker {
+    ) -> Self::StateWorker {
         rand::rng()
     }
 
     fn run_coordinator(
         &self,
         _: &config::Process,
-        global: &Self::Global,
-        (): &mut Self::Coordinator,
-    ) -> Self::Process {
+        global: &Self::StateGlobal,
+        (): &mut Self::StateCoordinator,
+    ) -> Self::OutputCoordinator {
         std::thread::sleep(Duration::from_secs(self.time));
         global.stop.store(true, Ordering::Relaxed);
         self.time
@@ -157,10 +157,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
     fn run_worker(
         &self,
         config: &config::Thread,
-        global: &Self::Global,
-        rng: &mut Self::Worker,
+        global: &Self::StateGlobal,
+        rng: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
-    ) -> Self::Thread {
+    ) -> Self::OutputWorker {
         // Allocator
         let mut operations = 0;
 
@@ -211,15 +211,18 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
             }
         }
 
-        OutputThread {
+        OutputWorker {
             operations: operations as u64,
         }
     }
 
-    fn aggregate(time: Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
-        let operations = threads
+    fn aggregate(
+        time: Self::OutputCoordinator,
+        workers: Vec<Self::OutputWorker>,
+    ) -> Self::OutputGlobal {
+        let operations = workers
             .iter()
-            .map(|OutputThread { operations }| *operations)
+            .map(|OutputWorker { operations }| *operations)
             .sum::<u64>();
 
         Output {

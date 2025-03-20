@@ -32,20 +32,20 @@ pub struct Output {
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTest {
     const NAME: &str = "tt";
-    type Global = usize;
+    type StateGlobal = usize;
 
-    type Coordinator = ();
-    type Worker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
+    type StateCoordinator = ();
+    type StateWorker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
 
-    type Thread = Output;
-    type Process = ();
-    type Output = Output;
+    type OutputWorker = Output;
+    type OutputCoordinator = ();
+    type OutputGlobal = Output;
 
     fn setup_process(
         &self,
         config: &config::Process,
         _allocator: &allocator::Config,
-    ) -> Self::Global {
+    ) -> Self::StateGlobal {
         let thread_total = config.thread_total();
         assert_eq!(
             self.object_count % thread_total,
@@ -59,34 +59,34 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
     fn setup_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-    ) -> Self::Coordinator {
+        _global: &Self::StateGlobal,
+    ) -> Self::StateCoordinator {
     }
 
     fn setup_worker(
         &self,
         _config: &config::Thread,
-        object_count: &Self::Global,
+        object_count: &Self::StateGlobal,
         _allocator: &mut B::Allocator,
-    ) -> Self::Worker {
+    ) -> Self::StateWorker {
         (0..*object_count).map(|_| None).collect()
     }
 
     fn run_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-        _coordinator: &mut Self::Coordinator,
-    ) -> Self::Process {
+        _global: &Self::StateGlobal,
+        _coordinator: &mut Self::StateCoordinator,
+    ) -> Self::OutputCoordinator {
     }
 
     fn run_worker(
         &self,
         _config: &config::Thread,
-        _: &Self::Global,
-        handles: &mut Self::Worker,
+        _: &Self::StateGlobal,
+        handles: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
-    ) -> Self::Thread {
+    ) -> Self::OutputWorker {
         let start = Instant::now();
 
         for _ in 0..self.iteration_count {
@@ -107,10 +107,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
         }
     }
 
-    fn aggregate((): Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
-        let total = threads.iter().map(|Output { time }| *time).sum::<u128>();
+    fn aggregate(
+        (): Self::OutputCoordinator,
+        workers: Vec<Self::OutputWorker>,
+    ) -> Self::OutputGlobal {
+        let total = workers.iter().map(|Output { time }| *time).sum::<u128>();
         Output {
-            time: total / threads.len() as u128,
+            time: total / workers.len() as u128,
         }
     }
 }

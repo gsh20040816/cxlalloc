@@ -27,52 +27,54 @@ pub use ycsb_load::YcsbLoad;
 pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
     const NAME: &str;
 
-    type Global: Sync;
+    type StateGlobal: Sync;
+    type StateCoordinator;
+    type StateWorker;
 
-    type Coordinator;
-    type Worker;
-
-    type Thread: Send;
-    type Process: Send;
-    type Output: Serialize;
+    type OutputGlobal: Serialize;
+    type OutputWorker: Send;
+    type OutputCoordinator: Send;
 
     fn setup_process(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
-    ) -> Self::Global;
+    ) -> Self::StateGlobal;
 
     fn setup_coordinator(
         &self,
         config: &config::Process,
-        global: &Self::Global,
-    ) -> Self::Coordinator;
+        global: &Self::StateGlobal,
+    ) -> Self::StateCoordinator;
 
     fn setup_worker(
         &self,
         config: &config::Thread,
-        global: &Self::Global,
+        global: &Self::StateGlobal,
         allocator: &mut B::Allocator,
-    ) -> Self::Worker;
+    ) -> Self::StateWorker;
 
     fn run_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-        _coordinator: &mut Self::Coordinator,
-    ) -> Self::Process;
+        _global: &Self::StateGlobal,
+        _coordinator: &mut Self::StateCoordinator,
+    ) -> Self::OutputCoordinator;
 
     fn run_worker(
         &self,
         config: &config::Thread,
-        global: &Self::Global,
-        local: &mut Self::Worker,
+        global: &Self::StateGlobal,
+        worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
-    ) -> Self::Thread;
+    ) -> Self::OutputWorker;
 
-    fn teardown_process(&self, _config: &config::Process, _global: Self::Global) {}
+    fn teardown_process(&self, _config: &config::Process, _global: Self::StateGlobal) {}
 
-    fn aggregate(process: Self::Process, threads: Vec<Self::Thread>) -> Self::Output;
+    fn aggregate(
+        coordinator: Self::OutputCoordinator,
+        workers: Vec<Self::OutputWorker>,
+    ) -> Self::OutputGlobal;
 
     fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
         let thread_count = config.thread_count as u64 + 1;
@@ -126,14 +128,14 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                         core_affinity::set_for_current(cores[core]);
 
                         let mut allocator = backend.allocator(thread_id);
-                        let mut local = self.setup_worker(&config, global, &mut allocator);
+                        let mut worker = self.setup_worker(&config, global, &mut allocator);
 
                         barrier.wait(1);
-                        let data = self.run_worker(&config, global, &mut local, &mut allocator);
+                        let data = self.run_worker(&config, global, &mut worker, &mut allocator);
                         barrier.wait(1);
 
                         drop(allocator);
-                        drop(local);
+                        drop(worker);
                         data
                     });
                     handle

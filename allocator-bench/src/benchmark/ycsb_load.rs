@@ -45,20 +45,20 @@ unsafe impl<I> Sync for Global<I> {}
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad {
     const NAME: &str = "ycsb";
-    type Global = Global<I>;
+    type StateGlobal = Global<I>;
 
-    type Coordinator = ();
-    type Worker = ();
+    type StateCoordinator = ();
+    type StateWorker = ();
 
-    type Thread = u128;
-    type Process = ();
-    type Output = u128;
+    type OutputWorker = u128;
+    type OutputCoordinator = ();
+    type OutputGlobal = u128;
 
     fn setup_process(
         &self,
         _config: &config::Process,
         allocator: &allocator::Config,
-    ) -> Self::Global {
+    ) -> Self::StateGlobal {
         Global {
             index: I::new(
                 Some(allocator.numa),
@@ -73,33 +73,33 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
     fn setup_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-    ) -> Self::Coordinator {
+        _global: &Self::StateGlobal,
+    ) -> Self::StateCoordinator {
     }
 
     fn setup_worker(
         &self,
         _config: &config::Thread,
-        _global: &Self::Global,
+        _global: &Self::StateGlobal,
         _allocator: &mut B::Allocator,
-    ) -> Self::Worker {
+    ) -> Self::StateWorker {
     }
 
     fn run_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-        _coordinator: &mut Self::Coordinator,
-    ) -> Self::Process {
+        _global: &Self::StateGlobal,
+        _coordinator: &mut Self::StateCoordinator,
+    ) -> Self::OutputCoordinator {
     }
 
     fn run_worker(
         &self,
         config: &config::Thread,
-        global: &Self::Global,
-        _local: &mut Self::Worker,
+        global: &Self::StateGlobal,
+        _worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
-    ) -> Self::Thread {
+    ) -> Self::OutputWorker {
         let start = Instant::now();
         match self.index.inline {
             true => {
@@ -112,7 +112,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
         start.elapsed().as_micros()
     }
 
-    fn teardown_process(&self, config: &config::Process, mut global: Self::Global) {
+    fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
         if config.process_id != 0 {
             return;
         }
@@ -120,9 +120,12 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
         global.index.unlink().unwrap();
     }
 
-    fn aggregate((): Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
-        let total = threads.iter().sum::<u128>();
-        total / threads.len() as u128
+    fn aggregate(
+        (): Self::OutputCoordinator,
+        workers: Vec<Self::OutputWorker>,
+    ) -> Self::OutputGlobal {
+        let total = workers.iter().sum::<u128>();
+        total / workers.len() as u128
     }
 }
 

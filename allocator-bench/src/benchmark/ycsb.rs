@@ -1,4 +1,3 @@
-use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 use std::sync::Mutex;
@@ -22,6 +21,8 @@ use crate::benchmark;
 use crate::config;
 use crate::index;
 
+use super::ycsb_load::Field;
+use super::ycsb_load::Record;
 use super::ycsb_load::insert;
 use super::ycsb_load::load;
 
@@ -51,7 +52,13 @@ pub struct Global<I> {
     rx: mpmc::Receiver<Instant>,
 }
 
-struct Record([Field; 10]);
+unsafe impl<I> Sync for Global<I> {}
+
+pub struct Coordinator {
+    interval: Duration,
+    sleeper: SpinSleeper,
+    tx: Option<mpmc::Sender<Instant>>,
+}
 
 pub struct OutputThread {
     latency: Histogram<u64>,
@@ -65,35 +72,22 @@ pub struct Output {
     latency_p99: u64,
 }
 
-#[repr(C)]
-struct Field {
-    value: [AtomicU8; 96],
-}
-
-pub struct Coordinator {
-    interval: Duration,
-    sleeper: SpinSleeper,
-    tx: Option<mpmc::Sender<Instant>>,
-}
-
-unsafe impl<I> Sync for Global<I> {}
-
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     const NAME: &str = "ycsb";
-    type Global = Global<I>;
+    type StateGlobal = Global<I>;
 
-    type Coordinator = Coordinator;
-    type Worker = ();
+    type StateCoordinator = Coordinator;
+    type StateWorker = ();
 
-    type Thread = OutputThread;
-    type Process = ();
-    type Output = Output;
+    type OutputWorker = OutputThread;
+    type OutputCoordinator = ();
+    type OutputGlobal = Output;
 
     fn setup_process(
         &self,
         _config: &config::Process,
         allocator: &allocator::Config,
-    ) -> Self::Global {
+    ) -> Self::StateGlobal {
         let (tx, rx) = mpmc::unbounded();
         Global {
             index: I::new(
@@ -112,8 +106,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     fn setup_coordinator(
         &self,
         config: &config::Process,
-        global: &Self::Global,
-    ) -> Self::Coordinator {
+        global: &Self::StateGlobal,
+    ) -> Self::StateCoordinator {
         Coordinator {
             interval: Duration::from_nanos(
                 10u64.pow(9) * (config.process_count as u64) / self.throughput,
@@ -126,9 +120,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     fn setup_worker(
         &self,
         config: &config::Thread,
-        global: &Self::Global,
+        global: &Self::StateGlobal,
         allocator: &mut B::Allocator,
-    ) -> Self::Worker {
+    ) -> Self::StateWorker {
         match self.index.inline {
             true => {
                 load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
@@ -142,9 +136,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     fn run_coordinator(
         &self,
         _config: &config::Process,
-        _global: &Self::Global,
-        coordinator: &mut Self::Coordinator,
-    ) -> Self::Process {
+        _global: &Self::StateGlobal,
+        coordinator: &mut Self::StateCoordinator,
+    ) -> Self::OutputCoordinator {
         let tx = coordinator.tx.take().unwrap();
         let mut count = 0u64;
         let start = Instant::now();
@@ -174,10 +168,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     fn run_worker(
         &self,
         _config: &config::Thread,
-        global: &Self::Global,
-        _local: &mut Self::Worker,
+        global: &Self::StateGlobal,
+        _worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
-    ) -> Self::Thread {
+    ) -> Self::OutputWorker {
         let mut runner = self
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
@@ -188,7 +182,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         }
     }
 
-    fn teardown_process(&self, config: &config::Process, mut global: Self::Global) {
+    fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
         if config.process_id != 0 {
             return;
         }
@@ -197,8 +191,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         global.acked.unlink().unwrap();
     }
 
-    fn aggregate((): Self::Process, threads: Vec<Self::Thread>) -> Self::Output {
-        let latency = threads.into_iter().fold(
+    fn aggregate(
+        (): Self::OutputCoordinator,
+        workers: Vec<Self::OutputWorker>,
+    ) -> Self::OutputGlobal {
+        let latency = workers.into_iter().fold(
             Histogram::new(3).unwrap(),
             |mut acc, OutputThread { latency }| {
                 acc.add(latency).unwrap();
