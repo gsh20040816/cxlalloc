@@ -4,9 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+arch-gpf = ["cxlalloc/arch-gpf"]
+arch-clwb = ["cxlalloc/arch-clwb"]
+arch-clflushopt = ["cxlalloc/arch-clflushopt"]
+
+backend = ["backend-ivshmem", "backend-shm"]
 backend-shm = ["cxlalloc/backend-shm"]
+backend-ivshmem = ["cxlalloc/backend-ivshmem"]
+
+recover = ["cxlalloc/recover"]
+recover-cas = ["cxlalloc/recover-cas"]
+recover-log = ["cxlalloc/recover-log"]
+
 validate = ["cxlalloc/validate"]
 
 [dependencies]
-cxlalloc = { path = "../cxlalloc" }
+cxlalloc = { path = "../cxlalloc", default-features = false }
 libc.workspace = true

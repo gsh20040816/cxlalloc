@@ -14,8 +14,6 @@ backend-ivshmem = []
 backend-shm = []
 backend = ["backend-ivshmem", "backend-shm"]
 
-extend = []
-
 recover = ["recover-cas", "recover-log"]
 # Enable detectable CAS
 recover-cas = []
