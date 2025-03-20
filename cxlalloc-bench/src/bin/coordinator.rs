@@ -1,10 +1,10 @@
 use std::io;
-use std::io::Write as _;
 
 use cxlalloc_bench::Observation;
 
 fn main() -> anyhow::Result<()> {
     let stdin = io::stdin().lock();
+    let mut stdout = std::io::stdout().lock();
     let config = serde_json::from_reader::<_, cxlalloc_bench::Config>(stdin)?;
     (0..config.config_global.process_count)
         .map(|process_id| {
@@ -40,9 +40,7 @@ fn main() -> anyhow::Result<()> {
             output,
         })
         .for_each(|output| {
-            let mut stdout = std::io::stdout().lock();
             serde_json::to_writer(&mut stdout, &output).unwrap();
-            stdout.write_all(b"\n").unwrap();
         });
 
     Ok(())
