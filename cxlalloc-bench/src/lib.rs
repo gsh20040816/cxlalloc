@@ -12,11 +12,27 @@ use serde::Serialize;
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub config_global: allocator_bench::config::Global,
-    pub config_allocator: allocator_bench::allocator::Config,
-    pub config_benchmark: allocator_bench::benchmark::Config,
+    config_allocator: allocator_bench::allocator::Config,
+    config_benchmark: allocator_bench::benchmark::Config,
+    #[builder(skip)]
+    #[serde(default)]
+    config_cargo: Cargo,
 
-    pub allocator: Allocator,
-    pub index: Index,
+    allocator: Allocator,
+    index: Index,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Cargo {
+    release: bool,
+}
+
+impl Default for Cargo {
+    fn default() -> Self {
+        Self {
+            release: !cfg!(debug_assertions),
+        }
+    }
 }
 
 impl Config {

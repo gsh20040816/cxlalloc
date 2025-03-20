@@ -164,20 +164,24 @@ fn main() -> anyhow::Result<()> {
                 let thread_count = thread_total / process_count;
 
                 cli.run(
-                    &cxlalloc_bench::Config {
-                        allocator,
-                        index,
-                        config_allocator: allocator_bench::allocator::Config::builder()
-                            .numa(cli.allocator_numa)
-                            .size(cli.allocator_size)
-                            .populate(allocator_populate)
-                            .consistency(CONSISTENCY)
-                            .build(),
-                        config_global: allocator_bench::config::Global::builder()
-                            .process_count(process_count)
-                            .thread_count(thread_count)
-                            .build(),
-                        config_benchmark: allocator_bench::benchmark::Config::YcsbLoad(
+                    &cxlalloc_bench::Config::builder()
+                        .allocator(allocator)
+                        .index(index)
+                        .config_allocator(
+                            allocator_bench::allocator::Config::builder()
+                                .numa(cli.allocator_numa)
+                                .size(cli.allocator_size)
+                                .populate(allocator_populate)
+                                .consistency(CONSISTENCY)
+                                .build(),
+                        )
+                        .config_global(
+                            allocator_bench::config::Global::builder()
+                                .process_count(process_count)
+                                .thread_count(thread_count)
+                                .build(),
+                        )
+                        .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
                             allocator_bench::benchmark::YcsbLoad::builder()
                                 .write(write)
                                 .index(
@@ -194,8 +198,8 @@ fn main() -> anyhow::Result<()> {
                                         .build(),
                                 )
                                 .build(),
-                        ),
-                    },
+                        ))
+                        .build(),
                     &mut out,
                 )?;
             }
@@ -246,20 +250,24 @@ fn main() -> anyhow::Result<()> {
                 let thread_count = thread_total / process_count;
 
                 cli.run(
-                    &cxlalloc_bench::Config {
-                        allocator,
-                        index,
-                        config_allocator: allocator_bench::allocator::Config::builder()
-                            .numa(cli.allocator_numa)
-                            .size(cli.allocator_size)
-                            .populate(allocator_populate)
-                            .consistency(CONSISTENCY)
-                            .build(),
-                        config_global: allocator_bench::config::Global::builder()
-                            .process_count(process_count)
-                            .thread_count(thread_count)
-                            .build(),
-                        config_benchmark: allocator_bench::benchmark::Config::Ycsb(
+                    &cxlalloc_bench::Config::builder()
+                        .allocator(allocator)
+                        .index(index)
+                        .config_allocator(
+                            allocator_bench::allocator::Config::builder()
+                                .numa(cli.allocator_numa)
+                                .size(cli.allocator_size)
+                                .populate(allocator_populate)
+                                .consistency(CONSISTENCY)
+                                .build(),
+                        )
+                        .config_global(
+                            allocator_bench::config::Global::builder()
+                                .process_count(process_count)
+                                .thread_count(thread_count)
+                                .build(),
+                        )
+                        .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
                             allocator_bench::benchmark::Ycsb::builder()
                                 .write(write)
                                 .index(
@@ -279,8 +287,8 @@ fn main() -> anyhow::Result<()> {
                                 .throughput(throughput)
                                 .time(*time)
                                 .build(),
-                        ),
-                    },
+                        ))
+                        .build(),
                     &mut out,
                 )?;
             }
