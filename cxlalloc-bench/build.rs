@@ -1,8 +1,19 @@
 use std::env;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
 static OUT: LazyLock<PathBuf> = LazyLock::new(|| env::var("OUT_DIR").map(PathBuf::from).unwrap());
+
+const CONSISTENCY: Option<&str> = if cfg!(feature = "consistency-sfence") {
+    Some("CONSISTENCY_SFENCE")
+} else if cfg!(feature = "consistency-clflush") {
+    Some("CONSISTENCY_CLFLUSH")
+} else if cfg!(feature = "consistency-clflushopt") {
+    Some("CONSISTENCY_CLFLUSHOPT")
+} else {
+    None
+};
 
 fn main() {
     cxlmalloc();
@@ -11,15 +22,29 @@ fn main() {
 }
 
 fn cxlmalloc() {
-    let cxlmalloc = pkg_config::probe_library("cxlmalloc").unwrap();
-    println!("cargo:rustc-link-lib=atomic");
+    let path = Path::new("../extern/sosp-paper19-ae")
+        .canonicalize()
+        .unwrap();
+
+    let mut config = cmake::Config::new(&path);
+
+    if let Some(consistency) = CONSISTENCY {
+        config.cxxflag(format!("-D{}", consistency));
+    }
+
+    let root = config.build_target("cxlmalloc").build();
+    println!("cargo:rustc-link-search=native={}/build", root.display());
+    println!("cargo:rustc-link-lib=static=cxlmalloc");
+
+    // NOTE: rustc-link-lib=static=atomic does *not* work,
+    // presumably because the underlying linker knows where
+    // to find libatomic even if rustc doesn't. Not sure if this
+    // is a NixOS thing, or because libatomic is bundled with
+    // the GCC toolchain (?)
+    println!("cargo:rustc-link-arg=-latomic");
+
     bindgen::Builder::default()
-        .header(
-            cxlmalloc.include_paths[0]
-                .join("cxlmalloc.h")
-                .to_str()
-                .unwrap(),
-        )
+        .header(path.join("include/cxlmalloc.h").to_str().unwrap())
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .clang_args(["-x", "c++"])
         .allowlist_item("cxl_shm")

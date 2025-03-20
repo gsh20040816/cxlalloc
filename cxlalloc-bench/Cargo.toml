@@ -38,5 +38,6 @@ ycsb.path = "../ycsb"
 
 [build-dependencies]
 bindgen.workspace = true
+cmake.workspace = true
 cxx-build.workspace = true
 pkg-config.workspace = true

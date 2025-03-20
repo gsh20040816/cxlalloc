@@ -22,7 +22,6 @@
       let
         overlays = [
           (import rust-overlay)
-          (_: _: { libcxlmalloc = cxlmalloc.packages.${system}.default; })
           (_: _: { liblightning = lightning.packages.${system}.default; })
         ];
         pkgs = import nixpkgs {
@@ -35,7 +34,7 @@
           nativeBuildInputs = [
             boost
             clang
-            libcxlmalloc
+            cmake
             liblightning
             gdb
             libndctl
