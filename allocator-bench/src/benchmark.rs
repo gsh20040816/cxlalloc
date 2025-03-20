@@ -10,10 +10,10 @@ use crate::Barrier;
 use crate::Index;
 use crate::Output;
 use crate::Perf;
+use crate::ResourceUsage;
 use crate::allocator;
 use crate::allocator::Backend;
 use crate::config;
-use crate::timeval_as_nanos;
 
 mod thread_test;
 mod xmalloc;
@@ -150,11 +150,11 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
                     perf.enable();
                 }
 
-                let before = crate::rusage().unwrap();
+                let before = ResourceUsage::new().unwrap();
                 barrier.wait(1);
                 let output = self.run_coordinator(config, &global, &mut coordinator);
                 barrier.wait(1);
-                let after = crate::rusage().unwrap();
+                let after = ResourceUsage::new().unwrap();
 
                 if let Some(perf) = &mut perf {
                     perf.disable();
@@ -176,9 +176,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
             let mut stdout = std::io::stdout().lock();
             serde_json::ser::to_writer(&mut stdout, &Output {
                 date,
-                max_rss: after.ru_maxrss as u64 * 2u64.pow(10),
-                utime: timeval_as_nanos(after.ru_utime) - timeval_as_nanos(before.ru_utime),
-                stime: timeval_as_nanos(after.ru_stime) - timeval_as_nanos(before.ru_stime),
+                resource_usage: after - before,
                 process_id: config.process_id,
                 data: serde_json::to_value(output).unwrap(),
             })
