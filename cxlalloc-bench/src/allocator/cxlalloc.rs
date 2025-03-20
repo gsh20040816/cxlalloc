@@ -15,8 +15,8 @@ impl allocator_bench::allocator::Backend for Backend {
 
     fn open(config: &Config, name: &str) -> io::Result<Self> {
         cxlalloc_global::initialize_process(
-            cxlalloc::raw::Builder::default()
-                .backend(cxlalloc::raw::backend::Shm {
+            cxlalloc_global::Builder::default()
+                .backend(cxlalloc_global::backend::Shm {
                     numa: Some(config.numa),
                     populate: config.populate,
                 })

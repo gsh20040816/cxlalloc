@@ -10,6 +10,9 @@ use cxlalloc::Allocator;
 
 static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
 
+pub use cxlalloc::raw::Builder;
+pub use cxlalloc::raw::backend;
+
 thread_local! {
     static THREAD_ID: Cell<u16> = const { Cell::new(0) };
     static ALLOCATOR: RefCell<cxlalloc::Allocator<'static, (), ()>> = RefCell::new(RAW.get().unwrap().allocator(unsafe {

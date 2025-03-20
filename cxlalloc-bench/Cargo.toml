@@ -18,7 +18,6 @@ anyhow.workspace = true
 bon.workspace = true
 cartesian.workspace = true
 clap.workspace = true
-cxlalloc = { path = "../cxlalloc" }
 cxlalloc-global = { path = "../cxlalloc-global", features = ["backend-shm"] }
 cxx.workspace = true
 duct.workspace = true
