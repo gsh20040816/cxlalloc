@@ -27,7 +27,6 @@ pub struct Backend {
     inner: Arc<sys::LightningAllocator>,
 }
 
-unsafe impl Send for Backend {}
 unsafe impl Sync for Backend {}
 
 pub struct Lightning {

@@ -38,7 +38,7 @@ pub enum Consistency {
     Clflushopt,
 }
 
-pub trait Backend: Send + Sync + Sized {
+pub trait Backend: Sync + Sized {
     type Allocator: Allocator;
     fn create(config: &Config, name: &str) -> io::Result<Self> {
         Self::open(config, name)

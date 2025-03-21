@@ -15,7 +15,6 @@ mod sys {
 
 pub struct Backend(shm::Raw);
 
-unsafe impl Send for Backend {}
 unsafe impl Sync for Backend {}
 
 pub struct CxlShm(sys::cxl_shm);

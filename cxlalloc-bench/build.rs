@@ -19,6 +19,7 @@ fn main() {
     cxlmalloc();
     lightning();
     boost();
+    mimalloc();
 }
 
 fn cxlmalloc() {
@@ -94,4 +95,32 @@ fn boost() {
         .file("src/cpp/boost.cpp")
         .opt_level(3)
         .compile("boost");
+}
+
+fn mimalloc() {
+    let path = Path::new("../extern/mimalloc").canonicalize().unwrap();
+
+    let mut config = cmake::Config::new(&path);
+
+    let root = config
+        .out_dir(OUT.join("mimalloc"))
+        .define("MI_BUILD_SHARED", "OFF")
+        .define("MI_BUILD_OBJECT", "OFF")
+        .define("MI_BUILD_TESTS", "OFF")
+        .build_target("mimalloc-static")
+        .build();
+
+    println!("cargo:rustc-link-search=native={}/build", root.display());
+    println!(
+        "cargo:rustc-link-lib=static=mimalloc{}",
+        if cfg!(debug_assertions) { "-debug" } else { "" },
+    );
+
+    bindgen::Builder::default()
+        .header(path.join("include").join("mimalloc.h").to_str().unwrap())
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .generate()
+        .unwrap()
+        .write_to_file(OUT.join("bind_mimalloc.rs"))
+        .unwrap();
 }

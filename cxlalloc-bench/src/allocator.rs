@@ -4,11 +4,13 @@ pub mod boost;
 pub mod cxl_shm;
 pub mod cxlalloc;
 pub mod lightning;
+pub mod mimalloc;
 
 pub use boost::Boost;
 pub use cxl_shm::CxlShm;
 pub use cxlalloc::Cxlalloc;
 pub use lightning::Lightning;
+pub use mimalloc::Mimalloc;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -22,6 +24,7 @@ pub enum Allocator {
     Cxlalloc,
     CxlShm,
     Lightning,
+    Mimalloc,
 }
 
 impl Display for Allocator {
@@ -31,6 +34,7 @@ impl Display for Allocator {
             Allocator::Cxlalloc => "cxlalloc",
             Allocator::CxlShm => "cxl-shm",
             Allocator::Lightning => "lightning",
+            Allocator::Mimalloc => "mimalloc",
         };
 
         write!(f, "{}", name)

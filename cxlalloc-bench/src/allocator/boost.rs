@@ -47,7 +47,6 @@ pub struct Backend {
 
 pub struct Boost(SharedPtr<sys::ManagedExternalBuffer>);
 
-unsafe impl Send for Backend {}
 unsafe impl Sync for Backend {}
 
 impl allocator_bench::allocator::Backend for Backend {
