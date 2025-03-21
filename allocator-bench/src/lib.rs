@@ -101,14 +101,16 @@ impl Sub for ResourceUsage {
     fn sub(self, rhs: Self) -> Self::Output {
         Self {
             max_rss: self.max_rss.max(rhs.max_rss),
-            user_time: self.user_time - rhs.user_time,
-            system_time: self.system_time - rhs.system_time,
-            minor_fault_count: self.minor_fault_count - rhs.minor_fault_count,
-            major_fault_count: self.major_fault_count - rhs.major_fault_count,
-            voluntary_context_switch_count: self.voluntary_context_switch_count
-                - rhs.voluntary_context_switch_count,
-            involuntary_context_switch_count: self.involuntary_context_switch_count
-                - rhs.involuntary_context_switch_count,
+            user_time: self.user_time.saturating_sub(rhs.user_time),
+            system_time: self.system_time.saturating_sub(rhs.system_time),
+            minor_fault_count: self.minor_fault_count.saturating_sub(rhs.minor_fault_count),
+            major_fault_count: self.major_fault_count.saturating_sub(rhs.major_fault_count),
+            voluntary_context_switch_count: self
+                .voluntary_context_switch_count
+                .saturating_sub(rhs.voluntary_context_switch_count),
+            involuntary_context_switch_count: self
+                .involuntary_context_switch_count
+                .saturating_sub(rhs.involuntary_context_switch_count),
         }
     }
 }
