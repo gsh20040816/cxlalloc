@@ -199,11 +199,15 @@ fn main() -> anyhow::Result<()> {
     match &cli.experiment {
         Experiment::Ycsb(ycsb) => {
             let config_ycsb = ycsb.collect();
+            let total = config.len() * config_ycsb.len();
 
             for (
-                (config_global, allocator, config_allocator),
-                (index, config_index, record_count, operation_count, write),
-            ) in cartesian!(config.iter(), config_ycsb.iter())
+                i,
+                (
+                    (config_global, allocator, config_allocator),
+                    (index, config_index, record_count, operation_count, write),
+                ),
+            ) in cartesian!(config.iter(), config_ycsb.iter()).enumerate()
             {
                 let config = || {
                     cxlalloc_bench::Config::builder()
@@ -215,59 +219,64 @@ fn main() -> anyhow::Result<()> {
 
                 match &ycsb.workload {
                     Workload::Load => {
-                        cli.run(
-                            &config()
-                                .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
-                                    allocator_bench::benchmark::YcsbLoad::builder()
-                                        .write(*write)
-                                        .index(config_index.clone())
-                                        .workload(
-                                            ycsb::Workload::builder()
-                                                .record_count(*record_count)
-                                                .operation_count(*operation_count)
-                                                .build(),
-                                        )
-                                        .build(),
-                                ))
-                                .build(),
-                            &mut out,
-                        )?;
+                        let config = config()
+                            .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
+                                allocator_bench::benchmark::YcsbLoad::builder()
+                                    .write(*write)
+                                    .index(config_index.clone())
+                                    .workload(
+                                        ycsb::Workload::builder()
+                                            .record_count(*record_count)
+                                            .operation_count(*operation_count)
+                                            .build(),
+                                    )
+                                    .build(),
+                            ))
+                            .build();
+
+                        cli.run(&config, i, total, &mut out)?;
                     }
                     Workload::D {
                         time,
                         throughput,
                         insert_proportion,
                     } => {
-                        for (throughput, insert_proportion) in
-                            cartesian!(throughput.iter(), insert_proportion.iter())
+                        let partial = throughput.len() * insert_proportion.len();
+                        let total = total * partial;
+
+                        for (j, (throughput, insert_proportion)) in
+                            cartesian!(throughput.iter(), insert_proportion.iter()).enumerate()
                         {
-                            cli.run(
-                                &config()
-                                    .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
-                                        allocator_bench::benchmark::Ycsb::builder()
-                                            .write(*write)
-                                            .index(config_index.clone())
-                                            .workload(ycsb::Workload {
-                                                record_count: *record_count,
-                                                operation_count: *operation_count,
-                                                insert_proportion: *insert_proportion,
-                                                read_proportion: 1.0 - insert_proportion,
-                                                ..ycsb::workload::D.clone()
-                                            })
-                                            .throughput(*throughput)
-                                            .time(*time)
-                                            .build(),
-                                    ))
-                                    .build(),
-                                &mut out,
-                            )?;
+                            let config = config()
+                                .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
+                                    allocator_bench::benchmark::Ycsb::builder()
+                                        .write(*write)
+                                        .index(config_index.clone())
+                                        .workload(ycsb::Workload {
+                                            record_count: *record_count,
+                                            operation_count: *operation_count,
+                                            insert_proportion: *insert_proportion,
+                                            read_proportion: 1.0 - insert_proportion,
+                                            ..ycsb::workload::D.clone()
+                                        })
+                                        .throughput(*throughput)
+                                        .time(*time)
+                                        .build(),
+                                ))
+                                .build();
+
+                            cli.run(&config, i * partial + j, total, &mut out)?;
                         }
                     }
                 }
             }
         }
         Experiment::Xmalloc => {
-            for (config_global, allocator, config_allocator) in config {
+            let total = config.len();
+
+            for (index, (config_global, allocator, config_allocator)) in
+                config.into_iter().enumerate()
+            {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
                         .allocator(allocator)
@@ -278,12 +287,18 @@ fn main() -> anyhow::Result<()> {
                             allocator_bench::benchmark::Xmalloc::builder().build(),
                         ))
                         .build(),
+                    index,
+                    total,
                     &mut out,
                 )?;
             }
         }
         Experiment::ThreadTest => {
-            for (config_global, allocator, config_allocator) in config {
+            let total = config.len();
+
+            for (index, (config_global, allocator, config_allocator)) in
+                config.into_iter().enumerate()
+            {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
                         .allocator(allocator)
@@ -294,6 +309,8 @@ fn main() -> anyhow::Result<()> {
                             allocator_bench::benchmark::ThreadTest::builder().build(),
                         ))
                         .build(),
+                    index,
+                    total,
                     &mut out,
                 )?;
             }
@@ -304,11 +321,19 @@ fn main() -> anyhow::Result<()> {
 }
 
 impl Cli {
-    fn run(&self, cli: &cxlalloc_bench::Config, out: &mut File) -> anyhow::Result<()> {
+    fn run(
+        &self,
+        config: &cxlalloc_bench::Config,
+        index: usize,
+        total: usize,
+        out: &mut File,
+    ) -> anyhow::Result<()> {
         const EMPTY: [String; 0] = [];
 
+        eprintln!("{}/{}: {:?}", index + 1, total, config);
+
         let handle = duct::cmd(&self.coordinator, EMPTY)
-            .stdin_bytes(serde_json::to_vec(&cli)?)
+            .stdin_bytes(serde_json::to_vec(&config)?)
             .stdout_file(out.try_clone()?)
             .start()?;
         let output = handle.wait()?;
@@ -316,7 +341,7 @@ impl Cli {
         if !output.status.success() {
             return Err(anyhow!(
                 "Command {:?} failed with status code {:?}",
-                cli,
+                config,
                 output.status,
             ));
         }
