@@ -17,6 +17,10 @@ impl From<Invalidate> for bool {
 
 #[inline]
 pub(crate) fn flush<T>(address: &T, invalidate: Invalidate) {
+    if !cfg!(feature = "recover-flush") {
+        return;
+    }
+
     if cfg!(feature = "arch-gpf") {
         return;
     }
@@ -30,7 +34,11 @@ pub(crate) fn flush<T>(address: &T, invalidate: Invalidate) {
 }
 
 #[inline]
-pub(crate) fn clflush(address: *const u8, invalidate: Invalidate) {
+fn clflush(address: *const u8, invalidate: Invalidate) {
+    if !cfg!(feature = "recover-flush") {
+        return;
+    }
+
     unsafe {
         match invalidate {
             Invalidate::No if cfg!(feature = "arch-clwb") => core::arch::asm! {
@@ -50,6 +58,10 @@ pub(crate) fn clflush(address: *const u8, invalidate: Invalidate) {
 
 #[inline]
 pub(crate) fn sfence() {
+    if !cfg!(feature = "recover-flush") {
+        return;
+    }
+
     // CLFLUSH is serializing, so we don't need a fence.
     if cfg!(any(
         feature = "arch-gpf",

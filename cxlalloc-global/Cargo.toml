@@ -14,6 +14,7 @@ backend-ivshmem = ["cxlalloc/backend-ivshmem"]
 
 recover = ["cxlalloc/recover"]
 recover-cas = ["cxlalloc/recover-cas"]
+recover-flush = ["cxlalloc/recover-flush"]
 recover-log = ["cxlalloc/recover-log"]
 
 validate = ["cxlalloc/validate"]

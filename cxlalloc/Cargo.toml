@@ -14,7 +14,8 @@ backend-ivshmem = []
 backend-shm = []
 backend = ["backend-ivshmem", "backend-shm"]
 
-recover = ["recover-cas", "recover-log"]
+recover = ["recover-cas", "recover-flush", "recover-log"]
+recover-flush = []
 # Enable detectable CAS
 recover-cas = []
 # Enable state transition logging
