@@ -36,7 +36,6 @@ env_logger = { version = "0.11", default-features = false, features = [
 ] }
 gcollections = "1.5"
 hdrhistogram = "7.5"
-homedir = "0.3"
 intervallum = "1.4"
 ipc-channel = "0.19"
 libc = "0.2"
@@ -44,7 +43,6 @@ linkme = "0.3"
 log = { version = "0.4", features = ["release_max_level_off"] }
 # log = { version = "0.4" }
 mimalloc = "0.1"
-pkg-config = "0.3"
 proptest = "1.0"
 proptest-state-machine = "0.3"
 rand = { version = "0.9", features = ["small_rng"] }

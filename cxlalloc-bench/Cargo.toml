@@ -29,7 +29,6 @@ clap.workspace = true
 cxlalloc-global = { path = "../cxlalloc-global", features = ["backend-shm"] }
 cxx.workspace = true
 duct.workspace = true
-homedir.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -40,4 +39,3 @@ ycsb.path = "../ycsb"
 bindgen.workspace = true
 cmake.workspace = true
 cxx-build.workspace = true
-pkg-config.workspace = true
