@@ -130,7 +130,7 @@ struct Ycsb {
     index_populate: Vec<bool>,
 
     /// Whether to write value or not
-    #[arg(long, value_delimiter = ',', default_value = "false")]
+    #[arg(long, value_delimiter = ',', default_value = "true")]
     write: Vec<bool>,
 
     #[command(subcommand)]
