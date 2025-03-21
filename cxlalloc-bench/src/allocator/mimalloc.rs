@@ -62,10 +62,15 @@ impl allocator_bench::allocator::Backend for Backend {
         Mimalloc(heap)
     }
 
-    fn unlink(self) -> io::Result<()> {
+    fn unlink(mut self) -> io::Result<()> {
+        self.raw.unlink()?;
+
         // FIXME: the destructor for `shm::Raw` unmaps the memory region,
         // but mimalloc does some cleanup of abandoned segments in a process
         // finalizer that accesses this memory, causing a SEGFAULT.
+        //
+        // We *do* want to unlink so that the shm file is cleaned up
+        // by the OS between benchmark runs.
         std::mem::forget(self.raw);
         Ok(())
     }
