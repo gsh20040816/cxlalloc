@@ -9,6 +9,7 @@ use crate::allocator::cxl_shm;
 use crate::allocator::cxlalloc;
 use crate::allocator::lightning;
 use crate::allocator::mimalloc;
+use crate::allocator::ralloc;
 use crate::Allocator;
 use crate::Index;
 
@@ -34,6 +35,7 @@ impl Config {
             Allocator::CxlShm => self.specialize_index::<cxl_shm::Backend>(),
             Allocator::Lightning => self.specialize_index::<lightning::Backend>(),
             Allocator::Mimalloc => self.specialize_index::<mimalloc::Backend>(),
+            Allocator::Ralloc => self.specialize_index::<ralloc::Backend>(),
         }
     }
 

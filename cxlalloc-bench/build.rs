@@ -5,21 +5,12 @@ use std::sync::LazyLock;
 
 static OUT: LazyLock<PathBuf> = LazyLock::new(|| env::var("OUT_DIR").map(PathBuf::from).unwrap());
 
-const CONSISTENCY: Option<&str> = if cfg!(feature = "consistency-sfence") {
-    Some("CONSISTENCY_SFENCE")
-} else if cfg!(feature = "consistency-clflush") {
-    Some("CONSISTENCY_CLFLUSH")
-} else if cfg!(feature = "consistency-clflushopt") {
-    Some("CONSISTENCY_CLFLUSHOPT")
-} else {
-    None
-};
-
 fn main() {
     cxlmalloc();
     lightning();
     boost();
     mimalloc();
+    ralloc();
 }
 
 fn cxlmalloc() {
@@ -29,8 +20,12 @@ fn cxlmalloc() {
 
     let mut config = cmake::Config::new(&path);
 
-    if let Some(consistency) = CONSISTENCY {
-        config.cxxflag(format!("-D{}", consistency));
+    if cfg!(feature = "consistency-sfence") {
+        config.cxxflag("-DCONSISTENCY_SFENCE");
+    } else if cfg!(feature = "consistency-clflush") {
+        config.cxxflag("-DCONSISTENCY_CLFLUSH");
+    } else if cfg!(feature = "consistency-clflushopt") {
+        config.cxxflag("-DCONSISTENCY_CLFLUSHOPT");
     }
 
     let root = config
@@ -61,7 +56,6 @@ fn cxlmalloc() {
 
 fn lightning() {
     let path = Path::new("../extern/lightning").canonicalize().unwrap();
-
     let root = cmake::Config::new(&path)
         .out_dir(OUT.join("lightning"))
         .build_target("lightning")
@@ -99,10 +93,7 @@ fn boost() {
 
 fn mimalloc() {
     let path = Path::new("../extern/mimalloc").canonicalize().unwrap();
-
-    let mut config = cmake::Config::new(&path);
-
-    let root = config
+    let root = cmake::Config::new(&path)
         .out_dir(OUT.join("mimalloc"))
         .define("MI_BUILD_SHARED", "OFF")
         .define("MI_BUILD_OBJECT", "OFF")
@@ -122,5 +113,52 @@ fn mimalloc() {
         .generate()
         .unwrap()
         .write_to_file(OUT.join("bind_mimalloc.rs"))
+        .unwrap();
+}
+
+fn ralloc() {
+    let path = Path::new("../extern/ralloc").canonicalize().unwrap();
+
+    let mut config = cmake::Config::new(&path);
+
+    if cfg!(feature = "consistency-sfence") {
+        config.cxxflag("-DPWB_IS_CLWB").cxxflag("-DGPF");
+    } else if cfg!(feature = "consistency-clflush") {
+        config.cxxflag("-DPWB_IS_CLFLUSH");
+    } else if cfg!(feature = "consistency-clflushopt") {
+        config.cxxflag("-DPWB_IS_CLWB");
+    } else {
+        config.cxxflag("-DPWB_IS_NOOP");
+    };
+
+    let root = config
+        .out_dir(OUT.join("ralloc"))
+        .build_target("ralloc")
+        .build();
+
+    println!("cargo:rustc-link-search=native={}/build", root.display());
+    println!("cargo:rustc-link-lib=static=ralloc",);
+    println!("cargo:rustc-link-arg=-lnuma");
+
+    let bindgen =
+        bindgen::Builder::default().header(path.join("src").join("ralloc.hpp").to_str().unwrap());
+
+    // FIXME: deduplicate with above?
+    let bindgen = if cfg!(feature = "consistency-sfence") {
+        bindgen.clang_arg("-DPWB_IS_CLWB").clang_arg("-DGPF")
+    } else if cfg!(feature = "consistency-clflush") {
+        bindgen.clang_arg("-DPWB_IS_CLFLUSH")
+    } else if cfg!(feature = "consistency-clflushopt") {
+        bindgen.clang_arg("-DPWB_IS_CLWB")
+    } else {
+        bindgen.clang_arg("-DPWB_IS_NOOP")
+    };
+
+    bindgen
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .allowlist_function("RP.*")
+        .generate()
+        .unwrap()
+        .write_to_file(OUT.join("bind_ralloc.rs"))
         .unwrap();
 }

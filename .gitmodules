@@ -16,3 +16,6 @@
 [submodule "extern/mimalloc"]
 	path = extern/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
+[submodule "extern/ralloc"]
+	path = extern/ralloc
+	url = git@github.com:photoszzt/ralloc.git
