@@ -22,19 +22,28 @@ const CONSISTENCY: Consistency = if cfg!(feature = "consistency-sfence") {
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(short, long, value_delimiter = ',', default_value = "cxlalloc,cxl-shm")]
+    #[arg(
+        short,
+        long,
+        value_delimiter = ',',
+        default_value = "cxlalloc,cxl-shm,boost,lightning"
+    )]
     allocator: Vec<Allocator>,
 
     #[arg(short, long, value_delimiter = ',', default_value = "1")]
     process_count: Vec<usize>,
 
-    #[arg(long, default_value_t = 1)]
-    allocator_numa: usize,
+    #[arg(short, long, value_delimiter = ',', default_value = "40")]
+    thread_total: Vec<usize>,
 
-    #[arg(long, default_value_t = 2usize.pow(35))]
-    allocator_size: usize,
+    #[arg(long, value_delimiter = ',', default_value = "1")]
+    allocator_numa: Vec<usize>,
 
-    #[arg(long, value_delimiter = ',', default_value = "false,true")]
+    // 2^35
+    #[arg(long, value_delimiter = ',', default_value = "34359738368")]
+    allocator_size: Vec<usize>,
+
+    #[arg(long, value_delimiter = ',', default_value = "false")]
     allocator_populate: Vec<bool>,
 
     #[arg(
@@ -51,58 +60,121 @@ struct Cli {
     experiment: Experiment,
 }
 
+impl Cli {
+    fn collect(
+        &self,
+    ) -> Vec<(
+        allocator_bench::config::Global,
+        Allocator,
+        allocator_bench::allocator::Config,
+    )> {
+        cartesian!(
+            self.process_count.iter(),
+            self.thread_total.iter(),
+            self.allocator.iter(),
+            self.allocator_numa.iter(),
+            self.allocator_size.iter(),
+            self.allocator_populate.iter()
+        )
+        .filter_map(
+            |(process_count, thread_total, allocator, numa, size, populate)| {
+                if thread_total % process_count != 0 {
+                    return None;
+                }
+
+                Some((
+                    allocator_bench::config::Global::builder()
+                        .process_count(*process_count)
+                        .thread_count(thread_total / process_count)
+                        .build(),
+                    *allocator,
+                    allocator_bench::allocator::Config::builder()
+                        .numa(*numa)
+                        .size(*size)
+                        .populate(*populate)
+                        .consistency(CONSISTENCY)
+                        .build(),
+                ))
+            },
+        )
+        .collect()
+    }
+}
+
 #[derive(Parser)]
 enum Experiment {
-    Ycsb {
-        #[arg(long, default_value_t = 10_000_000)]
-        record_count: usize,
+    Ycsb(Box<Ycsb>),
+    Xmalloc,
+    ThreadTest,
+}
 
-        #[arg(long, default_value_t = 1_000_000)]
-        operation_count: usize,
+#[derive(Parser)]
+struct Ycsb {
+    #[arg(long, value_delimiter = ',', default_value = "10000000")]
+    record_count: Vec<usize>,
 
-        #[arg(short, long, value_delimiter = ',', default_value = "linear,linked")]
-        index: Vec<Index>,
+    #[arg(long, value_delimiter = ',', default_value = "1000000")]
+    operation_count: Vec<usize>,
 
-        #[arg(long, default_value_t = 1 << 25)]
-        index_len: usize,
+    #[arg(short, long, value_delimiter = ',', default_value = "linked")]
+    index: Vec<Index>,
 
-        #[arg(long, value_delimiter = ',', default_value = "false,true")]
-        index_inline: Vec<bool>,
+    // 2^25
+    #[arg(long, value_delimiter = ',', default_value = "33554432")]
+    index_len: Vec<usize>,
 
-        #[arg(long, value_delimiter = ',', default_value = "false,true")]
-        index_populate: Vec<bool>,
+    #[arg(long, value_delimiter = ',', default_value = "false")]
+    index_inline: Vec<bool>,
 
-        /// Whether to write value or not
-        #[arg(long, value_delimiter = ',', default_value = "false,true")]
-        write: Vec<bool>,
+    #[arg(long, value_delimiter = ',', default_value = "false")]
+    index_populate: Vec<bool>,
 
-        #[command(subcommand)]
-        workload: Workload,
-    },
-    Xmalloc {
-        #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
-        thread_total: Vec<usize>,
-    },
-    ThreadTest {
-        #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
-        thread_total: Vec<usize>,
-    },
+    /// Whether to write value or not
+    #[arg(long, value_delimiter = ',', default_value = "false")]
+    write: Vec<bool>,
+
+    #[command(subcommand)]
+    workload: Workload,
+}
+
+impl Ycsb {
+    fn collect(&self) -> Vec<(Index, allocator_bench::index::Config, usize, usize, bool)> {
+        cartesian!(
+            self.index.iter(),
+            self.index_len.iter(),
+            self.index_inline.iter(),
+            self.index_populate.iter(),
+            self.record_count.iter(),
+            self.operation_count.iter(),
+            self.write.iter()
+        )
+        .map(
+            |(index, len, inline, populate, record_count, operation_count, write)| {
+                (
+                    *index,
+                    allocator_bench::index::Config::builder()
+                        .inline(*inline)
+                        .populate(*populate)
+                        .len(*len)
+                        .build(),
+                    *record_count,
+                    *operation_count,
+                    *write,
+                )
+            },
+        )
+        .collect()
+    }
 }
 
 #[derive(Parser)]
 enum Workload {
-    Load {
-        #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
-        thread_total: Vec<usize>,
-    },
+    Load,
     D {
-        #[arg(short, long, default_value_t = 40)]
-        thread_total: usize,
-
-        #[arg(long, default_value_t = 5)]
+        #[arg(long, default_value_t = 10)]
         time: u64,
 
-        #[arg(long, value_delimiter = ',', default_value = "100,1000,10000,100000")]
+        #[arg(long, value_delimiter = ',', default_value = "10000,100000")]
         throughput: Vec<u64>,
 
         #[arg(
@@ -122,210 +194,86 @@ fn main() -> anyhow::Result<()> {
         .append(true)
         .open(&cli.output)?;
 
+    let config = cli.collect();
+
     match &cli.experiment {
-        Experiment::Ycsb {
-            record_count,
-            operation_count,
-            index,
-            index_len,
-            index_inline,
-            index_populate,
-            write,
-            workload: Workload::Load { thread_total },
-        } => {
+        Experiment::Ycsb(ycsb) => {
+            let config_ycsb = ycsb.collect();
+
             for (
-                &allocator,
-                &allocator_populate,
-                &index,
-                &index_inline,
-                &index_populate,
-                &write,
-                &process_count,
-                &thread_total,
-            ) in cartesian!(
-                cli.allocator.iter(),
-                cli.allocator_populate.iter(),
-                index.iter(),
-                index_inline.iter(),
-                index_populate.iter(),
-                write.iter(),
-                cli.process_count.iter(),
-                thread_total.iter()
-            ) {
-                if thread_total % process_count != 0 {
-                    continue;
+                (config_global, allocator, config_allocator),
+                (index, config_index, record_count, operation_count, write),
+            ) in cartesian!(config.iter(), config_ycsb.iter())
+            {
+                let config = || {
+                    cxlalloc_bench::Config::builder()
+                        .allocator(*allocator)
+                        .index(*index)
+                        .config_allocator(*config_allocator)
+                        .config_global(*config_global)
+                };
+
+                match &ycsb.workload {
+                    Workload::Load => {
+                        cli.run(
+                            &config()
+                                .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
+                                    allocator_bench::benchmark::YcsbLoad::builder()
+                                        .write(*write)
+                                        .index(config_index.clone())
+                                        .workload(
+                                            ycsb::Workload::builder()
+                                                .record_count(*record_count)
+                                                .operation_count(*operation_count)
+                                                .build(),
+                                        )
+                                        .build(),
+                                ))
+                                .build(),
+                            &mut out,
+                        )?;
+                    }
+                    Workload::D {
+                        time,
+                        throughput,
+                        insert_proportion,
+                    } => {
+                        for (throughput, insert_proportion) in
+                            cartesian!(throughput.iter(), insert_proportion.iter())
+                        {
+                            cli.run(
+                                &config()
+                                    .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
+                                        allocator_bench::benchmark::Ycsb::builder()
+                                            .write(*write)
+                                            .index(config_index.clone())
+                                            .workload(ycsb::Workload {
+                                                record_count: *record_count,
+                                                operation_count: *operation_count,
+                                                insert_proportion: *insert_proportion,
+                                                read_proportion: 1.0 - insert_proportion,
+                                                ..ycsb::workload::D.clone()
+                                            })
+                                            .throughput(*throughput)
+                                            .time(*time)
+                                            .build(),
+                                    ))
+                                    .build(),
+                                &mut out,
+                            )?;
+                        }
+                    }
                 }
-
-                eprintln!(
-                    "{:16} | {:3} | {:3}",
-                    allocator, process_count, thread_total,
-                );
-
-                let thread_count = thread_total / process_count;
-
-                cli.run(
-                    &cxlalloc_bench::Config::builder()
-                        .allocator(allocator)
-                        .index(index)
-                        .config_allocator(
-                            allocator_bench::allocator::Config::builder()
-                                .numa(cli.allocator_numa)
-                                .size(cli.allocator_size)
-                                .populate(allocator_populate)
-                                .consistency(CONSISTENCY)
-                                .build(),
-                        )
-                        .config_global(
-                            allocator_bench::config::Global::builder()
-                                .process_count(process_count)
-                                .thread_count(thread_count)
-                                .build(),
-                        )
-                        .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
-                            allocator_bench::benchmark::YcsbLoad::builder()
-                                .write(write)
-                                .index(
-                                    allocator_bench::index::Config::builder()
-                                        .inline(index_inline)
-                                        .populate(index_populate)
-                                        .len(*index_len)
-                                        .build(),
-                                )
-                                .workload(
-                                    ycsb::Workload::builder()
-                                        .record_count(*record_count)
-                                        .operation_count(*operation_count)
-                                        .build(),
-                                )
-                                .build(),
-                        ))
-                        .build(),
-                    &mut out,
-                )?;
             }
         }
-        Experiment::Ycsb {
-            index,
-            record_count,
-            operation_count,
-            index_len,
-            index_inline,
-            index_populate,
-            write,
-            workload:
-                Workload::D {
-                    thread_total,
-                    insert_proportion,
-                    time,
-                    throughput,
-                },
-        } => {
-            for (
-                &allocator,
-                &allocator_populate,
-                &index,
-                &index_inline,
-                &index_populate,
-                &write,
-                &process_count,
-                &insert_proportion,
-                &throughput,
-            ) in cartesian!(
-                cli.allocator.iter(),
-                cli.allocator_populate.iter(),
-                index.iter(),
-                index_inline.iter(),
-                index_populate.iter(),
-                write.iter(),
-                cli.process_count.iter(),
-                insert_proportion.iter(),
-                throughput.iter()
-            ) {
-                if thread_total % process_count != 0 {
-                    continue;
-                }
-
-                eprintln!("{:16} | {:8?} | {:4}", allocator, index, insert_proportion);
-
-                let thread_count = thread_total / process_count;
-
-                cli.run(
-                    &cxlalloc_bench::Config::builder()
-                        .allocator(allocator)
-                        .index(index)
-                        .config_allocator(
-                            allocator_bench::allocator::Config::builder()
-                                .numa(cli.allocator_numa)
-                                .size(cli.allocator_size)
-                                .populate(allocator_populate)
-                                .consistency(CONSISTENCY)
-                                .build(),
-                        )
-                        .config_global(
-                            allocator_bench::config::Global::builder()
-                                .process_count(process_count)
-                                .thread_count(thread_count)
-                                .build(),
-                        )
-                        .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
-                            allocator_bench::benchmark::Ycsb::builder()
-                                .write(write)
-                                .index(
-                                    allocator_bench::index::Config::builder()
-                                        .len(*index_len)
-                                        .inline(index_inline)
-                                        .populate(index_populate)
-                                        .build(),
-                                )
-                                .workload(ycsb::Workload {
-                                    record_count: *record_count,
-                                    operation_count: *operation_count,
-                                    insert_proportion,
-                                    read_proportion: 1.0 - insert_proportion,
-                                    ..ycsb::workload::D.clone()
-                                })
-                                .throughput(throughput)
-                                .time(*time)
-                                .build(),
-                        ))
-                        .build(),
-                    &mut out,
-                )?;
-            }
-        }
-        Experiment::Xmalloc { thread_total } => {
-            for (&allocator, &allocator_populate, &process_count, &thread_total) in cartesian!(
-                cli.allocator.iter(),
-                cli.allocator_populate.iter(),
-                cli.process_count.iter(),
-                thread_total.iter()
-            ) {
-                if thread_total % process_count != 0 {
-                    continue;
-                }
-
-                eprintln!("xmalloc | {:16}", allocator);
-
-                let thread_count = thread_total / process_count;
-
+        Experiment::Xmalloc => {
+            for (config_global, allocator, config_allocator) in config {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
                         .allocator(allocator)
                         .index(Index::Linear)
-                        .config_global(
-                            allocator_bench::config::Global::builder()
-                                .process_count(process_count)
-                                .thread_count(thread_count)
-                                .build(),
-                        )
-                        .config_allocator(
-                            allocator_bench::allocator::Config::builder()
-                                .numa(0)
-                                .populate(allocator_populate)
-                                .size(cli.allocator_size)
-                                .consistency(CONSISTENCY)
-                                .build(),
-                        )
+                        .config_global(config_global)
+                        .config_allocator(config_allocator)
                         .config_benchmark(allocator_bench::benchmark::Config::Xmalloc(
                             allocator_bench::benchmark::Xmalloc::builder().build(),
                         ))
@@ -334,39 +282,14 @@ fn main() -> anyhow::Result<()> {
                 )?;
             }
         }
-        Experiment::ThreadTest { thread_total } => {
-            for (&allocator, &allocator_populate, &process_count, &thread_total) in cartesian!(
-                cli.allocator.iter(),
-                cli.allocator_populate.iter(),
-                cli.process_count.iter(),
-                thread_total.iter()
-            ) {
-                if thread_total % process_count != 0 {
-                    continue;
-                }
-
-                eprintln!("thread-test | {:16}", allocator);
-
-                let thread_count = thread_total / process_count;
-
+        Experiment::ThreadTest => {
+            for (config_global, allocator, config_allocator) in config {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
                         .allocator(allocator)
                         .index(Index::Linear)
-                        .config_global(
-                            allocator_bench::config::Global::builder()
-                                .process_count(process_count)
-                                .thread_count(thread_count)
-                                .build(),
-                        )
-                        .config_allocator(
-                            allocator_bench::allocator::Config::builder()
-                                .numa(0)
-                                .populate(allocator_populate)
-                                .size(cli.allocator_size)
-                                .consistency(CONSISTENCY)
-                                .build(),
-                        )
+                        .config_global(config_global)
+                        .config_allocator(config_allocator)
                         .config_benchmark(allocator_bench::benchmark::Config::ThreadTest(
                             allocator_bench::benchmark::ThreadTest::builder().build(),
                         ))
