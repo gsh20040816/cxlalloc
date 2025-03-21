@@ -46,6 +46,7 @@ unsafe impl<I> Sync for Global<I> {}
 #[derive(Serialize)]
 pub struct Output {
     time: u128,
+    throughput: u64,
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad {
@@ -56,7 +57,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
     type StateWorker = ();
 
     type OutputWorker = u128;
-    type OutputCoordinator = ();
+    type OutputCoordinator = u64;
     type OutputGlobal = Output;
 
     fn setup_process(
@@ -96,6 +97,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
         _global: &Self::StateGlobal,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
+        self.workload.record_count as u64
     }
 
     fn run_worker(
@@ -126,12 +128,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for YcsbLoad
     }
 
     fn aggregate(
-        (): Self::OutputCoordinator,
+        record_count: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
     ) -> Self::OutputGlobal {
         let total = workers.iter().sum::<u128>();
         let time = total / workers.len() as u128;
-        Output { time }
+        let throughput = (record_count as f64 / time as f64 * 1e9) as u64;
+        Output { time, throughput }
     }
 }
 
