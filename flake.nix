@@ -9,20 +9,13 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
-    cxlmalloc = {
-      url = "github:nwtnni/sosp-paper19-ae";
-    };
-    lightning = {
-      url = "github:nwtnni/lightning";
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, cxlmalloc, lightning }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [
           (import rust-overlay)
-          (_: _: { liblightning = lightning.packages.${system}.default; })
         ];
         pkgs = import nixpkgs {
           inherit system overlays;
@@ -35,7 +28,6 @@
             boost
             clang
             cmake
-            liblightning
             gdb
             libndctl
             linuxPackages_latest.perf

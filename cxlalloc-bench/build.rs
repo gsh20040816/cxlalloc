@@ -32,7 +32,11 @@ fn cxlmalloc() {
         config.cxxflag(format!("-D{}", consistency));
     }
 
-    let root = config.build_target("cxlmalloc").build();
+    let root = config
+        .out_dir(OUT.join("cxlmalloc"))
+        .build_target("cxlmalloc")
+        .build();
+
     println!("cargo:rustc-link-search=native={}/build", root.display());
     println!("cargo:rustc-link-lib=static=cxlmalloc");
 
@@ -55,14 +59,18 @@ fn cxlmalloc() {
 }
 
 fn lightning() {
-    let lightning = pkg_config::probe_library("lightning").unwrap();
+    let path = Path::new("../extern/lightning").canonicalize().unwrap();
+
+    let root = cmake::Config::new(&path)
+        .out_dir(OUT.join("lightning"))
+        .build_target("lightning")
+        .build();
+
+    println!("cargo:rustc-link-search=native={}/build", root.display());
+    println!("cargo:rustc-link-lib=static=lightning");
+
     bindgen::Builder::default()
-        .header(
-            lightning.include_paths[0]
-                .join("allocator.h")
-                .to_str()
-                .unwrap(),
-        )
+        .header(path.join("inc").join("allocator.h").to_str().unwrap())
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .clang_args(["-x", "c++"])
         .allowlist_item("LightningAllocator")
