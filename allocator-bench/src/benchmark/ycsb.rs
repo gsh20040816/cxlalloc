@@ -144,6 +144,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         let tx = coordinator.tx.take().unwrap();
         let mut count = 0u64;
         let start = Instant::now();
+        let stop = self.time as u128 * 10u128.pow(9);
         let mut ts = start;
 
         loop {
@@ -153,7 +154,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             let next = ts + coordinator.interval;
             coordinator.sleeper.sleep_until(next);
 
-            if next.saturating_duration_since(start).as_secs() > self.time {
+            if next.saturating_duration_since(start).as_nanos() >= stop {
                 break;
             } else {
                 ts = next;
