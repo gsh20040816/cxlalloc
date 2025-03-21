@@ -13,3 +13,6 @@
 [submodule "extern/sosp-paper19-ae"]
 	path = extern/sosp-paper19-ae
 	url = git@github.com:nwtnni/sosp-paper19-ae.git
+[submodule "extern/mimalloc"]
+	path = extern/mimalloc
+	url = https://github.com/microsoft/mimalloc.git
