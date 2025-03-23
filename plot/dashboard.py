@@ -1,7 +1,7 @@
 import sys
 
 import dash
-from dash import Dash, html, dcc, Input, Output, callback
+from dash import Dash, html, dcc, Input, State, Output, callback
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import polars as pl
@@ -114,6 +114,8 @@ def main():
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )
     app.layout = [
+        # https://community.plotly.com/t/is-there-a-way-to-trigger-load-on-initial-page-load-only-and-not-every-time-a-change-is-made-to-the-page/57504/4
+        html.Div(id="init"),
         dbc.Row(html.H1(sys.argv[1])),
         dbc.Row(html.Hr()),
         dbc.Row(
@@ -153,16 +155,21 @@ def unique(selector):
 
 
 @callback(
-    Output({"type": TYPE_STORE, "index": dash.MATCH}, "data"),
-    Output({"type": TYPE_COL, "index": dash.MATCH}, "value"),
-    Input({"type": TYPE_STORE, "index": dash.MATCH}, "data"),
-    Input({"type": TYPE_COL, "index": dash.MATCH}, "value"),
+    Output({"type": TYPE_COL, "index": dash.ALL}, "value"),
+    Input(component_id="init", component_property="children"),
+    State({"type": TYPE_STORE, "index": dash.ALL}, "data"),
 )
-def sync_store(store, ui):
-    if ui is None:
-        return store, store
-    else:
-        return ui, ui
+def init_store(_, store):
+    return store
+
+
+@callback(
+    Output({"type": TYPE_STORE, "index": dash.MATCH}, "data"),
+    Input({"type": TYPE_COL, "index": dash.MATCH}, "value"),
+    prevent_initial_call=True,
+)
+def sync_store(ui):
+    return ui
 
 
 @callback(
@@ -239,6 +246,7 @@ def update(
         facet_col=facet_column.name if facet_column is not None else None,
         color=facet_color.name if facet_color is not None else None,
         markers=True,
+        log_y=True,
     )
 
     fig.update_xaxes(title_text=x.name, tickvals=filtered[x.name].unique())
