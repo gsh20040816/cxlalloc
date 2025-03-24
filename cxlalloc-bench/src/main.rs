@@ -49,7 +49,11 @@ struct Cli {
     #[arg(
         short,
         long,
-        default_value = "target/release/cxlalloc-bench-coordinator"
+        default_value = if cfg!(debug_assertions) {
+            "target/debug/cxlalloc-bench-coordinator"
+        } else {
+            "target/release/cxlalloc-bench-coordinator"
+        }
     )]
     coordinator: PathBuf,
 
