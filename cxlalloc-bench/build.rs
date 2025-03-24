@@ -98,6 +98,7 @@ fn mimalloc() {
         .define("MI_BUILD_SHARED", "OFF")
         .define("MI_BUILD_OBJECT", "OFF")
         .define("MI_BUILD_TESTS", "OFF")
+        .define("MI_OVERRIDE", "OFF")
         .build_target("mimalloc-static")
         .build();
 
