@@ -15,11 +15,11 @@ use crate::config;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct ThreadTest {
-    #[builder(default = 50)]
-    pub(crate) iteration_count: usize,
+    #[builder(default = 100)]
+    pub(crate) iteration_count: u64,
 
-    #[builder(default = 30_000)]
-    pub(crate) object_count: usize,
+    #[builder(default = 100_000)]
+    pub(crate) object_count: u64,
 
     #[builder(default = 8)]
     pub(crate) object_size: usize,
@@ -28,6 +28,7 @@ pub struct ThreadTest {
 #[derive(Serialize)]
 pub struct Output {
     time: u128,
+    throughput: u64,
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTest {
@@ -37,8 +38,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
     type StateCoordinator = ();
     type StateWorker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
 
-    type OutputWorker = Output;
-    type OutputCoordinator = ();
+    type OutputWorker = u128;
+    type OutputCoordinator = u64;
     type OutputGlobal = Output;
 
     fn setup_process(
@@ -48,12 +49,12 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
     ) -> Self::StateGlobal {
         let thread_total = config.thread_total();
         assert_eq!(
-            self.object_count % thread_total,
+            self.object_count as usize % thread_total,
             0,
             "Object count should be multiple of total thread count"
         );
 
-        self.object_count / thread_total
+        self.object_count as usize / thread_total
     }
 
     fn setup_coordinator(
@@ -78,6 +79,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
         _global: &Self::StateGlobal,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
+        self.object_count * self.iteration_count * 2
     }
 
     fn run_worker(
@@ -102,18 +104,19 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTe
             }
         }
 
-        Output {
-            time: start.elapsed().as_nanos(),
-        }
+        start.elapsed().as_nanos()
     }
 
     fn aggregate(
-        (): Self::OutputCoordinator,
+        count: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
     ) -> Self::OutputGlobal {
-        let total = workers.iter().map(|Output { time }| *time).sum::<u128>();
+        let total = workers.iter().copied().sum::<u128>();
+        let time = total / workers.len() as u128;
+        let throughput = (count as f64 / time as f64) * 1e9;
         Output {
-            time: total / workers.len() as u128,
+            time,
+            throughput: throughput as u64,
         }
     }
 }
