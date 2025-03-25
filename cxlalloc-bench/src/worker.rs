@@ -53,6 +53,7 @@ impl Config {
         &self,
     ) {
         match self.config_benchmark.clone() {
+            benchmark::Config::Mstress(mstress) => self.run_benchmark::<A, I, _>(mstress),
             benchmark::Config::ThreadTest(thread_test) => {
                 self.run_benchmark::<A, I, _>(thread_test)
             }

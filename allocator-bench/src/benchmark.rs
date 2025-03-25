@@ -15,11 +15,13 @@ use crate::allocator;
 use crate::allocator::Backend;
 use crate::config;
 
+mod mstress;
 mod thread_test;
 mod xmalloc;
 mod ycsb;
 mod ycsb_load;
 
+pub use mstress::Mstress;
 pub use thread_test::ThreadTest;
 pub use xmalloc::Xmalloc;
 pub use ycsb::Ycsb;
@@ -195,6 +197,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case", tag = "name")]
 pub enum Config {
+    Mstress(Mstress),
     ThreadTest(thread_test::ThreadTest),
     Ycsb(ycsb::Ycsb),
     YcsbLoad(ycsb_load::YcsbLoad),

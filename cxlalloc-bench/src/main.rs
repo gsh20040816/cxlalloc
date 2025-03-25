@@ -108,6 +108,7 @@ impl Cli {
 #[derive(Parser)]
 enum Experiment {
     Ycsb(Box<Ycsb>),
+    Mstress,
     Xmalloc,
     ThreadTest {
         #[arg(long, value_delimiter = ',', default_value = "100")]
@@ -210,6 +211,23 @@ fn main() -> anyhow::Result<()> {
     let config = cli.collect();
 
     match &cli.experiment {
+        Experiment::Mstress => {
+            let total = config.len();
+            for (i, (config_global, allocator, config_allocator)) in config.into_iter().enumerate()
+            {
+                let config = cxlalloc_bench::Config::builder()
+                    .allocator(allocator)
+                    .index(Index::Linked)
+                    .config_allocator(config_allocator)
+                    .config_global(config_global)
+                    .config_benchmark(allocator_bench::benchmark::Config::Mstress(
+                        allocator_bench::benchmark::Mstress::builder().build(),
+                    ))
+                    .build();
+
+                cli.run(&config, i, total, &mut out)?;
+            }
+        }
         Experiment::Ycsb(ycsb) => {
             let config_ycsb = ycsb.collect();
             let total = config.len() * config_ycsb.len();
