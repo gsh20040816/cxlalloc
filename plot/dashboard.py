@@ -29,8 +29,8 @@ CHOICES_INDEPENDENT = [
 CHOICES_DEPENDENT = [
     {"label": label, "value": value}
     for label, value in [
-        ("Set as Y-axis", "y"),
-        ("Ignore", "ignore"),
+        ("Show", "y"),
+        ("Hide", "ignore"),
     ]
 ]
 
@@ -66,7 +66,7 @@ def main():
                         col.store(),
                         dbc.Col(html.Span(col.name)),
                         dbc.Col(
-                            dcc.Dropdown(CHOICES_DEPENDENT, id=col.id()),
+                            dcc.RadioItems(CHOICES_DEPENDENT, id=col.id(), inline=True),
                         ),
                     ]
                 )
@@ -125,7 +125,7 @@ def main():
                 dbc.Col(ui_dependent),
             ]
         ),
-        dcc.Graph(figure={}, id=ID_FIGURE),
+        html.Div(id=ID_FIGURE),
     ]
     app.run(debug=True)
 
@@ -173,7 +173,7 @@ def sync_store(ui):
 
 
 @callback(
-    Output(component_id=ID_FIGURE, component_property="figure"),
+    Output(component_id=ID_FIGURE, component_property="children"),
     Input({"type": TYPE_STORE, "index": dash.ALL}, "modified_timestamp"),
     dash.State({"type": TYPE_STORE, "index": dash.ALL}, "data"),
 )
@@ -185,7 +185,7 @@ def update(
         raise dash.exceptions.PreventUpdate
 
     x = None
-    y = None
+    ys = []
     facet_row = None
     facet_column = None
     facet_color = None
@@ -198,9 +198,7 @@ def update(
                 return {}
             x = col
         elif value == "y":
-            if y is not None:
-                return {}
-            y = col
+            ys.append(col)
         elif value == "facet_row":
             if facet_row is not None:
                 return {}
@@ -218,40 +216,45 @@ def update(
         elif value is not None:
             filters.append(col.selector == value)
 
-    if x is None or y is None:
+    if x is None or len(ys) == 0:
         raise dash.exceptions.PreventUpdate
 
-    filtered = DF.filter(*filters) if len(filters) > 0 else DF
+    children = []
 
-    sorts = [x.name]
-    cols = [
-        x.selector.first().alias(x.name),
-        y.selector.mean().alias(f"{y.name}_mean"),
-        y.selector.std().alias(f"{y.name}_std"),
-    ]
+    for y in ys:
+        filtered = DF.filter(*filters) if len(filters) > 0 else DF
 
-    for col in [v for v in [facet_row, facet_column, facet_color] if v is not None]:
-        sorts.append(col.name)
-        if col.name not in filtered.columns:
-            cols.append(col.selector.first().alias(col.name))
+        sorts = [x.name]
+        cols = [
+            x.selector.first().alias(x.name),
+            y.selector.mean().alias(f"{y.name}_mean"),
+            y.selector.std().alias(f"{y.name}_std"),
+        ]
 
-    filtered = filtered.group_by(cs.exclude("output")).agg(cols).sort(sorts)
+        for col in [v for v in [facet_row, facet_column, facet_color] if v is not None]:
+            sorts.append(col.name)
+            if col.name not in filtered.columns:
+                cols.append(col.selector.first().alias(col.name))
 
-    fig = px.line(
-        filtered,
-        x=x.name,
-        y=f"{y.name}_mean",
-        error_y=f"{y.name}_std",
-        facet_row=facet_row.name if facet_row is not None else None,
-        facet_col=facet_column.name if facet_column is not None else None,
-        color=facet_color.name if facet_color is not None else None,
-        markers=True,
-        log_y=True,
-    )
+        filtered = filtered.group_by(cs.exclude("output")).agg(cols).sort(sorts)
 
-    fig.update_xaxes(title_text=x.name, tickvals=filtered[x.name].unique())
-    fig.update_yaxes(title_text=y.name, autorangeoptions_include=0.0)
-    return fig
+        fig = px.line(
+            filtered,
+            x=x.name,
+            y=f"{y.name}_mean",
+            error_y=f"{y.name}_std",
+            facet_row=facet_row.name if facet_row is not None else None,
+            facet_col=facet_column.name if facet_column is not None else None,
+            color=facet_color.name if facet_color is not None else None,
+            markers=True,
+            # log_y=True,
+        )
+
+        fig.update_xaxes(title_text=x.name, tickvals=filtered[x.name].unique())
+        fig.update_yaxes(title_text=y.name, autorangeoptions_include=0.0)
+        children.append(dcc.Graph(figure=fig))
+
+    return children
 
 
 if __name__ == "__main__":
