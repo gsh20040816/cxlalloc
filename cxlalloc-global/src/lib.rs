@@ -88,6 +88,7 @@ fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::
     }
 }
 
+#[inline]
 fn with<F: FnOnce(&mut Allocator<'static, (), ()>) -> T, T>(apply: F) -> T {
     ALLOCATOR.with_borrow_mut(|allocator| apply(allocator))
 }
