@@ -6,10 +6,9 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::allocator;
+use crate::cache;
 use crate::cas;
 use crate::cas::help;
-use crate::coherence::flush;
-use crate::coherence::Invalidate;
 use crate::crash;
 use crate::data;
 use crate::raw::region;
@@ -539,7 +538,7 @@ where
             };
 
             slabs.local(prev).next.store(next);
-            flush(slabs.local(prev), Invalidate::No);
+            cache::flush(slabs.local(prev), cache::Invalidate::No);
         };
 
         stat::record(context.id, stat::Event::SizedToUnsized { class });

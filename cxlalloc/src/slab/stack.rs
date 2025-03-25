@@ -2,10 +2,9 @@ use core::marker::PhantomData;
 
 use crate::allocator;
 use crate::atomic::Version;
+use crate::cache;
 use crate::cas;
 use crate::cas::help;
-use crate::coherence::flush;
-use crate::coherence::Invalidate;
 use crate::recover;
 use crate::recover::HeapState;
 use crate::size;
@@ -32,14 +31,14 @@ impl<B> Local<B> {
     pub(crate) fn set(&mut self, head: Option<Index<B>>, count: usize) {
         self.count = count;
         self.head = head;
-        flush(&self, Invalidate::No);
+        cache::flush(&self, cache::Invalidate::No);
     }
 
     pub(crate) fn pop(&mut self, slabs: &Slab<B>) -> Option<Index<B>> {
         let index = self.head?;
         self.count -= 1;
         self.head = slabs.locals[index].next.load();
-        flush(self, Invalidate::No);
+        cache::flush(self, cache::Invalidate::No);
         Some(index)
     }
 
@@ -50,11 +49,11 @@ impl<B> Local<B> {
 
         let slab = &slabs.locals[index];
         slab.next.store(self.head);
-        flush(&slab.next, Invalidate::No);
+        cache::flush(&slab.next, cache::Invalidate::No);
 
         self.count += 1;
         self.head = Some(index);
-        flush(&self.head, Invalidate::No);
+        cache::flush(&self.head, cache::Invalidate::No);
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slab<B>) -> impl Iterator<Item = Index<B>> + 'a {
@@ -83,7 +82,7 @@ where
         self.head
             .update(context, |old, version| {
                 slabs.locals[tail].next.store(old);
-                flush(&slabs.locals[tail].next, Invalidate::No);
+                cache::flush(&slabs.locals[tail].next, cache::Invalidate::No);
                 Some((
                     Some(head),
                     recover::LocalToGlobal::new(head, version).into(),

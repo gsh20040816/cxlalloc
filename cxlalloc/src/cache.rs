@@ -57,7 +57,7 @@ fn clflush(address: *const u8, invalidate: Invalidate) {
 }
 
 #[inline]
-pub(crate) fn sfence() {
+pub(crate) fn fence() {
     if !cfg!(feature = "recover-flush") {
         return;
     }

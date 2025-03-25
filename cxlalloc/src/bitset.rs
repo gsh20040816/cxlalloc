@@ -2,8 +2,7 @@ use core::fmt::Debug;
 
 use ribbit::private::u6;
 
-use crate::coherence::flush;
-use crate::coherence::Invalidate;
+use crate::cache;
 
 #[repr(C, align(8))]
 pub(crate) struct BitSet<const SIZE: usize> {
@@ -44,7 +43,7 @@ impl<const SIZE: usize> BitSet<SIZE> {
             .for_each(|row| *row = 0);
 
         self.count = count;
-        flush(self, Invalidate::No);
+        cache::flush(self, cache::Invalidate::No);
         self.validate();
     }
 
@@ -64,10 +63,10 @@ impl<const SIZE: usize> BitSet<SIZE> {
         }
 
         *cols |= 1 << col;
-        flush(cols, Invalidate::No);
+        cache::flush(cols, cache::Invalidate::No);
         self.count += 1;
         self.sparse |= 1 << row;
-        flush(&self.count, Invalidate::No);
+        cache::flush(&self.count, cache::Invalidate::No);
         self.validate();
     }
 
@@ -81,10 +80,10 @@ impl<const SIZE: usize> BitSet<SIZE> {
         }
 
         *cols &= !(1 << col);
-        flush(cols, Invalidate::No);
+        cache::flush(cols, cache::Invalidate::No);
         self.count -= 1;
         self.sparse &= !((*cols == 0) as u64) << row;
-        flush(&self.count, Invalidate::No);
+        cache::flush(&self.count, cache::Invalidate::No);
         self.validate();
     }
 

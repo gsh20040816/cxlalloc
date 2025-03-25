@@ -1,9 +1,7 @@
 use crate::allocator;
 use crate::atomic::Convert64;
 use crate::atomic::Version;
-use crate::coherence::flush;
-use crate::coherence::sfence;
-use crate::coherence::Invalidate;
+use crate::cache;
 use crate::recover;
 use crate::recover::HeapState;
 use crate::thread;
@@ -49,8 +47,8 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
             context.help[context.id].prepare(version);
 
             // Must wait for persistence
-            flush(&context.help[context.id], Invalidate::No);
-            sfence();
+            cache::flush(&context.help[context.id], cache::Invalidate::No);
+            cache::fence();
         }
 
         loop {
@@ -79,7 +77,7 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
         if let Some(id) = state.id() {
             let version = state.version();
             if help[id].must_help(version) {
-                flush(&self.0, Invalidate::No);
+                cache::flush(&self.0, cache::Invalidate::No);
                 // Notify is a CAS, which will serialize the flush
                 help[id].help(version);
             }
@@ -122,7 +120,7 @@ impl Help {
             .0
             .compare_exchange(Inner::new(version, false), Inner::new(version, true));
 
-        flush(self, Invalidate::No);
+        cache::flush(self, cache::Invalidate::No);
     }
 }
 

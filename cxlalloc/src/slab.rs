@@ -18,9 +18,8 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::allocator;
+use crate::cache;
 use crate::cas::Detectable;
-use crate::coherence::flush;
-use crate::coherence::Invalidate;
 use crate::data;
 use crate::size;
 use crate::thread;
@@ -64,7 +63,7 @@ impl<'raw, B> Slab<'raw, B> {
         ) {
             let next = &self.locals[i].next;
             next.store(j);
-            flush(next, Invalidate::No);
+            cache::flush(next, cache::Invalidate::No);
         }
     }
 

@@ -14,9 +14,7 @@ use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 
 use crate::allocator;
-use crate::coherence::flush;
-use crate::coherence::sfence;
-use crate::coherence::Invalidate;
+use crate::cache;
 use crate::data;
 use crate::raw::region;
 use crate::raw::Backend;
@@ -119,8 +117,8 @@ impl<'raw> Huge<'raw> {
                     if let Some(prev) = self.peek(data, id) {
                         unsafe {
                             crate::Box::link(&mut out.next, prev);
-                            flush(out, Invalidate::No);
-                            sfence();
+                            cache::flush(out, cache::Invalidate::No);
+                            cache::fence();
                         }
                     }
 
@@ -152,7 +150,7 @@ impl<'raw> Huge<'raw> {
             },
         );
         descriptor.free.store(true, Ordering::Relaxed);
-        flush(&descriptor.free, Invalidate::Yes);
+        cache::flush(&descriptor.free, cache::Invalidate::Yes);
     }
 
     pub(crate) fn class(
