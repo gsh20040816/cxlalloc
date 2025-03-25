@@ -1,5 +1,7 @@
 use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
+use core::sync::atomic::AtomicU64;
+use core::sync::atomic::Ordering;
 use std::ffi::CString;
 use std::io;
 
@@ -65,6 +67,11 @@ impl allocator_bench::Allocator for CxlShm {
     }
 
     unsafe fn deallocate(&mut self, _: Self::Handle) {}
+
+    unsafe fn unlink(&mut self, pointer: *mut u64) {
+        let offset = AtomicU64::from_ptr(pointer).load(Ordering::Relaxed);
+        self.0.unlink_reference(pointer, offset)
+    }
 
     unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64 {
         let address = sys::CXLRef_s_get_addr(handle as *const Self::Handle as *mut _);
