@@ -62,7 +62,7 @@ pub trait Allocator: Sized {
     }
 
     unsafe fn unlink(&mut self, pointer: *mut u64) {
-        let offset = AtomicU64::from_ptr(pointer).load(Ordering::Relaxed);
+        let offset = unsafe { AtomicU64::from_ptr(pointer) }.load(Ordering::Relaxed);
         let Some(handle) = self.offset_to_handle(offset) else {
             return;
         };
