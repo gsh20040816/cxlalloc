@@ -196,12 +196,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
                     continue;
                 };
 
-                let batch = unsafe { handle.as_ptr().cast::<Batch>().as_ref().unwrap() };
+                let batch = unsafe { handle.as_ptr().cast::<Batch>().as_mut().unwrap() };
 
-                for offset in batch.objects {
-                    let handle = allocator.offset_to_handle(offset).unwrap();
+                for offset in &mut batch.objects {
                     unsafe {
-                        allocator.deallocate(handle);
+                        allocator.unlink(offset);
                     }
                 }
 
