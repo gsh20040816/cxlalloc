@@ -273,7 +273,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
 
                         unsafe {
                             handle.as_ptr().cast::<u64>().write(value_size);
-                            libc::memset(handle.as_ptr(), 0xff, value_size as usize);
+                            libc::memset(handle.as_ptr().byte_add(8), 0xff, value_size as usize);
                         }
 
                         global.index.insert(

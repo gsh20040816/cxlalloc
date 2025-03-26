@@ -57,7 +57,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
 
         let pointer_next = handle_node.as_ptr().cast::<u64>();
         let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
-        let pointer_value = unsafe { handle_node.as_ptr().byte_add(8 + len).cast::<u8>() };
+        let pointer_value = unsafe { handle_node.as_ptr().byte_add(8 + 8).cast::<u8>() };
 
         unsafe {
             allocator.link(pointer_key, &handle_key);
