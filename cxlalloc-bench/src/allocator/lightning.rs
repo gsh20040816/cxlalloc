@@ -122,6 +122,11 @@ impl allocator_bench::Allocator for Lightning {
     }
 
     fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
-        NonNull::new(unsafe { LightningAllocator_OffsetToPointer(self.as_ptr(), offset as i64) })
+        match offset {
+            0 => None,
+            offset => NonNull::new(unsafe {
+                LightningAllocator_OffsetToPointer(self.as_ptr(), offset as i64)
+            }),
+        }
     }
 }

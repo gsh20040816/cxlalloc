@@ -106,7 +106,12 @@ impl allocator_bench::Allocator for Boost {
     }
 
     fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
-        unsafe { NonNull::new(sys::managed_handle_to_address(self.inner(), offset).cast()) }
+        match offset {
+            0 => None,
+            _ => unsafe {
+                NonNull::new(sys::managed_handle_to_address(self.inner(), offset).cast())
+            },
+        }
     }
 }
 

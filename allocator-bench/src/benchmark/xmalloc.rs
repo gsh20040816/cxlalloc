@@ -302,6 +302,13 @@ impl Global {
         {
             let next = unsafe { pointer.cast::<Batch>().as_ref().next };
 
+            // HACK: only cxl-shm needs to decrement reference count here
+            if std::any::type_name::<A>().contains("cxl_shm") {
+                unsafe {
+                    allocator.unlink(root.head.as_ptr());
+                }
+            }
+
             root.head.store(next, Ordering::Relaxed);
             root.len
                 .store(root.len.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
