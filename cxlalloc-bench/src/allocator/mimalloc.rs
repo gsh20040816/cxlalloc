@@ -49,6 +49,11 @@ impl allocator_bench::allocator::Backend for Backend {
             arena.assume_init()
         };
 
+        unsafe {
+            let heap = sys::mi_heap_new_ex(0xff, false, arena);
+            sys::mi_heap_set_default(heap);
+        }
+
         Ok(Self { raw, arena })
     }
 
