@@ -61,6 +61,7 @@ struct Batch {
     objects: [u64; OBJECTS_PER_BATCH],
 }
 
+#[repr(C)]
 struct Root {
     lock: libc::pthread_mutex_t,
     empty: libc::pthread_cond_t,
@@ -222,6 +223,14 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
         OutputWorker {
             operations: operations as u64,
         }
+    }
+
+    fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
+        if config.process_id != 0 {
+            return;
+        }
+
+        global.root.unlink().unwrap();
     }
 
     fn aggregate(
