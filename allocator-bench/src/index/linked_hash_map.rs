@@ -21,7 +21,7 @@ pub struct LinkedHashMap {
     raw: shm::Raw,
 }
 
-impl<A: Allocator> Index<A> for LinkedHashMap {
+impl<A: Allocator> Index<A, u64> for LinkedHashMap {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
             len,

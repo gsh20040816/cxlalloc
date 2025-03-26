@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+use core::ops::Deref;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 use std::sync::Mutex;
@@ -31,7 +33,7 @@ use super::ycsb_load::insert;
 use super::ycsb_load::load;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
-pub struct Ycsb {
+pub struct Config {
     index: index::Config,
 
     throughput: Option<u64>,
@@ -43,6 +45,27 @@ pub struct Ycsb {
 
     #[serde(flatten)]
     workload: ycsb::Workload,
+}
+
+pub struct Ycsb<A: Allocator, I: Index<A, u64>> {
+    config: Config,
+    _index: PhantomData<fn() -> (A, I)>,
+}
+
+impl<A: Allocator, I: Index<A, u64>> Ycsb<A, I> {
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            _index: PhantomData,
+        }
+    }
+}
+
+impl<A: Allocator, I: Index<A, u64>> Deref for Ycsb<A, I> {
+    type Target = Config;
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
 }
 
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
@@ -78,7 +101,7 @@ pub struct Output {
     latency_p99: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
+impl<B: Backend, I: Index<B::Allocator, u64>> benchmark::Benchmark<B> for Ycsb<B::Allocator, I> {
     const NAME: &str = "ycsb";
     type StateGlobal = Global<I>;
 
@@ -243,8 +266,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     }
 }
 
-impl Ycsb {
-    fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
+impl Config {
+    fn run<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
         &self,
         config: &config::Thread,
         runner: &mut ycsb::Runner,
@@ -303,7 +326,7 @@ impl Ycsb {
     }
 }
 
-fn with<const INLINE: bool, A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
+fn with<const INLINE: bool, A: Allocator, I: Index<A, u64>, F: FnOnce(*const u8)>(
     allocator: &mut A,
     index: &I,
     key: &ycsb::Key,

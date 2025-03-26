@@ -5,6 +5,7 @@ use bon::Builder;
 pub use linear_hash_map::LinearHashMap;
 pub use linked_hash_map::LinkedHashMap;
 
+use core::hash::Hash;
 use std::io;
 
 use serde::Deserialize;
@@ -24,10 +25,11 @@ pub struct Config {
     pub(crate) populate: bool,
 }
 
-pub trait Index<A>
+pub trait Index<A, K>
 where
     Self: Sized,
     A: Allocator,
+    K: Hash + PartialEq,
 {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self>;
 

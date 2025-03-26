@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Allocator;
-use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
 use crate::allocator::Handle as _;
@@ -30,7 +29,7 @@ pub struct Output {
     time: u128,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Mstress {
+impl<B: Backend> benchmark::Benchmark<B> for Mstress {
     const NAME: &str = "ms";
     type StateGlobal = ();
 

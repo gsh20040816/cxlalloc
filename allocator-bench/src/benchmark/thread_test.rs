@@ -7,7 +7,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Allocator;
-use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
 use crate::benchmark;
@@ -31,7 +30,7 @@ pub struct Output {
     throughput: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for ThreadTest {
+impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
     const NAME: &str = "tt";
     type StateGlobal = usize;
 

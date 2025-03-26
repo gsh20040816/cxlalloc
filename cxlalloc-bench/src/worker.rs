@@ -47,27 +47,25 @@ impl Config {
     }
 
     fn specialize_benchmark<
-        A: allocator_bench::allocator::Backend,
-        I: allocator_bench::index::Index<A::Allocator>,
+        B: allocator_bench::allocator::Backend,
+        I: allocator_bench::index::Index<B::Allocator, u64>,
     >(
         &self,
     ) {
         match self.config_benchmark.clone() {
-            benchmark::Config::Mstress(mstress) => self.run_benchmark::<A, I, _>(mstress),
-            benchmark::Config::ThreadTest(thread_test) => {
-                self.run_benchmark::<A, I, _>(thread_test)
-            }
-            benchmark::Config::Ycsb(ycsb) => self.run_benchmark::<A, I, _>(ycsb),
-            benchmark::Config::YcsbLoad(ycsb_load) => self.run_benchmark::<A, I, _>(ycsb_load),
-            benchmark::Config::Xmalloc(xmalloc) => self.run_benchmark::<A, I, _>(xmalloc),
+            benchmark::Config::Mstress(mstress) => self.run_benchmark::<B, _>(mstress),
+            benchmark::Config::ThreadTest(thread_test) => self.run_benchmark::<B, _>(thread_test),
+            benchmark::Config::Ycsb(ycsb) => self.run_benchmark::<B, _>(
+                allocator_bench::benchmark::Ycsb::<B::Allocator, I>::new(ycsb),
+            ),
+            benchmark::Config::YcsbLoad(ycsb_load) => self.run_benchmark::<B, _>(
+                allocator_bench::benchmark::YcsbLoad::<B::Allocator, I>::new(ycsb_load),
+            ),
+            benchmark::Config::Xmalloc(xmalloc) => self.run_benchmark::<B, _>(xmalloc),
         }
     }
 
-    fn run_benchmark<
-        A: allocator_bench::allocator::Backend,
-        I: allocator_bench::index::Index<A::Allocator>,
-        B: benchmark::Benchmark<A, I>,
-    >(
+    fn run_benchmark<A: allocator_bench::allocator::Backend, B: benchmark::Benchmark<A>>(
         &self,
         benchmark: B,
     ) {

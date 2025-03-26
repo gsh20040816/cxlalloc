@@ -254,7 +254,7 @@ fn main() -> anyhow::Result<()> {
                     Workload::Load => {
                         let config = config()
                             .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
-                                allocator_bench::benchmark::YcsbLoad::builder()
+                                allocator_bench::benchmark::ycsb_load::Config::builder()
                                     .write(*write)
                                     .index(config_index.clone())
                                     .workload(
@@ -288,7 +288,7 @@ fn main() -> anyhow::Result<()> {
                         {
                             let config = config()
                                 .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
-                                    allocator_bench::benchmark::Ycsb::builder()
+                                    allocator_bench::benchmark::ycsb::Config::builder()
                                         .write(*write)
                                         .index(config_index.clone())
                                         .workload(ycsb::Workload {

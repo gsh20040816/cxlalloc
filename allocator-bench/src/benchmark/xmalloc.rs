@@ -19,7 +19,6 @@ use serde::Serialize;
 use shm::Shm;
 
 use crate::Allocator;
-use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
 use crate::allocator::Handle;
@@ -88,7 +87,7 @@ pub struct Output {
 
 unsafe impl Sync for Global {}
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc {
+impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     const NAME: &str = "xm";
     type StateGlobal = Global;
     type StateCoordinator = ();

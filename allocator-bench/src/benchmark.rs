@@ -7,7 +7,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Barrier;
-use crate::Index;
 use crate::Output;
 use crate::Perf;
 use crate::ResourceUsage;
@@ -18,8 +17,8 @@ use crate::config;
 mod mstress;
 mod thread_test;
 mod xmalloc;
-mod ycsb;
-mod ycsb_load;
+pub mod ycsb;
+pub mod ycsb_load;
 
 pub use mstress::Mstress;
 pub use thread_test::ThreadTest;
@@ -27,7 +26,7 @@ pub use xmalloc::Xmalloc;
 pub use ycsb::Ycsb;
 pub use ycsb_load::YcsbLoad;
 
-pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
+pub trait Benchmark<B: Backend>: Sync {
     const NAME: &str;
 
     type StateGlobal: Sync;
@@ -199,7 +198,7 @@ pub trait Benchmark<B: Backend, I: Index<B::Allocator>>: Sync {
 pub enum Config {
     Mstress(Mstress),
     ThreadTest(thread_test::ThreadTest),
-    Ycsb(ycsb::Ycsb),
-    YcsbLoad(ycsb_load::YcsbLoad),
+    Ycsb(ycsb::Config),
+    YcsbLoad(ycsb_load::Config),
     Xmalloc(xmalloc::Xmalloc),
 }

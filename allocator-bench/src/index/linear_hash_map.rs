@@ -18,7 +18,7 @@ pub struct LinearHashMap {
     raw: shm::Raw,
 }
 
-impl<A: Allocator> Index<A> for LinearHashMap {
+impl<A: Allocator> Index<A, u64> for LinearHashMap {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
             len,
