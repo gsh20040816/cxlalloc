@@ -153,6 +153,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Xmalloc 
     ) -> Self::OutputCoordinator {
         std::thread::sleep(Duration::from_secs(self.time));
         global.stop.store(true, Ordering::Relaxed);
+
+        unsafe {
+            let root = global.root.address_mut();
+            libc::pthread_cond_broadcast(addr_of_mut!((*root).empty));
+            libc::pthread_cond_broadcast(addr_of_mut!((*root).full));
+        }
+
         self.time
     }
 
