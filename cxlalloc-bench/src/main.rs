@@ -143,45 +143,32 @@ struct Ycsb {
     index_len: Vec<usize>,
 
     #[arg(long, value_delimiter = ',', default_value = "false")]
-    index_inline: Vec<bool>,
-
-    #[arg(long, value_delimiter = ',', default_value = "false")]
     index_populate: Vec<bool>,
-
-    /// Whether to write value or not
-    #[arg(long, value_delimiter = ',', default_value = "true")]
-    write: Vec<bool>,
 
     #[command(subcommand)]
     workload: Workload,
 }
 
 impl Ycsb {
-    fn collect(&self) -> Vec<(Index, allocator_bench::index::Config, usize, usize, bool)> {
+    fn collect(&self) -> Vec<(Index, allocator_bench::index::Config, usize, usize)> {
         cartesian!(
             self.index.iter(),
             self.index_len.iter(),
-            self.index_inline.iter(),
             self.index_populate.iter(),
             self.record_count.iter(),
-            self.operation_count.iter(),
-            self.write.iter()
+            self.operation_count.iter()
         )
-        .map(
-            |(index, len, inline, populate, record_count, operation_count, write)| {
-                (
-                    *index,
-                    allocator_bench::index::Config::builder()
-                        .inline(*inline)
-                        .populate(*populate)
-                        .len(*len)
-                        .build(),
-                    *record_count,
-                    *operation_count,
-                    *write,
-                )
-            },
-        )
+        .map(|(index, len, populate, record_count, operation_count)| {
+            (
+                *index,
+                allocator_bench::index::Config::builder()
+                    .populate(*populate)
+                    .len(*len)
+                    .build(),
+                *record_count,
+                *operation_count,
+            )
+        })
         .collect()
     }
 }
@@ -230,7 +217,6 @@ fn main() -> anyhow::Result<()> {
                         allocator_bench::benchmark::memcached::Config::builder()
                             .index(
                                 allocator_bench::index::Config::builder()
-                                    .inline(false)
                                     .populate(false)
                                     .len(1 << 25)
                                     .build(),
@@ -269,7 +255,7 @@ fn main() -> anyhow::Result<()> {
                 i,
                 (
                     (config_global, allocator, config_allocator),
-                    (index, config_index, record_count, operation_count, write),
+                    (index, config_index, record_count, operation_count),
                 ),
             ) in cartesian!(config.iter(), config_ycsb.iter()).enumerate()
             {
@@ -286,7 +272,6 @@ fn main() -> anyhow::Result<()> {
                         let config = config()
                             .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
                                 allocator_bench::benchmark::ycsb_load::Config::builder()
-                                    .write(*write)
                                     .index(config_index.clone())
                                     .workload(
                                         ycsb::Workload::builder()
@@ -320,7 +305,6 @@ fn main() -> anyhow::Result<()> {
                             let config = config()
                                 .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
                                     allocator_bench::benchmark::ycsb::Config::builder()
-                                        .write(*write)
                                         .index(config_index.clone())
                                         .workload(ycsb::Workload {
                                             record_count: *record_count,

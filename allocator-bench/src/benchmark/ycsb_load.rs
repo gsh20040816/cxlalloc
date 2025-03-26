@@ -12,7 +12,6 @@ use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
-use crate::allocator::Handle as _;
 use crate::benchmark;
 use crate::config;
 use crate::index;
@@ -20,9 +19,6 @@ use crate::index;
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     index: index::Config,
-
-    /// Whether to write value
-    write: bool,
 
     #[serde(flatten)]
     workload: ycsb::Workload,
@@ -131,14 +127,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
         let start = Instant::now();
-        match self.index.inline {
-            true => {
-                load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
-            }
-            false => {
-                load::<false, _, _>(self.write, &self.workload, config, allocator, &global.index)
-            }
-        }
+        load(&self.workload, config, allocator, &global.index);
         start.elapsed().as_nanos()
     }
 
@@ -161,8 +150,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
     }
 }
 
-pub(super) fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
-    write: bool,
+pub(super) fn load<A: Allocator, I: Index<A>>(
     workload: &ycsb::Workload,
     config: &config::Thread,
     allocator: &mut A,
@@ -171,42 +159,13 @@ pub(super) fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
     let mut loader = workload.loader(config.thread_total(), config.thread_id);
 
     while let Some(key) = loader.next_key() {
-        insert::<INLINE, _, _>(write, allocator, index, &key);
+        insert::<_, _>(allocator, index, &key);
     }
 }
 
-pub(super) fn insert<const INLINE: bool, A: Allocator, I: Index<A>>(
-    write: bool,
-    allocator: &mut A,
-    index: &I,
-    key: &ycsb::Key,
-) {
+pub(super) fn insert<A: Allocator, I: Index<A>>(allocator: &mut A, index: &I, key: &ycsb::Key) {
     const SIZE: usize = mem::size_of::<Record>();
-    match INLINE {
-        true => index.insert(allocator, &key.id().to_ne_bytes(), SIZE, |_, pointer| {
-            if write {
-                unsafe {
-                    libc::memset(pointer.cast(), 0xff, SIZE);
-                }
-            }
-        }),
-        false => {
-            let value = allocator.allocate(SIZE).unwrap();
-
-            if write {
-                unsafe {
-                    libc::memset(value.as_ptr(), 0xff, SIZE);
-                }
-            }
-
-            index.insert(
-                allocator,
-                &key.id().to_ne_bytes(),
-                mem::size_of::<u64>(),
-                |allocator, pointer| unsafe {
-                    allocator.link(pointer.cast(), &value);
-                },
-            );
-        }
-    }
+    index.insert(allocator, &key.id().to_ne_bytes(), SIZE, |pointer| unsafe {
+        libc::memset(pointer.cast(), 0xff, SIZE);
+    });
 }

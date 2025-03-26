@@ -1,7 +1,5 @@
 use core::marker::PhantomData;
-use core::mem;
 use core::ops::Deref;
-use std::collections::HashSet;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -216,8 +214,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
-        let mut unique = HashSet::new();
-
         let start = Instant::now();
 
         for batch in &mut worker.reader {
@@ -257,31 +253,18 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                                 assert!(value.iter().all(|byte| *byte == 0xff));
                             });
                     }
-                    "set" if value_size == 0 => global.index.insert(
-                        allocator,
-                        key.as_bytes(),
-                        mem::size_of::<u64>(),
-                        |_, pointer| unsafe { pointer.cast::<u64>().write(0) },
-                    ),
+                    "set" if value_size == 0 => {
+                        global.index.insert(allocator, key.as_bytes(), 0, |_| ())
+                    }
                     "set" => {
                         // FIXME: handle collision
-                        if unique.insert(key.to_string()) {
-                            continue;
-                        }
-
-                        let handle = allocator.allocate(8 + value_size as usize).unwrap();
-
-                        unsafe {
-                            handle.as_ptr().cast::<u64>().write(value_size);
-                            libc::memset(handle.as_ptr().byte_add(8), 0xff, value_size as usize);
-                        }
-
                         global.index.insert(
                             allocator,
                             key.as_bytes(),
-                            mem::size_of::<u64>(),
-                            |allocator, pointer| unsafe {
-                                allocator.link(pointer.cast(), &handle);
+                            8 + value_size as usize,
+                            |pointer| unsafe {
+                                pointer.cast::<u64>().write(value_size);
+                                libc::memset(pointer.byte_add(8).cast(), 0xff, value_size as usize);
                             },
                         )
                     }

@@ -30,20 +30,18 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         })
     }
 
-    fn insert<F: FnOnce(&mut A, *mut u8)>(
-        &self,
-        allocator: &mut A,
-        key: &[u8],
-        size: usize,
-        with: F,
-    ) {
+    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: &[u8], size: usize, with: F) {
         let view = self.view();
         let index = self.index(&key);
 
         let len = key.len();
 
-        let handle_key = allocator.allocate(8 + len).unwrap();
+        let handle_node = allocator.allocate(24).unwrap();
+        let pointer_next = handle_node.as_ptr().cast::<u64>();
+        let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
+        let pointer_value = unsafe { handle_node.as_ptr().byte_add(16).cast::<u64>() };
 
+        let handle_key = allocator.allocate(8 + len).unwrap();
         unsafe {
             let pointer_key = handle_key.as_ptr();
             pointer_key.cast::<usize>().write(len);
@@ -52,16 +50,20 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
                 .cast::<u8>()
                 .copy_from_nonoverlapping(key.as_ptr(), len);
         }
-
-        let handle_node = allocator.allocate(8 + 8 + size).unwrap();
-
-        let pointer_next = handle_node.as_ptr().cast::<u64>();
-        let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
-        let pointer_value = unsafe { handle_node.as_ptr().byte_add(8 + 8).cast::<u8>() };
-
         unsafe {
             allocator.link(pointer_key, &handle_key);
-            with(allocator, pointer_value);
+        }
+
+        if size > 0 {
+            let handle_value = allocator.allocate(size).unwrap();
+            with(handle_value.as_ptr().cast::<u8>());
+            unsafe {
+                allocator.link(pointer_value, &handle_value);
+            }
+        } else {
+            unsafe {
+                pointer_value.write(0);
+            }
         }
 
         let head = &view[index];

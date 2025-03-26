@@ -14,9 +14,6 @@ use crate::Allocator;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    /// Whether to inline the value into index entries (or else allocate separately)
-    pub(crate) inline: bool,
-
     /// Size of hash map backing array
     pub(crate) len: usize,
 
@@ -33,13 +30,7 @@ where
 
     fn unlink(&mut self) -> io::Result<()>;
 
-    fn insert<F: FnOnce(&mut A, *mut u8)>(
-        &self,
-        allocator: &mut A,
-        key: &[u8],
-        size: usize,
-        with: F,
-    );
+    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: &[u8], size: usize, with: F);
 
     fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool;
 }

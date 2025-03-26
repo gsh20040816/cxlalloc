@@ -40,9 +40,6 @@ pub struct Config {
 
     time: u64,
 
-    /// Whether to write value
-    write: bool,
-
     #[serde(flatten)]
     workload: ycsb::Workload,
 }
@@ -152,14 +149,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
         global: &Self::StateGlobal,
         allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        match self.index.inline {
-            true => {
-                load::<true, _, _>(self.write, &self.workload, config, allocator, &global.index)
-            }
-            false => {
-                load::<false, _, _>(self.write, &self.workload, config, allocator, &global.index)
-            }
-        }
+        load(&self.workload, config, allocator, &global.index)
     }
 
     fn run_coordinator(
@@ -214,10 +204,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
             .workload
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
-        match self.index.inline {
-            true => self.run::<true, _, _>(config, &mut runner, allocator, global),
-            false => self.run::<false, _, _>(config, &mut runner, allocator, global),
-        }
+        self.run(config, &mut runner, allocator, global)
     }
 
     fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
@@ -267,7 +254,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
 }
 
 impl Config {
-    fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
+    fn run<A: Allocator, I: Index<A>>(
         &self,
         config: &config::Thread,
         runner: &mut ycsb::Runner,
@@ -293,24 +280,22 @@ impl Config {
             let key = runner.next_key(&mut rng);
             let operation = runner.next_operation(&mut rng);
             match operation {
-                ycsb::Operation::Read => {
-                    with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
-                        let record = value.cast::<Record>().as_ref().unwrap();
-                        for field in &record.0 {
-                            (field as *const Field).read_volatile();
-                        }
-                    })
-                }
+                ycsb::Operation::Read => with(allocator, &global.index, &key, |value| unsafe {
+                    let record = value.cast::<Record>().as_ref().unwrap();
+                    for field in &record.0 {
+                        (field as *const Field).read_volatile();
+                    }
+                }),
                 ycsb::Operation::Update => {
                     let field = runner.next_field(&mut rng);
-                    with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
+                    with(allocator, &global.index, &key, |value| unsafe {
                         let record = value.cast::<Record>().as_ref().unwrap();
                         record.0[field as usize].value[0].store(1, Ordering::Release);
                     });
                 }
                 ycsb::Operation::Scan => todo!(),
                 ycsb::Operation::Insert => {
-                    insert::<INLINE, _, _>(self.write, allocator, &global.index, &key);
+                    insert(allocator, &global.index, &key);
                 }
                 ycsb::Operation::ReadModifyWrite => todo!(),
             }
@@ -326,24 +311,16 @@ impl Config {
     }
 }
 
-fn with<const INLINE: bool, A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
+fn with<A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
     allocator: &mut A,
     index: &I,
     key: &ycsb::Key,
     with: F,
 ) {
-    match INLINE {
-        true => {
-            let found = index.get(allocator, &key.id().to_ne_bytes(), |_, value| with(value));
-            assert!(found);
-        }
-        false => {
-            let found = index.get(allocator, &key.id().to_ne_bytes(), |allocator, pointer| {
-                let offset = unsafe { pointer.cast::<u64>().read() };
-                let handle = allocator.offset_to_handle(offset).unwrap();
-                with(handle.as_ptr().cast())
-            });
-            assert!(found);
-        }
-    }
+    let found = index.get(allocator, &key.id().to_ne_bytes(), |allocator, pointer| {
+        let offset = unsafe { pointer.cast::<u64>().read() };
+        let handle = allocator.offset_to_handle(offset).unwrap();
+        with(handle.as_ptr().cast())
+    });
+    assert!(found);
 }
