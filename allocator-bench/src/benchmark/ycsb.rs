@@ -5,6 +5,8 @@ use std::time::Instant;
 
 use bon::Builder;
 use crossbeam_channel as mpmc;
+use crossbeam_channel::RecvError;
+use crossbeam_channel::TryRecvError;
 use hdrhistogram::Histogram;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
@@ -32,7 +34,7 @@ use super::ycsb_load::load;
 pub struct Ycsb {
     index: index::Config,
 
-    throughput: u64,
+    throughput: Option<u64>,
 
     time: u64,
 
@@ -57,17 +59,19 @@ pub struct Global<I> {
 unsafe impl<I> Sync for Global<I> {}
 
 pub struct Coordinator {
-    interval: Duration,
+    interval: Option<Duration>,
     sleeper: SpinSleeper,
     tx: Option<mpmc::Sender<Instant>>,
 }
 
 pub struct OutputThread {
     latency: Histogram<u64>,
+    operation_count: u64,
 }
 
 #[derive(Serialize)]
 pub struct Output {
+    throughput: u64,
     latency_mean: u64,
     latency_p50: u64,
     latency_p90: u64,
@@ -82,7 +86,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     type StateWorker = ();
 
     type OutputWorker = OutputThread;
-    type OutputCoordinator = ();
+    type OutputCoordinator = Duration;
     type OutputGlobal = Output;
 
     fn setup_process(
@@ -111,9 +115,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         global: &Self::StateGlobal,
     ) -> Self::StateCoordinator {
         Coordinator {
-            interval: Duration::from_nanos(
-                10u64.pow(9) * (config.process_count as u64) / self.throughput,
-            ),
+            interval: self.throughput.map(|throughput| {
+                Duration::from_nanos(10u64.pow(9) * (config.process_count as u64) / throughput)
+            }),
             sleeper: SpinSleeper::default().with_spin_strategy(SpinStrategy::SpinLoopHint),
             tx: global.tx.lock().unwrap().take(),
         }
@@ -144,28 +148,36 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         let tx = coordinator.tx.take().unwrap();
         let mut count = 0u64;
         let start = Instant::now();
-        let stop = self.time as u128 * 10u128.pow(9);
-        let mut ts = start;
+        let time = Duration::from_nanos(self.time);
 
-        loop {
-            count += 1;
-            tx.send(ts).unwrap();
+        match coordinator.interval {
+            None => coordinator.sleeper.sleep(time),
+            Some(interval) => {
+                let mut ts = start;
 
-            let next = ts + coordinator.interval;
-            coordinator.sleeper.sleep_until(next);
+                loop {
+                    count += 1;
+                    tx.send(ts).unwrap();
 
-            if next.saturating_duration_since(start).as_nanos() >= stop {
-                break;
-            } else {
-                ts = next;
+                    let next = ts + interval;
+                    coordinator.sleeper.sleep_until(next);
+
+                    if next.saturating_duration_since(start) >= time {
+                        break;
+                    } else {
+                        ts = next;
+                    }
+                }
+
+                let expected = self.time / interval.as_nanos() as u64;
+                assert!(
+                    count.abs_diff(expected) * 100 / expected < 1,
+                    "actual op count {count}, expected {expected}"
+                );
             }
         }
 
-        let expected = self.time * self.throughput;
-        assert!(
-            count.abs_diff(expected) * 100 / expected < 1,
-            "actual op count {count}, expected {expected}"
-        );
+        time
     }
 
     fn run_worker(
@@ -180,8 +192,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
         match self.index.inline {
-            true => run::<true, _, _>(config, self.write, &mut runner, allocator, global),
-            false => run::<false, _, _>(config, self.write, &mut runner, allocator, global),
+            true => self.run::<true, _, _>(config, &mut runner, allocator, global),
+            false => self.run::<false, _, _>(config, &mut runner, allocator, global),
         }
     }
 
@@ -195,18 +207,34 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     }
 
     fn aggregate(
-        (): Self::OutputCoordinator,
+        time: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
     ) -> Self::OutputGlobal {
-        let latency = workers.into_iter().fold(
+        let latency = workers.iter().fold(
             Histogram::new(3).unwrap(),
-            |mut acc, OutputThread { latency }| {
+            |mut acc,
+             OutputThread {
+                 latency,
+                 operation_count: _,
+             }| {
                 acc.add(latency).unwrap();
                 acc
             },
         );
 
+        let operation_count = workers
+            .iter()
+            .map(
+                |OutputThread {
+                     latency: _,
+                     operation_count,
+                 }| *operation_count,
+            )
+            .sum::<u64>();
+
         Output {
+            throughput: (((operation_count as u128 * 10u128.pow(9)) / time.as_nanos())
+                / 10u128.pow(9)) as u64,
             latency_mean: latency.mean() as u64,
             latency_p50: latency.value_at_quantile(0.5),
             latency_p90: latency.value_at_quantile(0.9),
@@ -215,46 +243,64 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
     }
 }
 
-fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
-    config: &config::Thread,
-    write: bool,
-    runner: &mut ycsb::Runner,
-    allocator: &mut A,
-    global: &Global<I>,
-) -> OutputThread {
-    let mut rng = SmallRng::seed_from_u64(config.thread_id as u64);
-    let mut latency = Histogram::<u64>::new(3).unwrap();
+impl Ycsb {
+    fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
+        &self,
+        config: &config::Thread,
+        runner: &mut ycsb::Runner,
+        allocator: &mut A,
+        global: &Global<I>,
+    ) -> OutputThread {
+        let mut rng = SmallRng::seed_from_u64(config.thread_id as u64);
+        let mut latency = Histogram::<u64>::new(3).unwrap();
+        let mut operation_count = 0;
 
-    while let Ok(ts) = global.rx.recv() {
-        let key = runner.next_key(&mut rng);
-        let operation = runner.next_operation(&mut rng);
-        match operation {
-            ycsb::Operation::Read => {
-                with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
-                    let record = value.cast::<Record>().as_ref().unwrap();
-                    for field in &record.0 {
-                        (field as *const Field).read_volatile();
-                    }
-                })
+        loop {
+            let ts = match self.throughput {
+                None => match global.rx.try_recv() {
+                    Err(TryRecvError::Disconnected) => break,
+                    _ => Instant::now(),
+                },
+                Some(_) => match global.rx.recv() {
+                    Ok(ts) => ts,
+                    Err(RecvError) => break,
+                },
+            };
+
+            let key = runner.next_key(&mut rng);
+            let operation = runner.next_operation(&mut rng);
+            match operation {
+                ycsb::Operation::Read => {
+                    with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
+                        let record = value.cast::<Record>().as_ref().unwrap();
+                        for field in &record.0 {
+                            (field as *const Field).read_volatile();
+                        }
+                    })
+                }
+                ycsb::Operation::Update => {
+                    let field = runner.next_field(&mut rng);
+                    with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
+                        let record = value.cast::<Record>().as_ref().unwrap();
+                        record.0[field as usize].value[0].store(1, Ordering::Release);
+                    });
+                }
+                ycsb::Operation::Scan => todo!(),
+                ycsb::Operation::Insert => {
+                    insert::<INLINE, _, _>(self.write, allocator, &global.index, &key);
+                }
+                ycsb::Operation::ReadModifyWrite => todo!(),
             }
-            ycsb::Operation::Update => {
-                let field = runner.next_field(&mut rng);
-                with::<INLINE, _, _, _>(allocator, &global.index, &key, |value| unsafe {
-                    let record = value.cast::<Record>().as_ref().unwrap();
-                    record.0[field as usize].value[0].store(1, Ordering::Release);
-                });
-            }
-            ycsb::Operation::Scan => todo!(),
-            ycsb::Operation::Insert => {
-                insert::<INLINE, _, _>(write, allocator, &global.index, &key);
-            }
-            ycsb::Operation::ReadModifyWrite => todo!(),
+
+            latency.record(ts.elapsed().as_nanos() as u64).unwrap();
+            operation_count += 1;
         }
 
-        latency.record(ts.elapsed().as_nanos() as u64).unwrap();
+        OutputThread {
+            latency,
+            operation_count,
+        }
     }
-
-    OutputThread { latency }
 }
 
 fn with<const INLINE: bool, A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
