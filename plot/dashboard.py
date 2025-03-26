@@ -11,6 +11,7 @@ from polars import selectors as cs
 DF = pl.read_ndjson(sys.argv[1])
 
 
+NULL = "null"
 TYPE_COL = "col"
 TYPE_STORE = "store"
 ID_FIGURE = "figure"
@@ -79,6 +80,8 @@ def main():
             value = values[0]
             if type(value) is bool:
                 value = "true" if value else "false"
+            elif value is None:
+                value = NULL
 
             ui_control.append(
                 dbc.Row(
@@ -100,7 +103,10 @@ def main():
                         dcc.Dropdown(
                             CHOICES_INDEPENDENT
                             + [
-                                {"label": f"Filter to {value}", "value": value}
+                                {
+                                    "label": f"Filter to {NULL if value is None else value}",
+                                    "value": NULL if value is None else value,
+                                }
                                 for value in values.to_list()
                             ],
                             id=col.id(),
@@ -213,6 +219,8 @@ def update(
             facet_color = col
         elif value == "ignore":
             continue
+        elif value == NULL:
+            filters.append(col.selector.is_null())
         elif value is not None:
             filters.append(col.selector == value)
 
