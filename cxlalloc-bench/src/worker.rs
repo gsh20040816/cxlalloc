@@ -48,7 +48,7 @@ impl Config {
 
     fn specialize_benchmark<
         B: allocator_bench::allocator::Backend,
-        I: allocator_bench::index::Index<B::Allocator, u64>,
+        I: allocator_bench::index::Index<B::Allocator>,
     >(
         &self,
     ) {

@@ -47,12 +47,12 @@ pub struct Config {
     workload: ycsb::Workload,
 }
 
-pub struct Ycsb<A: Allocator, I: Index<A, u64>> {
+pub struct Ycsb<A: Allocator, I: Index<A>> {
     config: Config,
     _index: PhantomData<fn() -> (A, I)>,
 }
 
-impl<A: Allocator, I: Index<A, u64>> Ycsb<A, I> {
+impl<A: Allocator, I: Index<A>> Ycsb<A, I> {
     pub fn new(config: Config) -> Self {
         Self {
             config,
@@ -61,7 +61,7 @@ impl<A: Allocator, I: Index<A, u64>> Ycsb<A, I> {
     }
 }
 
-impl<A: Allocator, I: Index<A, u64>> Deref for Ycsb<A, I> {
+impl<A: Allocator, I: Index<A>> Deref for Ycsb<A, I> {
     type Target = Config;
     fn deref(&self) -> &Self::Target {
         &self.config
@@ -101,7 +101,7 @@ pub struct Output {
     latency_p99: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator, u64>> benchmark::Benchmark<B> for Ycsb<B::Allocator, I> {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::Allocator, I> {
     const NAME: &str = "ycsb";
     type StateGlobal = Global<I>;
 
@@ -267,7 +267,7 @@ impl<B: Backend, I: Index<B::Allocator, u64>> benchmark::Benchmark<B> for Ycsb<B
 }
 
 impl Config {
-    fn run<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
+    fn run<const INLINE: bool, A: Allocator, I: Index<A>>(
         &self,
         config: &config::Thread,
         runner: &mut ycsb::Runner,
@@ -326,7 +326,7 @@ impl Config {
     }
 }
 
-fn with<const INLINE: bool, A: Allocator, I: Index<A, u64>, F: FnOnce(*const u8)>(
+fn with<const INLINE: bool, A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
     allocator: &mut A,
     index: &I,
     key: &ycsb::Key,
@@ -334,11 +334,11 @@ fn with<const INLINE: bool, A: Allocator, I: Index<A, u64>, F: FnOnce(*const u8)
 ) {
     match INLINE {
         true => {
-            let found = index.get(allocator, key.id(), |_, value| with(value));
+            let found = index.get(allocator, &key.id().to_ne_bytes(), |_, value| with(value));
             assert!(found);
         }
         false => {
-            let found = index.get(allocator, key.id(), |allocator, pointer| {
+            let found = index.get(allocator, &key.id().to_ne_bytes(), |allocator, pointer| {
                 let offset = unsafe { pointer.cast::<u64>().read() };
                 let handle = allocator.offset_to_handle(offset).unwrap();
                 with(handle.as_ptr().cast())

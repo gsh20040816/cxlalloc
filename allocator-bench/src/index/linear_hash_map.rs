@@ -1,6 +1,7 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::hint;
+use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::ffi::CString;
@@ -18,7 +19,7 @@ pub struct LinearHashMap {
     raw: shm::Raw,
 }
 
-impl<A: Allocator> Index<A, u64> for LinearHashMap {
+impl<A: Allocator> Index<A> for LinearHashMap {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
             len,
@@ -29,7 +30,7 @@ impl<A: Allocator> Index<A, u64> for LinearHashMap {
     fn insert<F: FnOnce(&mut A, *mut u8)>(
         &self,
         allocator: &mut A,
-        key: u64,
+        key: &[u8],
         size: usize,
         with: F,
     ) {
@@ -37,11 +38,22 @@ impl<A: Allocator> Index<A, u64> for LinearHashMap {
         let index = self.index(&key);
         let mut probe = 0;
 
-        let handle = allocator.allocate(8 + size).unwrap();
+        let handle_key = allocator.allocate(8 + key.len()).unwrap();
 
         unsafe {
-            handle.as_ptr().cast::<u64>().write(key);
-            with(allocator, handle.as_ptr().byte_add(8).cast::<u8>())
+            let pointer_key = handle_key.as_ptr();
+            pointer_key.cast::<usize>().write(size);
+            pointer_key
+                .byte_add(8)
+                .cast::<u8>()
+                .copy_from_nonoverlapping(key.as_ptr(), key.len());
+        }
+
+        let handle_node = allocator.allocate(8 + size).unwrap();
+
+        unsafe {
+            allocator.link(handle_node.as_ptr().cast::<u64>(), &handle_key);
+            with(allocator, handle_node.as_ptr().byte_add(8).cast::<u8>())
         }
 
         loop {
@@ -56,14 +68,14 @@ impl<A: Allocator> Index<A, u64> for LinearHashMap {
                 .is_ok()
             {
                 unsafe {
-                    allocator.link(slot.as_ptr(), &handle);
+                    allocator.link(slot.as_ptr(), &handle_node);
                 }
                 return;
             }
         }
     }
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool {
         let view = self.view();
         let index = self.index(&key);
         let mut probe = 0;
@@ -75,9 +87,14 @@ impl<A: Allocator> Index<A, u64> for LinearHashMap {
                 u64::MAX => hint::spin_loop(),
                 offset => {
                     let handle = allocator.offset_to_handle(offset).unwrap();
-                    let pointer_key = handle.as_ptr().cast::<u64>();
 
-                    match key == unsafe { pointer_key.read() } {
+                    let pointer_walk = handle.as_ptr();
+                    let walk_len = unsafe { pointer_walk.cast::<usize>().read() };
+                    let walk = unsafe {
+                        slice::from_raw_parts(pointer_walk.byte_add(8).cast::<u8>(), walk_len)
+                    };
+
+                    match key == walk {
                         false => probe += 1,
                         true => {
                             let pointer_value = unsafe { handle.as_ptr().byte_add(8).cast::<u8>() };

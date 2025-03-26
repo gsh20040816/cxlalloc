@@ -28,39 +28,22 @@ pub struct Config {
     pub(crate) populate: bool,
 }
 
-pub trait Key: Hash + PartialEq {
-    fn len(&self) -> usize;
-    unsafe fn copy(&self, buffer: &mut [MaybeUninit<u8>]);
-    unsafe fn from_ptr(pointer: *mut u8) -> Self;
-}
-
-impl Key for u64 {
-    fn len(&self) -> usize {
-        mem::size_of::<Self>()
-    }
-
-    unsafe fn copy(&self, buffer: &mut [MaybeUninit<u8>]) {
-        unsafe {
-            ptr::copy_nonoverlapping(self.to_ne_bytes().as_ptr(), buffer.as_mut_ptr().cast(), 8)
-        }
-    }
-
-    unsafe fn from_ptr(pointer: *mut u8) -> Self {
-        unsafe { pointer.cast::<Self>().read() }
-    }
-}
-
-pub trait Index<A, K>
+pub trait Index<A>
 where
     Self: Sized,
     A: Allocator,
-    K: Key,
 {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self>;
 
     fn unlink(&mut self) -> io::Result<()>;
 
-    fn insert<F: FnOnce(&mut A, *mut u8)>(&self, allocator: &mut A, key: K, size: usize, with: F);
+    fn insert<F: FnOnce(&mut A, *mut u8)>(
+        &self,
+        allocator: &mut A,
+        key: &[u8],
+        size: usize,
+        with: F,
+    );
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: K, with: F) -> bool;
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool;
 }

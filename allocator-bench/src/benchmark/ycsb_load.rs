@@ -28,12 +28,12 @@ pub struct Config {
     workload: ycsb::Workload,
 }
 
-pub struct YcsbLoad<A: Allocator, I: Index<A, u64>> {
+pub struct YcsbLoad<A: Allocator, I: Index<A>> {
     config: Config,
     _index: PhantomData<fn() -> (A, I)>,
 }
 
-impl<A: Allocator, I: Index<A, u64>> YcsbLoad<A, I> {
+impl<A: Allocator, I: Index<A>> YcsbLoad<A, I> {
     pub fn new(config: Config) -> Self {
         Self {
             config,
@@ -42,7 +42,7 @@ impl<A: Allocator, I: Index<A, u64>> YcsbLoad<A, I> {
     }
 }
 
-impl<A: Allocator, I: Index<A, u64>> Deref for YcsbLoad<A, I> {
+impl<A: Allocator, I: Index<A>> Deref for YcsbLoad<A, I> {
     type Target = Config;
     fn deref(&self) -> &Self::Target {
         &self.config
@@ -72,9 +72,7 @@ pub struct Output {
     throughput: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator, u64>> benchmark::Benchmark<B>
-    for YcsbLoad<B::Allocator, I>
-{
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B::Allocator, I> {
     const NAME: &str = "ycsb";
     type StateGlobal = Global<I>;
 
@@ -163,7 +161,7 @@ impl<B: Backend, I: Index<B::Allocator, u64>> benchmark::Benchmark<B>
     }
 }
 
-pub(super) fn load<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
+pub(super) fn load<const INLINE: bool, A: Allocator, I: Index<A>>(
     write: bool,
     workload: &ycsb::Workload,
     config: &config::Thread,
@@ -177,7 +175,7 @@ pub(super) fn load<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
     }
 }
 
-pub(super) fn insert<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
+pub(super) fn insert<const INLINE: bool, A: Allocator, I: Index<A>>(
     write: bool,
     allocator: &mut A,
     index: &I,
@@ -185,7 +183,7 @@ pub(super) fn insert<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
 ) {
     const SIZE: usize = mem::size_of::<Record>();
     match INLINE {
-        true => index.insert(allocator, key.id(), SIZE, |_, pointer| {
+        true => index.insert(allocator, &key.id().to_ne_bytes(), SIZE, |_, pointer| {
             if write {
                 unsafe {
                     libc::memset(pointer.cast(), 0xff, SIZE);
@@ -203,7 +201,7 @@ pub(super) fn insert<const INLINE: bool, A: Allocator, I: Index<A, u64>>(
 
             index.insert(
                 allocator,
-                key.id(),
+                &key.id().to_ne_bytes(),
                 mem::size_of::<u64>(),
                 |allocator, pointer| unsafe {
                     allocator.link(pointer.cast(), &value);

@@ -14,8 +14,6 @@ use crate::Allocator;
 use crate::Index;
 use crate::allocator::Handle as _;
 
-use super::Key;
-
 /// Separate chaining hashmap
 ///
 /// Inserted nodes are one contiguous allocation with the
@@ -25,7 +23,7 @@ pub struct LinkedHashMap {
     raw: shm::Raw,
 }
 
-impl<A: Allocator, K: Key> Index<A, K> for LinkedHashMap {
+impl<A: Allocator> Index<A> for LinkedHashMap {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
             len,
@@ -33,21 +31,37 @@ impl<A: Allocator, K: Key> Index<A, K> for LinkedHashMap {
         })
     }
 
-    fn insert<F: FnOnce(&mut A, *mut u8)>(&self, allocator: &mut A, key: K, size: usize, with: F) {
+    fn insert<F: FnOnce(&mut A, *mut u8)>(
+        &self,
+        allocator: &mut A,
+        key: &[u8],
+        size: usize,
+        with: F,
+    ) {
         let view = self.view();
         let index = self.index(&key);
 
         let len = key.len();
-        let handle = allocator.allocate(8 + len + size).unwrap();
 
-        let pointer_next = handle.as_ptr().cast::<u64>();
-        let pointer_key = unsafe {
-            slice::from_raw_parts_mut(handle.as_ptr().byte_add(8).cast::<MaybeUninit<u8>>(), len)
-        };
-        let pointer_value = unsafe { handle.as_ptr().byte_add(8 + len).cast::<u8>() };
+        let handle_key = allocator.allocate(8 + len).unwrap();
 
         unsafe {
-            key.copy(pointer_key);
+            let pointer_key = handle_key.as_ptr();
+            pointer_key.cast::<usize>().write(len);
+            pointer_key
+                .byte_add(8)
+                .cast::<u8>()
+                .copy_from_nonoverlapping(key.as_ptr(), len);
+        }
+
+        let handle_node = allocator.allocate(8 + 8 + size).unwrap();
+
+        let pointer_next = handle_node.as_ptr().cast::<u64>();
+        let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
+        let pointer_value = unsafe { handle_node.as_ptr().byte_add(8 + len).cast::<u8>() };
+
+        unsafe {
+            allocator.link(pointer_key, &handle_key);
             with(allocator, pointer_value);
         }
 
@@ -61,7 +75,7 @@ impl<A: Allocator, K: Key> Index<A, K> for LinkedHashMap {
 
             match head.compare_exchange(next, u64::MAX, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => unsafe {
-                    allocator.link(head.as_ptr(), &handle);
+                    allocator.link(head.as_ptr(), &handle_node);
                     return;
                 },
                 Err(_) => continue,
@@ -69,7 +83,7 @@ impl<A: Allocator, K: Key> Index<A, K> for LinkedHashMap {
         }
     }
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: K, with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool {
         let view = self.view();
         let index = self.index(&key);
 
@@ -91,11 +105,14 @@ impl<A: Allocator, K: Key> Index<A, K> for LinkedHashMap {
             };
 
             let pointer_next = handle.as_ptr().cast::<u64>();
-            let candidate = unsafe { K::from_ptr(handle.as_ptr().byte_add(8).cast::<u8>()) };
-            let len = candidate.len();
-            let pointer_value = unsafe { handle.as_ptr().byte_add(8 + len).cast::<u8>() };
+            let pointer_walk = unsafe { handle.as_ptr().byte_add(8) };
+            let pointer_value = unsafe { handle.as_ptr().byte_add(8 + 8).cast::<u8>() };
 
-            match key == candidate {
+            let walk_len = unsafe { pointer_walk.cast::<usize>().read() };
+            let walk =
+                unsafe { slice::from_raw_parts(pointer_walk.byte_add(8).cast::<u8>(), walk_len) };
+
+            match key == walk {
                 true => {
                     with(allocator, pointer_value);
                     return true;
