@@ -1,6 +1,8 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::hint;
+use core::mem::MaybeUninit;
+use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::ffi::CString;
@@ -12,6 +14,8 @@ use crate::Allocator;
 use crate::Index;
 use crate::allocator::Handle as _;
 
+use super::Key;
+
 /// Separate chaining hashmap
 ///
 /// Inserted nodes are one contiguous allocation with the
@@ -21,7 +25,7 @@ pub struct LinkedHashMap {
     raw: shm::Raw,
 }
 
-impl<A: Allocator> Index<A, u64> for LinkedHashMap {
+impl<A: Allocator, K: Key> Index<A, K> for LinkedHashMap {
     fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
         Ok(Self {
             len,
@@ -29,24 +33,21 @@ impl<A: Allocator> Index<A, u64> for LinkedHashMap {
         })
     }
 
-    fn insert<F: FnOnce(&mut A, *mut u8)>(
-        &self,
-        allocator: &mut A,
-        key: u64,
-        size: usize,
-        with: F,
-    ) {
+    fn insert<F: FnOnce(&mut A, *mut u8)>(&self, allocator: &mut A, key: K, size: usize, with: F) {
         let view = self.view();
-        let index = self.index(key);
+        let index = self.index(&key);
 
-        let handle = allocator.allocate(16 + size).unwrap();
+        let len = key.len();
+        let handle = allocator.allocate(8 + len + size).unwrap();
 
         let pointer_next = handle.as_ptr().cast::<u64>();
-        let pointer_key = unsafe { handle.as_ptr().byte_add(8).cast::<u64>() };
-        let pointer_value = unsafe { handle.as_ptr().byte_add(16).cast::<u8>() };
+        let pointer_key = unsafe {
+            slice::from_raw_parts_mut(handle.as_ptr().byte_add(8).cast::<MaybeUninit<u8>>(), len)
+        };
+        let pointer_value = unsafe { handle.as_ptr().byte_add(8 + len).cast::<u8>() };
 
         unsafe {
-            pointer_key.write(key);
+            key.copy(pointer_key);
             with(allocator, pointer_value);
         }
 
@@ -68,9 +69,9 @@ impl<A: Allocator> Index<A, u64> for LinkedHashMap {
         }
     }
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: u64, with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: K, with: F) -> bool {
         let view = self.view();
-        let index = self.index(key);
+        let index = self.index(&key);
 
         let mut head = loop {
             match view[index].load(Ordering::Acquire) {
@@ -90,10 +91,11 @@ impl<A: Allocator> Index<A, u64> for LinkedHashMap {
             };
 
             let pointer_next = handle.as_ptr().cast::<u64>();
-            let pointer_key = unsafe { handle.as_ptr().byte_add(8).cast::<u64>() };
-            let pointer_value = unsafe { handle.as_ptr().byte_add(16).cast::<u8>() };
+            let candidate = unsafe { K::from_ptr(handle.as_ptr().byte_add(8).cast::<u8>()) };
+            let len = candidate.len();
+            let pointer_value = unsafe { handle.as_ptr().byte_add(8 + len).cast::<u8>() };
 
-            match key == unsafe { pointer_key.read() } {
+            match key == candidate {
                 true => {
                     with(allocator, pointer_value);
                     return true;
@@ -111,7 +113,7 @@ impl<A: Allocator> Index<A, u64> for LinkedHashMap {
 }
 
 impl LinkedHashMap {
-    fn index(&self, key: u64) -> usize {
+    fn index<K: Hash>(&self, key: &K) -> usize {
         let mut hasher = RapidHasher::default();
         key.hash(&mut hasher);
         hasher.finish() as usize % self.len
