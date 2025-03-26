@@ -148,7 +148,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
         let tx = coordinator.tx.take().unwrap();
         let mut count = 0u64;
         let start = Instant::now();
-        let time = Duration::from_nanos(self.time);
+        let time = Duration::from_nanos(self.time * 10u64.pow(9));
 
         match coordinator.interval {
             None => coordinator.sleeper.sleep(time),
@@ -169,7 +169,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
                     }
                 }
 
-                let expected = self.time / interval.as_nanos() as u64;
+                let expected = (time.as_nanos() / interval.as_nanos()) as u64;
                 assert!(
                     count.abs_diff(expected) * 100 / expected < 1,
                     "actual op count {count}, expected {expected}"
@@ -233,8 +233,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B, I> for Ycsb {
             .sum::<u64>();
 
         Output {
-            throughput: (((operation_count as u128 * 10u128.pow(9)) / time.as_nanos())
-                / 10u128.pow(9)) as u64,
+            // FIXME: u128 division and/or casting bug?
+            throughput: (operation_count as f64 / time.as_secs_f64()) as u64,
             latency_mean: latency.mean() as u64,
             latency_p50: latency.value_at_quantile(0.5),
             latency_p90: latency.value_at_quantile(0.9),

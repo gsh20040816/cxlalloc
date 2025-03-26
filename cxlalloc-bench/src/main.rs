@@ -1,3 +1,5 @@
+use core::cmp;
+use core::iter;
 use std::fs::File;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -188,7 +190,7 @@ enum Workload {
         #[arg(long, default_value_t = 10)]
         time: u64,
 
-        #[arg(long, value_delimiter = ',', default_value = "10000,100000")]
+        #[arg(long, value_delimiter = ',')]
         throughput: Vec<u64>,
 
         #[arg(
@@ -272,11 +274,17 @@ fn main() -> anyhow::Result<()> {
                         throughput,
                         insert_proportion,
                     } => {
-                        let partial = throughput.len() * insert_proportion.len();
+                        let partial = cmp::max(throughput.len(), 1) * insert_proportion.len();
                         let total = total * partial;
+                        let throughput = match throughput.is_empty() {
+                            true => {
+                                Box::new(iter::once(None)) as Box<dyn Iterator<Item = Option<_>>>
+                            }
+                            false => Box::new(throughput.iter().map(Some)),
+                        };
 
                         for (j, (throughput, insert_proportion)) in
-                            cartesian!(throughput.iter(), insert_proportion.iter()).enumerate()
+                            cartesian!(throughput, insert_proportion.iter()).enumerate()
                         {
                             let config = config()
                                 .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
@@ -290,7 +298,7 @@ fn main() -> anyhow::Result<()> {
                                             read_proportion: 1.0 - insert_proportion,
                                             ..ycsb::workload::D.clone()
                                         })
-                                        .throughput(*throughput)
+                                        .maybe_throughput(throughput.copied())
                                         .time(*time)
                                         .build(),
                                 ))
