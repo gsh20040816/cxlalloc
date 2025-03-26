@@ -263,8 +263,10 @@ impl Global {
 
         next.store(root.head.load(Ordering::Relaxed), Ordering::Relaxed);
 
-        let offset = unsafe { allocator.handle_to_offset(&handle) };
-        root.head.store(offset.get(), Ordering::Relaxed);
+        unsafe {
+            allocator.link(root.head.as_ptr(), &handle);
+        }
+
         root.len
             .store(root.len.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
 
