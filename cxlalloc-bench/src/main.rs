@@ -110,6 +110,9 @@ impl Cli {
 #[derive(Parser)]
 enum Experiment {
     Ycsb(Box<Ycsb>),
+    Memcached {
+        trace: Vec<PathBuf>,
+    },
     Mstress,
     Xmalloc,
     ThreadTest {
@@ -213,6 +216,34 @@ fn main() -> anyhow::Result<()> {
     let config = cli.collect();
 
     match &cli.experiment {
+        Experiment::Memcached { trace } => {
+            let total = config.len() * trace.len();
+            for (i, ((config_global, allocator, config_allocator), trace)) in
+                cartesian!(config.iter(), trace.iter()).enumerate()
+            {
+                let config = cxlalloc_bench::Config::builder()
+                    .allocator(*allocator)
+                    .index(Index::Linked)
+                    .config_allocator(*config_allocator)
+                    .config_global(*config_global)
+                    .config_benchmark(allocator_bench::benchmark::Config::Memcached(
+                        allocator_bench::benchmark::memcached::Config::builder()
+                            .index(
+                                allocator_bench::index::Config::builder()
+                                    .inline(false)
+                                    .populate(false)
+                                    .len(1 << 25)
+                                    .build(),
+                            )
+                            .operation_count(10_000_000)
+                            .trace(trace.clone())
+                            .build(),
+                    ))
+                    .build();
+
+                cli.run(&config, i, total, &mut out)?;
+            }
+        }
         Experiment::Mstress => {
             let total = config.len();
             for (i, (config_global, allocator, config_allocator)) in config.into_iter().enumerate()

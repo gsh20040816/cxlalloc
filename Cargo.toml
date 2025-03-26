@@ -18,6 +18,7 @@ resolver = "2"
 [workspace.dependencies]
 anyhow = "1.0"
 arrayvec = "0.7"
+arrow-array = "54.3"
 backtrace = "0.3"
 bindgen = "0.71"
 bon = "3.3"
@@ -43,6 +44,7 @@ linkme = "0.3"
 log = { version = "0.4", features = ["release_max_level_off"] }
 # log = { version = "0.4" }
 mimalloc = "0.1"
+parquet = { version = "54.3", features = ["arrow"] }
 proptest = "1.0"
 proptest-state-machine = "0.3"
 rand = { version = "0.9", features = ["small_rng"] }

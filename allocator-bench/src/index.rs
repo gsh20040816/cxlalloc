@@ -5,10 +5,6 @@ use bon::Builder;
 pub use linear_hash_map::LinearHashMap;
 pub use linked_hash_map::LinkedHashMap;
 
-use core::hash::Hash;
-use core::mem;
-use core::mem::MaybeUninit;
-use core::ptr;
 use std::io;
 
 use serde::Deserialize;

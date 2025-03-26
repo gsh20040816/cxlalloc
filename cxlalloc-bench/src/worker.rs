@@ -53,6 +53,9 @@ impl Config {
         &self,
     ) {
         match self.config_benchmark.clone() {
+            benchmark::Config::Memcached(memcached) => self.run_benchmark::<B, _>(
+                allocator_bench::benchmark::Memcached::<B::Allocator, I>::new(memcached),
+            ),
             benchmark::Config::Mstress(mstress) => self.run_benchmark::<B, _>(mstress),
             benchmark::Config::ThreadTest(thread_test) => self.run_benchmark::<B, _>(thread_test),
             benchmark::Config::Ycsb(ycsb) => self.run_benchmark::<B, _>(
