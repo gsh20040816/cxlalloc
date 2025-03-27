@@ -65,7 +65,6 @@ const MAX_SIZE: usize = 1_000;
 pub struct Global<I> {
     index: I,
 
-    file: File,
     schema: SchemaDescriptor,
 
     metadata: ArrowReaderMetadata,
@@ -161,7 +160,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                 self.index.populate,
             )
             .unwrap(),
-            file,
             schema,
             metadata,
         }
@@ -182,19 +180,18 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
     ) -> Self::StateWorker {
         let limit = self.operation_count / config.thread_total();
         let offset = limit * config.thread_id;
-        let reader = ParquetRecordBatchReaderBuilder::new_with_metadata(
-            global.file.try_clone().unwrap(),
-            global.metadata.clone(),
-        )
-        .with_offset(offset)
-        .with_limit(limit)
-        .with_projection(ProjectionMask::columns(&global.schema, [
-            "key_value",
-            "value_size",
-            "operation",
-        ]))
-        .build()
-        .unwrap();
+        let file = File::open(&self.trace).unwrap();
+        let reader =
+            ParquetRecordBatchReaderBuilder::new_with_metadata(file, global.metadata.clone())
+                .with_offset(offset)
+                .with_limit(limit)
+                .with_projection(ProjectionMask::columns(&global.schema, [
+                    "key_value",
+                    "value_size",
+                    "operation",
+                ]))
+                .build()
+                .unwrap();
         Worker { reader }
     }
 
