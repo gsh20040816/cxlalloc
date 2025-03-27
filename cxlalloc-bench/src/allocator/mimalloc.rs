@@ -104,6 +104,11 @@ impl allocator_bench::Allocator for Mimalloc {
     fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         Some(unsafe { NonNull::new_unchecked(NonZeroU64::new(offset)?.get() as *mut ffi::c_void) })
     }
+
+    #[inline]
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        unsafe { NonZeroU64::new_unchecked(pointer.as_ptr() as u64) }
+    }
 }
 
 impl Drop for Mimalloc {

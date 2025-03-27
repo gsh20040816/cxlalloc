@@ -72,6 +72,8 @@ pub trait Allocator: Sized {
     unsafe fn deallocate(&mut self, handle: Self::Handle);
     unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64;
     fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle>;
+
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64;
 }
 
 pub trait Handle {
@@ -128,5 +130,9 @@ impl Allocator for Libc {
 
     fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
         NonNull::new(offset as *mut ffi::c_void)
+    }
+
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(pointer.as_ptr() as u64).unwrap()
     }
 }

@@ -26,11 +26,30 @@ where
     Self: Sized,
     A: Allocator,
 {
-    fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self>;
+    fn new(
+        numa: Option<usize>,
+        name: &str,
+        len: usize,
+        populate: bool,
+        thread_total: usize,
+    ) -> io::Result<Self>;
 
     fn unlink(&mut self) -> io::Result<()>;
 
-    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: &[u8], size: usize, with: F);
+    fn insert<F: FnOnce(*mut u8)>(
+        &self,
+        thread_id: usize,
+        allocator: &mut A,
+        key: &[u8],
+        size: usize,
+        with: F,
+    );
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool;
+    fn get<F: FnOnce(&mut A, *const u8)>(
+        &self,
+        thread_id: usize,
+        allocator: &mut A,
+        key: &[u8],
+        with: F,
+    ) -> bool;
 }

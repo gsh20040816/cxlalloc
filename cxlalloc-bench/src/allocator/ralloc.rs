@@ -86,4 +86,9 @@ impl allocator_bench::Allocator for Ralloc {
             _ => NonNull::new(unsafe { sys::RP_offset_to_pointer(offset as usize) }),
         }
     }
+
+    #[inline]
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(unsafe { sys::RP_pointer_to_offset(pointer.as_ptr()) } as u64).unwrap()
+    }
 }

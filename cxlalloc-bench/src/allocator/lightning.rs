@@ -129,4 +129,11 @@ impl allocator_bench::Allocator for Lightning {
             }),
         }
     }
+
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(unsafe {
+            LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr())
+        } as u64)
+        .unwrap()
+    }
 }

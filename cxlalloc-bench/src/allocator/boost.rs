@@ -113,6 +113,16 @@ impl allocator_bench::Allocator for Boost {
             },
         }
     }
+
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        unsafe {
+            NonZeroU64::new(sys::managed_address_to_handle(
+                self.inner(),
+                pointer.as_ptr().cast(),
+            ))
+            .unwrap()
+        }
+    }
 }
 
 impl Boost {

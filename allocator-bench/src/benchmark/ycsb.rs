@@ -111,7 +111,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
 
     fn setup_process(
         &self,
-        _config: &config::Process,
+        config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
         let (tx, rx) = mpmc::unbounded();
@@ -121,6 +121,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
                 "index",
                 self.index.len,
                 self.index.populate,
+                config.thread_total(),
             )
             .unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
@@ -280,22 +281,34 @@ impl Config {
             let key = runner.next_key(&mut rng);
             let operation = runner.next_operation(&mut rng);
             match operation {
-                ycsb::Operation::Read => with(allocator, &global.index, &key, |value| unsafe {
-                    let record = value.cast::<Record>().as_ref().unwrap();
-                    for field in &record.0 {
-                        (field as *const Field).read_volatile();
-                    }
-                }),
+                ycsb::Operation::Read => with(
+                    config.thread_id,
+                    allocator,
+                    &global.index,
+                    &key,
+                    |value| unsafe {
+                        let record = value.cast::<Record>().as_ref().unwrap();
+                        for field in &record.0 {
+                            (field as *const Field).read_volatile();
+                        }
+                    },
+                ),
                 ycsb::Operation::Update => {
                     let field = runner.next_field(&mut rng);
-                    with(allocator, &global.index, &key, |value| unsafe {
-                        let record = value.cast::<Record>().as_ref().unwrap();
-                        record.0[field as usize].value[0].store(1, Ordering::Release);
-                    });
+                    with(
+                        config.thread_id,
+                        allocator,
+                        &global.index,
+                        &key,
+                        |value| unsafe {
+                            let record = value.cast::<Record>().as_ref().unwrap();
+                            record.0[field as usize].value[0].store(1, Ordering::Release);
+                        },
+                    );
                 }
                 ycsb::Operation::Scan => todo!(),
                 ycsb::Operation::Insert => {
-                    insert(allocator, &global.index, &key);
+                    insert(config.thread_id, allocator, &global.index, &key);
                 }
                 ycsb::Operation::ReadModifyWrite => todo!(),
             }
@@ -312,15 +325,21 @@ impl Config {
 }
 
 fn with<A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
+    thread_id: usize,
     allocator: &mut A,
     index: &I,
     key: &ycsb::Key,
     with: F,
 ) {
-    let found = index.get(allocator, &key.id().to_ne_bytes(), |allocator, pointer| {
-        let offset = unsafe { pointer.cast::<u64>().read() };
-        let handle = allocator.offset_to_handle(offset).unwrap();
-        with(handle.as_ptr().cast())
-    });
+    let found = index.get(
+        thread_id,
+        allocator,
+        &key.id().to_ne_bytes(),
+        |allocator, pointer| {
+            let offset = unsafe { pointer.cast::<u64>().read() };
+            let handle = allocator.offset_to_handle(offset).unwrap();
+            with(handle.as_ptr().cast())
+        },
+    );
     assert!(found);
 }

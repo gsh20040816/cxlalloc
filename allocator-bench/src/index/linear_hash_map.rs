@@ -20,14 +20,27 @@ pub struct LinearHashMap {
 }
 
 impl<A: Allocator> Index<A> for LinearHashMap {
-    fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
+    fn new(
+        numa: Option<usize>,
+        name: &str,
+        len: usize,
+        populate: bool,
+        _thread_total: usize,
+    ) -> io::Result<Self> {
         Ok(Self {
             len,
             raw: shm::Raw::new(numa, CString::new(name).unwrap(), len * 8, populate)?,
         })
     }
 
-    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: &[u8], size: usize, with: F) {
+    fn insert<F: FnOnce(*mut u8)>(
+        &self,
+        _thread_id: usize,
+        allocator: &mut A,
+        key: &[u8],
+        size: usize,
+        with: F,
+    ) {
         let view = self.view();
         let index = self.index(&key);
         let mut probe = 0;
@@ -80,7 +93,13 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         }
     }
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(
+        &self,
+        _thread_id: usize,
+        allocator: &mut A,
+        key: &[u8],
+        with: F,
+    ) -> bool {
         let view = self.view();
         let index = self.index(&key);
         let mut probe = 0;

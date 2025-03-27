@@ -95,7 +95,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
 
     fn setup_process(
         &self,
-        _config: &config::Process,
+        config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
         let file = File::open(&self.trace).unwrap();
@@ -158,6 +158,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                 "index",
                 self.index.len,
                 self.index.populate,
+                config.thread_total(),
             )
             .unwrap(),
             schema,
@@ -206,7 +207,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
 
     fn run_worker(
         &self,
-        _config: &config::Thread,
+        config: &config::Thread,
         global: &Self::StateGlobal,
         worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
@@ -231,9 +232,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
             {
                 match operation {
                     "get" => {
-                        global
-                            .index
-                            .get(allocator, key.as_bytes(), |allocator, pointer| {
+                        global.index.get(
+                            config.thread_id,
+                            allocator,
+                            key.as_bytes(),
+                            |allocator, pointer| {
                                 let offset = unsafe { pointer.cast::<u64>().read() };
                                 let Some(handle) = allocator.offset_to_handle(offset) else {
                                     return;
@@ -248,14 +251,18 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                                 };
 
                                 assert!(value.iter().all(|byte| *byte == 0xff));
-                            });
+                            },
+                        );
                     }
                     "set" if value_size == 0 => {
-                        global.index.insert(allocator, key.as_bytes(), 0, |_| ())
+                        global
+                            .index
+                            .insert(config.thread_id, allocator, key.as_bytes(), 0, |_| ())
                     }
                     "set" => {
                         // FIXME: handle collision
                         global.index.insert(
+                            config.thread_id,
                             allocator,
                             key.as_bytes(),
                             8 + value_size as usize,

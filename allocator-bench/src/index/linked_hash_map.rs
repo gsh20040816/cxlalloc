@@ -8,10 +8,12 @@ use std::ffi::CString;
 use std::io;
 
 use rapidhash::RapidHasher;
+use shm::Shm;
 
 use crate::Allocator;
 use crate::Index;
 use crate::allocator::Handle as _;
+use crate::ebr;
 
 /// Separate chaining hashmap
 ///
@@ -19,18 +21,43 @@ use crate::allocator::Handle as _;
 /// next pointer, key, and value.
 pub struct LinkedHashMap {
     len: usize,
+    ebr: Shm<ebr::Global>,
     raw: shm::Raw,
 }
 
 impl<A: Allocator> Index<A> for LinkedHashMap {
-    fn new(numa: Option<usize>, name: &str, len: usize, populate: bool) -> io::Result<Self> {
+    fn new(
+        numa: Option<usize>,
+        name: &str,
+        len: usize,
+        populate: bool,
+        thread_total: usize,
+    ) -> io::Result<Self> {
+        let ebr = shm::Shm::new(numa, c"".to_owned(), populate)?;
+
+        unsafe {
+            ebr::Global::init(ebr.address_mut(), thread_total);
+        }
+
         Ok(Self {
             len,
+            ebr,
             raw: shm::Raw::new(numa, CString::new(name).unwrap(), len * 8, populate)?,
         })
     }
 
-    fn insert<F: FnOnce(*mut u8)>(&self, allocator: &mut A, key: &[u8], size: usize, with: F) {
+    fn insert<F: FnOnce(*mut u8)>(
+        &self,
+        thread_id: usize,
+        allocator: &mut A,
+        key: &[u8],
+        size: usize,
+        with: F,
+    ) {
+        unsafe {
+            self.ebr().start(thread_id, allocator);
+        }
+
         let view = self.view();
         let index = self.index(&key);
 
@@ -84,7 +111,17 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         }
     }
 
-    fn get<F: FnOnce(&mut A, *const u8)>(&self, allocator: &mut A, key: &[u8], with: F) -> bool {
+    fn get<F: FnOnce(&mut A, *const u8)>(
+        &self,
+        thread_id: usize,
+        allocator: &mut A,
+        key: &[u8],
+        with: F,
+    ) -> bool {
+        unsafe {
+            self.ebr().start(thread_id, allocator);
+        }
+
         let view = self.view();
         let index = self.index(&key);
 
@@ -135,6 +172,10 @@ impl LinkedHashMap {
         let mut hasher = RapidHasher::default();
         key.hash(&mut hasher);
         hasher.finish() as usize % self.len
+    }
+
+    fn ebr(&self) -> &ebr::Global {
+        unsafe { self.ebr.address().as_ref().unwrap() }
     }
 
     fn view(&self) -> &[AtomicU64] {

@@ -81,7 +81,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
 
     fn setup_process(
         &self,
-        _config: &config::Process,
+        config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
         Global {
@@ -90,6 +90,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
                 "index",
                 self.index.len,
                 self.index.populate,
+                config.thread_total(),
             )
             .unwrap(),
         }
@@ -159,13 +160,24 @@ pub(super) fn load<A: Allocator, I: Index<A>>(
     let mut loader = workload.loader(config.thread_total(), config.thread_id);
 
     while let Some(key) = loader.next_key() {
-        insert::<_, _>(allocator, index, &key);
+        insert::<_, _>(config.thread_id, allocator, index, &key);
     }
 }
 
-pub(super) fn insert<A: Allocator, I: Index<A>>(allocator: &mut A, index: &I, key: &ycsb::Key) {
+pub(super) fn insert<A: Allocator, I: Index<A>>(
+    thread_id: usize,
+    allocator: &mut A,
+    index: &I,
+    key: &ycsb::Key,
+) {
     const SIZE: usize = mem::size_of::<Record>();
-    index.insert(allocator, &key.id().to_ne_bytes(), SIZE, |pointer| unsafe {
-        libc::memset(pointer.cast(), 0xff, SIZE);
-    });
+    index.insert(
+        thread_id,
+        allocator,
+        &key.id().to_ne_bytes(),
+        SIZE,
+        |pointer| unsafe {
+            libc::memset(pointer.cast(), 0xff, SIZE);
+        },
+    );
 }

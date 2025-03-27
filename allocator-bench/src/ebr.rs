@@ -6,6 +6,7 @@ use core::num::NonZeroIsize;
 use core::num::NonZeroU64;
 use core::ops::Deref;
 use core::ptr::NonNull;
+use core::ptr::addr_of_mut;
 use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
@@ -15,7 +16,7 @@ use crate::Allocator;
 use crate::allocator::Handle as _;
 
 pub struct Global {
-    thread_count: usize,
+    thread_total: usize,
 
     local: [Pad<UnsafeCell<Local>>; 64],
 
@@ -24,11 +25,13 @@ pub struct Global {
 }
 
 impl Global {
-    pub unsafe fn start<A: Allocator<Handle = NonNull<ffi::c_void>>>(
-        &self,
-        thread_id: usize,
-        allocator: &mut A,
-    ) {
+    pub unsafe fn init(global: *mut Self, thread_total: usize) {
+        unsafe {
+            *addr_of_mut!((*global).thread_total) = thread_total;
+        }
+    }
+
+    pub unsafe fn start<A: Allocator>(&self, thread_id: usize, allocator: &mut A) {
         let rotate = self.has_token(thread_id);
         let local = unsafe { self.local[thread_id].get().as_mut().unwrap() };
         if rotate {
@@ -39,7 +42,7 @@ impl Global {
     }
 
     pub unsafe fn retire<A: Allocator>(
-        &mut self,
+        &self,
         thread_id: usize,
         allocator: &mut A,
         offset: NonZeroU64,
@@ -49,7 +52,7 @@ impl Global {
     }
 
     fn has_token(&self, thread_id: usize) -> bool {
-        self.token.load(Ordering::Acquire) % self.thread_count == thread_id
+        self.token.load(Ordering::Acquire) % self.thread_total == thread_id
     }
 }
 
@@ -75,7 +78,7 @@ impl Local {
         }
     }
 
-    fn free<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
+    fn free<A: Allocator>(&mut self, allocator: &mut A) {
         self.free.pop(allocator);
     }
 }
@@ -170,7 +173,7 @@ impl Stack {
         unsafe { pointer.as_ref() }
     }
 
-    fn pop<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
+    fn pop<A: Allocator>(&mut self, allocator: &mut A) {
         // Empty queue
         let Some(head) = self.head.as_ref() else {
             return;
@@ -185,7 +188,10 @@ impl Stack {
         let next = head.next().map(NonNull::from);
         let head = NonNull::from(head).cast::<ffi::c_void>();
         self.head.store(next);
-        unsafe { allocator.deallocate(head) };
+
+        let offset = allocator.pointer_to_offset(head);
+        let handle = allocator.offset_to_handle(offset.get()).unwrap();
+        unsafe { allocator.deallocate(handle) };
 
         // Can recurse at most once
         self.pop(allocator);

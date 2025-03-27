@@ -1,9 +1,11 @@
+use core::ffi;
 use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::ffi::CString;
 use std::io;
+use std::ptr::NonNull;
 
 use allocator_bench::allocator::Config;
 use sys::cxl_shm_cxl_shm2;
@@ -87,10 +89,14 @@ impl allocator_bench::Allocator for CxlShm {
             unsafe { Some(self.0.get_ref(offset)) }
         }
     }
+
+    fn pointer_to_offset(&self, _pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        unreachable!()
+    }
 }
 
 impl allocator_bench::allocator::Handle for sys::CXLRef {
-    fn as_ptr(&self) -> *mut core::ffi::c_void {
+    fn as_ptr(&self) -> *mut ffi::c_void {
         unsafe { CXLRef_s_get_addr(self as *const _ as *mut _) }
     }
 }
