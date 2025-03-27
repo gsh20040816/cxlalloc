@@ -99,6 +99,7 @@ impl Lightning {
 impl allocator_bench::Allocator for Lightning {
     type Handle = NonNull<ffi::c_void>;
 
+    #[inline]
     fn allocate(&mut self, size: usize) -> Option<Self::Handle> {
         let store = self.as_ptr();
         unsafe {
@@ -108,6 +109,7 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
+    #[inline]
     unsafe fn deallocate(&mut self, handle: Self::Handle) {
         let store = self.as_ptr();
         unsafe {
@@ -116,11 +118,13 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
+    #[inline]
     unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64 {
         NonZeroU64::new(LightningAllocator_PointerToOffset(self.as_ptr(), handle.as_ptr()) as u64)
             .unwrap()
     }
 
+    #[inline]
     fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
         match offset {
             0 => None,
@@ -130,6 +134,7 @@ impl allocator_bench::Allocator for Lightning {
         }
     }
 
+    #[inline]
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(unsafe {
             LightningAllocator_PointerToOffset(self.as_ptr(), pointer.as_ptr())

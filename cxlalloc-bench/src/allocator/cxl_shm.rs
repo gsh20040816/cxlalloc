@@ -57,10 +57,12 @@ impl allocator_bench::allocator::Backend for Backend {
 impl allocator_bench::Allocator for CxlShm {
     type Handle = sys::CXLRef;
 
+    #[inline]
     fn allocate(&mut self, size: usize) -> Option<Self::Handle> {
         unsafe { Some(self.0.cxl_malloc(size as u64, 0)) }
     }
 
+    #[inline]
     unsafe fn link(&mut self, pointer: *mut u64, pointee: &Self::Handle) {
         unsafe {
             let offset = self.handle_to_offset(pointee);
@@ -68,13 +70,16 @@ impl allocator_bench::Allocator for CxlShm {
         }
     }
 
+    #[inline]
     unsafe fn deallocate(&mut self, _: Self::Handle) {}
 
+    #[inline]
     unsafe fn unlink(&mut self, pointer: *mut u64) {
         let offset = AtomicU64::from_ptr(pointer).load(Ordering::Relaxed);
         self.0.unlink_reference(pointer, offset)
     }
 
+    #[inline]
     unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64 {
         let address = sys::CXLRef_s_get_addr(handle as *const Self::Handle as *mut _);
         // The `link_reference` and `get_ref` functions expect the offset of the
@@ -82,6 +87,7 @@ impl allocator_bench::Allocator for CxlShm {
         NonZeroU64::new(address as u64 - self.0.get_start() as u64 - 24).unwrap()
     }
 
+    #[inline]
     fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
         if offset == 0 {
             None
@@ -90,6 +96,7 @@ impl allocator_bench::Allocator for CxlShm {
         }
     }
 
+    #[inline]
     fn pointer_to_offset(&self, _pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
         unreachable!()
     }

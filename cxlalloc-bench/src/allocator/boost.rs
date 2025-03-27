@@ -89,14 +89,17 @@ impl allocator_bench::allocator::Backend for Backend {
 impl allocator_bench::Allocator for Boost {
     type Handle = NonNull<ffi::c_void>;
 
+    #[inline]
     fn allocate(&mut self, size: usize) -> Option<NonNull<ffi::c_void>> {
         unsafe { NonNull::new(sys::managed_allocate(self.inner(), size).cast()) }
     }
 
+    #[inline]
     unsafe fn deallocate(&mut self, handle: NonNull<ffi::c_void>) {
         sys::managed_deallocate(self.inner(), handle.as_ptr().cast())
     }
 
+    #[inline]
     unsafe fn handle_to_offset(&mut self, handle: &NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(sys::managed_address_to_handle(
             self.inner(),
@@ -105,6 +108,7 @@ impl allocator_bench::Allocator for Boost {
         .unwrap()
     }
 
+    #[inline]
     fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
         match offset {
             0 => None,
@@ -114,6 +118,7 @@ impl allocator_bench::Allocator for Boost {
         }
     }
 
+    #[inline]
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
         unsafe {
             NonZeroU64::new(sys::managed_address_to_handle(
@@ -126,6 +131,7 @@ impl allocator_bench::Allocator for Boost {
 }
 
 impl Boost {
+    #[inline]
     fn inner(&self) -> *mut sys::ManagedExternalBuffer {
         self.0.as_ref().unwrap() as *const _ as *mut _
     }
