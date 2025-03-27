@@ -1,8 +1,10 @@
 use core::cell::UnsafeCell;
+use core::ffi;
 use core::marker::PhantomData;
 use core::mem;
 use core::num::NonZeroIsize;
 use core::ops::Deref;
+use core::ptr::NonNull;
 use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
@@ -10,17 +12,32 @@ use core::sync::atomic::Ordering;
 
 use crate::Allocator;
 
-pub struct Global<A> {
+pub struct Global {
+    thread_count: usize,
+
     local: [Pad<UnsafeCell<Local>>; 64],
 
-    token: AtomicU64,
-
-    _allocator: PhantomData<fn() -> A>,
+    // FIXME: replace with cache-line padded boolean array if highly contended
+    token: AtomicUsize,
 }
 
-impl<A: Allocator> Global<A> {
-    pub unsafe fn start(&self, thread_id: usize, allocator: &mut A) {
-        let data = unsafe { self.local[thread_id].get().as_mut() };
+impl Global {
+    pub unsafe fn start<A: Allocator<Handle = NonNull<ffi::c_void>>>(
+        &self,
+        thread_id: usize,
+        allocator: &mut A,
+    ) {
+        let rotate = self.has_token(thread_id);
+        let local = unsafe { self.local[thread_id].get().as_mut().unwrap() };
+        if rotate {
+            local.rotate();
+        }
+
+        local.free(allocator);
+    }
+
+    fn has_token(&self, thread_id: usize) -> bool {
+        self.token.load(Ordering::Acquire) % self.thread_count == thread_id
     }
 }
 
@@ -30,24 +47,43 @@ struct Local {
     free: Queue,
 }
 
+impl Local {
+    fn rotate(&mut self) {
+        Queue::transfer(&mut self.old, &mut self.free);
+        mem::swap(&mut self.old, &mut self.new);
+    }
+
+    fn free<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
+        self.free.free(allocator);
+    }
+}
+
 struct Queue {
     head: Option<Ptr<Stack>>,
     tail: Option<Ptr<Stack>>,
 }
 
 impl Queue {
-    fn transfer<A: Allocator>(&mut self, allocator: &mut A, source: &mut Self) {
-        let Some(dest_tail) = &self.tail else {
-            // Fast path: self is empty
-            assert!(self.tail.is_none());
-            self.head = source.head.take();
-            self.tail = source.tail.take();
+    fn transfer(source: &mut Self, dest: &mut Self) {
+        let Some(dest_tail) = &dest.tail else {
+            // Fast path: dest is empty
+            assert!(dest.tail.is_none());
+            dest.head.store(
+                source.head().map(|head| head as *const _),
+                Ordering::Relaxed,
+            );
+            dest.tail.store(
+                source.tail().map(|tail| tail as *const _),
+                Ordering::Relaxed,
+            );
+            source.head.take();
+            source.tail.take();
             return;
         };
 
         // Step 1: Initial state
         //
-        //   self.head                     self.tail
+        //   dest.head                     dest.tail
         // ┌───────────┐                 ┌───────────┐
         // │ dest_head ├─►     ...     ─►│ dest_tail │
         // └───────────┘                 └───────────┘
@@ -64,7 +100,7 @@ impl Queue {
 
         // Step 2: Link stacks together
         //
-        //   self.head                     self.tail
+        //   dest.head                     dest.tail
         // ┌───────────┐                 ┌───────────┐
         // │ dest_head ├─►     ...     ─►│ dest_tail │
         // └───────────┘                 └─────┬─────┘
@@ -79,7 +115,7 @@ impl Queue {
 
         // Step 3: Update queue head and tail
         //
-        //   self.head
+        //   dest.head
         // ┌───────────┐                 ┌───────────┐
         // │ dest_head ├─►     ...     ─►│ dest_tail │
         // └───────────┘                 └─────┬─────┘
@@ -88,9 +124,9 @@ impl Queue {
         // ┌───────────┐  ┌───────────┐                 ┌───────────┐
         // │source_head│  │source_next├─►     ...     ─►│           │
         // └───────────┘  └───────────┘                 └───────────┘
-        //  source.head                                   self.tail
+        //  source.head                                   dest.tail
         //  source.tail
-        self.tail.store(
+        dest.tail.store(
             source.tail().map(|tail| tail as *const _),
             Ordering::Relaxed,
         );
@@ -98,6 +134,27 @@ impl Queue {
             source.head().map(|head| head as *const _),
             Ordering::Relaxed,
         );
+    }
+
+    fn free<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
+        // Empty queue
+        let Some(head) = self.head.as_ref() else {
+            return;
+        };
+
+        // Non-empty head
+        if head.free(allocator) {
+            return;
+        }
+
+        // Dequeue and free empty head stack
+        let next = head.next().map(|next| next as *const _);
+        let head = NonNull::from(head).cast::<ffi::c_void>();
+        self.head.store(next, Ordering::Relaxed);
+        unsafe { allocator.deallocate(head) };
+
+        // Can recurse at most once
+        self.free(allocator);
     }
 
     fn head(&self) -> Option<&Stack> {
@@ -116,6 +173,22 @@ struct Stack {
 }
 
 impl Stack {
+    fn free<A: Allocator>(&self, allocator: &mut A) -> bool {
+        let Some(index) = self.len().checked_sub(1) else {
+            return false;
+        };
+
+        let offset = self.data[index].load(Ordering::Relaxed);
+        let handle = allocator.offset_to_handle(offset).unwrap();
+        unsafe {
+            allocator.deallocate(handle);
+        }
+
+        self.data[index - 1].store(0, Ordering::Relaxed);
+        self.len.store(index, Ordering::Relaxed);
+        true
+    }
+
     fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
     }
