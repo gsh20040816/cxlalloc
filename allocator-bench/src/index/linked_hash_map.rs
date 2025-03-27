@@ -34,7 +34,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         populate: bool,
         thread_total: usize,
     ) -> io::Result<Self> {
-        let ebr = shm::Shm::new(numa, c"".to_owned(), populate)?;
+        let ebr = shm::Shm::new(numa, c"/ebr".to_owned(), populate)?;
 
         unsafe {
             ebr::Global::init(ebr.address_mut(), thread_total);
