@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::num::NonZeroU64;
 use core::ops::Deref;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
@@ -336,8 +337,8 @@ fn with<A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
         allocator,
         &key.id().to_ne_bytes(),
         |allocator, pointer| {
-            let offset = unsafe { pointer.cast::<u64>().read() };
-            let handle = allocator.offset_to_handle(offset).unwrap();
+            let offset = NonZeroU64::new(unsafe { pointer.cast::<u64>().read() }).unwrap();
+            let handle = allocator.offset_to_handle(offset);
             with(handle.as_ptr().cast())
         },
     );

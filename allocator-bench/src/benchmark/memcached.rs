@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::num::NonZeroU64;
 use core::ops::Deref;
 use std::fs::File;
 use std::path::PathBuf;
@@ -237,11 +238,13 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                             allocator,
                             key.as_bytes(),
                             |allocator, pointer| {
-                                let offset = unsafe { pointer.cast::<u64>().read() };
-                                let Some(handle) = allocator.offset_to_handle(offset) else {
+                                let Some(offset) =
+                                    NonZeroU64::new(unsafe { pointer.cast::<u64>().read() })
+                                else {
                                     return;
                                 };
 
+                                let handle = allocator.offset_to_handle(offset);
                                 let value_size = unsafe { handle.as_ptr().cast::<u64>().read() };
                                 let value = unsafe {
                                     core::slice::from_raw_parts(

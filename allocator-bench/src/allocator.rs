@@ -63,16 +63,17 @@ pub trait Allocator: Sized {
 
     unsafe fn unlink(&mut self, pointer: *mut u64) {
         let offset = unsafe { AtomicU64::from_ptr(pointer) }.load(Ordering::Relaxed);
-        let Some(handle) = self.offset_to_handle(offset) else {
+        let Some(offset) = NonZeroU64::new(offset) else {
             return;
         };
+        let handle = self.offset_to_handle(offset);
         unsafe { self.deallocate(handle) }
     }
 
     unsafe fn deallocate(&mut self, handle: Self::Handle);
-    unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64;
-    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle>;
 
+    unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64;
+    fn offset_to_handle(&mut self, offset: NonZeroU64) -> Self::Handle;
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64;
 }
 
@@ -128,8 +129,8 @@ impl Allocator for Libc {
         NonZeroU64::new(handle.as_ptr() as u64).unwrap()
     }
 
-    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
-        NonNull::new(offset as *mut ffi::c_void)
+    fn offset_to_handle(&mut self, offset: NonZeroU64) -> Self::Handle {
+        unsafe { NonNull::new_unchecked(offset.get() as *mut ffi::c_void) }
     }
 
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {

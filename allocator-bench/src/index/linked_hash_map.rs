@@ -1,6 +1,7 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::hint;
+use core::num::NonZeroU64;
 use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -137,9 +138,9 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         };
 
         loop {
-            let handle = match head {
-                0 => return false,
-                offset => allocator.offset_to_handle(offset).unwrap(),
+            let handle = match NonZeroU64::new(head) {
+                None => return false,
+                Some(offset) => allocator.offset_to_handle(offset),
             };
 
             let pointer_next = handle.as_ptr().cast::<u64>();

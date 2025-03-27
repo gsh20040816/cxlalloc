@@ -190,7 +190,7 @@ impl Stack {
         self.head.store(next);
 
         let offset = allocator.pointer_to_offset(head);
-        let handle = allocator.offset_to_handle(offset.get()).unwrap();
+        let handle = allocator.offset_to_handle(offset);
         unsafe { allocator.deallocate(handle) };
 
         // Can recurse at most once
@@ -234,8 +234,8 @@ impl Block {
             return false;
         };
 
-        let offset = self.data[index].load(Ordering::Relaxed);
-        let handle = allocator.offset_to_handle(offset).unwrap();
+        let offset = NonZeroU64::new(self.data[index].load(Ordering::Relaxed)).unwrap();
+        let handle = allocator.offset_to_handle(offset);
         unsafe {
             allocator.deallocate(handle);
         }

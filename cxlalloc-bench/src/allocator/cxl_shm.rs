@@ -88,12 +88,8 @@ impl allocator_bench::Allocator for CxlShm {
     }
 
     #[inline]
-    fn offset_to_handle(&mut self, offset: u64) -> Option<Self::Handle> {
-        if offset == 0 {
-            None
-        } else {
-            unsafe { Some(self.0.get_ref(offset)) }
-        }
+    fn offset_to_handle(&mut self, offset: NonZeroU64) -> Self::Handle {
+        unsafe { self.0.get_ref(offset.get()) }
     }
 
     #[inline]

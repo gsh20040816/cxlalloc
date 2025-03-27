@@ -1,5 +1,6 @@
 // https://github.com/emeryberger/Hoard/blob/f021bdb810332c9c9f5a11ae5404aaa38fe129c0/benchmarks/threadtest/threadtest.cpp
 
+use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -119,10 +120,8 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
             }
         }
 
-        for offset in retained.into_iter().chain(data) {
-            let Some(handle) = allocator.offset_to_handle(offset) else {
-                continue;
-            };
+        for offset in retained.into_iter().chain(data).filter_map(NonZeroU64::new) {
+            let handle = allocator.offset_to_handle(offset);
             free(allocator, handle);
         }
 

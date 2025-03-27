@@ -68,8 +68,8 @@ impl allocator_bench::Allocator for Cxlalloc {
     }
 
     #[inline]
-    fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
-        Some(cxlalloc_global::offset_to_pointer(offset as usize - 1))
+    fn offset_to_handle(&mut self, offset: NonZeroU64) -> NonNull<ffi::c_void> {
+        cxlalloc_global::offset_to_pointer(offset.get() as usize - 1)
     }
 
     #[inline]

@@ -80,11 +80,8 @@ impl allocator_bench::Allocator for Ralloc {
     }
 
     #[inline]
-    fn offset_to_handle(&mut self, offset: u64) -> Option<NonNull<ffi::c_void>> {
-        match offset {
-            0 => None,
-            _ => NonNull::new(unsafe { sys::RP_offset_to_pointer(offset as usize) }),
-        }
+    fn offset_to_handle(&mut self, offset: NonZeroU64) -> NonNull<ffi::c_void> {
+        NonNull::new(unsafe { sys::RP_offset_to_pointer(offset.get() as usize) }).unwrap()
     }
 
     #[inline]

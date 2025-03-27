@@ -3,6 +3,7 @@
 use core::cmp;
 use core::mem;
 use core::mem::MaybeUninit;
+use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use core::ptr::addr_of_mut;
 use core::sync::atomic::AtomicBool;
@@ -307,36 +308,33 @@ impl Global {
             }
         }
 
-        let head = root.head.load(Ordering::Relaxed);
-        let handle = allocator.offset_to_handle(head);
-
-        if let Some(pointer) = handle
-            .as_ref()
-            .map(A::Handle::as_ptr)
-            .and_then(NonNull::new)
-        {
-            let next = unsafe { pointer.cast::<Batch>().as_ref().next };
-
-            // HACK: only cxl-shm needs to decrement reference count here
-            if std::any::type_name::<A>().contains("cxl_shm") {
-                unsafe {
-                    allocator.unlink(root.head.as_ptr());
-                }
-            }
-
-            root.head.store(next, Ordering::Relaxed);
-            root.len
-                .store(root.len.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
-
+        let Some(head) = NonZeroU64::new(root.head.load(Ordering::Relaxed)) else {
             unsafe {
-                libc::pthread_cond_signal(&root.full as *const _ as *mut _);
+                libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
+            }
+            return None;
+        };
+
+        let handle = allocator.offset_to_handle(head);
+        let pointer = handle.as_ptr();
+        let next = unsafe { pointer.cast::<Batch>().as_ref().unwrap().next };
+
+        // HACK: only cxl-shm needs to decrement reference count here
+        if std::any::type_name::<A>().contains("cxl_shm") {
+            unsafe {
+                allocator.unlink(root.head.as_ptr());
             }
         }
 
+        root.head.store(next, Ordering::Relaxed);
+        root.len
+            .store(root.len.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
+
         unsafe {
+            libc::pthread_cond_signal(&root.full as *const _ as *mut _);
             libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
         }
 
-        handle.filter(|handle| !handle.as_ptr().is_null())
+        Some(handle)
     }
 }

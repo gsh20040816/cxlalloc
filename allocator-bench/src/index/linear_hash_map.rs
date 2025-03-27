@@ -1,6 +1,7 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::hint;
+use core::num::NonZeroU64;
 use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -105,12 +106,12 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         let mut probe = 0;
 
         loop {
-            match view[(index + probe) % view.len()].load(Ordering::Acquire) {
-                0 => return false,
+            match NonZeroU64::new(view[(index + probe) % view.len()].load(Ordering::Acquire)) {
+                None => return false,
                 // Wait for link operation to complete
-                u64::MAX => hint::spin_loop(),
-                offset => {
-                    let handle = allocator.offset_to_handle(offset).unwrap();
+                Some(offset) if offset.get() == u64::MAX => hint::spin_loop(),
+                Some(offset) => {
+                    let handle = allocator.offset_to_handle(offset);
 
                     let pointer_walk = handle.as_ptr();
                     let walk_len = unsafe { pointer_walk.cast::<usize>().read() };
