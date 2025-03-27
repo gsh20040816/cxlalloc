@@ -2,6 +2,7 @@ pub mod allocator;
 pub mod barrier;
 pub mod benchmark;
 pub mod config;
+mod ebr;
 pub mod index;
 
 pub use allocator::Allocator;
