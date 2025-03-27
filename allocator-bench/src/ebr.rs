@@ -3,6 +3,7 @@ use core::ffi;
 use core::marker::PhantomData;
 use core::mem;
 use core::num::NonZeroIsize;
+use core::num::NonZeroU64;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicIsize;
@@ -11,6 +12,7 @@ use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
 use crate::Allocator;
+use crate::allocator::Handle as _;
 
 pub struct Global {
     thread_count: usize,
@@ -36,46 +38,60 @@ impl Global {
         local.free(allocator);
     }
 
+    pub unsafe fn retire<A: Allocator>(
+        &mut self,
+        thread_id: usize,
+        allocator: &mut A,
+        offset: NonZeroU64,
+    ) {
+        let local = unsafe { self.local[thread_id].get().as_mut().unwrap() };
+        local.push(allocator, offset);
+    }
+
     fn has_token(&self, thread_id: usize) -> bool {
         self.token.load(Ordering::Acquire) % self.thread_count == thread_id
     }
 }
 
 struct Local {
-    new: Queue,
-    old: Queue,
-    free: Queue,
+    new: Stack,
+    old: Stack,
+    free: Stack,
 }
 
 impl Local {
     fn rotate(&mut self) {
-        Queue::transfer(&mut self.old, &mut self.free);
+        Stack::transfer(&mut self.old, &mut self.free);
         mem::swap(&mut self.old, &mut self.new);
     }
 
+    fn push<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
+        match self.new.head() {
+            Some(stack) if stack.push(offset) => (),
+            None | Some(_) => {
+                let stack = self.new.push(allocator);
+                assert!(stack.push(offset));
+            }
+        }
+    }
+
     fn free<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
-        self.free.free(allocator);
+        self.free.pop(allocator);
     }
 }
 
-struct Queue {
-    head: Option<Ptr<Stack>>,
-    tail: Option<Ptr<Stack>>,
+struct Stack {
+    head: Option<Ptr<Block>>,
+    tail: Option<Ptr<Block>>,
 }
 
-impl Queue {
+impl Stack {
     fn transfer(source: &mut Self, dest: &mut Self) {
         let Some(dest_tail) = &dest.tail else {
             // Fast path: dest is empty
             assert!(dest.tail.is_none());
-            dest.head.store(
-                source.head().map(|head| head as *const _),
-                Ordering::Relaxed,
-            );
-            dest.tail.store(
-                source.tail().map(|tail| tail as *const _),
-                Ordering::Relaxed,
-            );
+            dest.head.store(source.head().map(NonNull::from));
+            dest.tail.store(source.tail().map(NonNull::from));
             source.head.take();
             source.tail.take();
             return;
@@ -98,7 +114,7 @@ impl Queue {
             return;
         };
 
-        // Step 2: Link stacks together
+        // Step 2: Link blocks together
         //
         //   dest.head                     dest.tail
         // ┌───────────┐                 ┌───────────┐
@@ -113,7 +129,7 @@ impl Queue {
         dest_tail.next.store(Some(source_next), Ordering::Relaxed);
         source_head.next.store(None, Ordering::Relaxed);
 
-        // Step 3: Update queue head and tail
+        // Step 3: Update stack head and tail
         //
         //   dest.head
         // ┌───────────┐                 ┌───────────┐
@@ -126,54 +142,88 @@ impl Queue {
         // └───────────┘  └───────────┘                 └───────────┘
         //  source.head                                   dest.tail
         //  source.tail
-        dest.tail.store(
-            source.tail().map(|tail| tail as *const _),
-            Ordering::Relaxed,
-        );
-        source.tail.store(
-            source.head().map(|head| head as *const _),
-            Ordering::Relaxed,
-        );
+        dest.tail.store(source.tail().map(NonNull::from));
+        source.tail.store(source.head().map(NonNull::from));
     }
 
-    fn free<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
+    fn push<A: Allocator>(&mut self, allocator: &mut A) -> &Block {
+        let handle = allocator.allocate(mem::size_of::<Block>()).unwrap();
+
+        // Initialize block
+        let pointer = NonNull::new(handle.as_ptr().cast::<Block>()).unwrap();
+        unsafe {
+            libc::memset(
+                pointer.as_ptr().cast::<ffi::c_void>(),
+                0,
+                mem::size_of::<Block>(),
+            );
+
+            pointer.as_ref().next.store(self.head(), Ordering::Relaxed);
+        }
+
+        // Update stack
+        self.head.store(Some(pointer));
+        if self.tail.is_none() {
+            self.tail.store(Some(pointer));
+        }
+
+        unsafe { pointer.as_ref() }
+    }
+
+    fn pop<A: Allocator<Handle = NonNull<ffi::c_void>>>(&mut self, allocator: &mut A) {
         // Empty queue
         let Some(head) = self.head.as_ref() else {
             return;
         };
 
         // Non-empty head
-        if head.free(allocator) {
+        if head.pop(allocator) {
             return;
         }
 
-        // Dequeue and free empty head stack
-        let next = head.next().map(|next| next as *const _);
+        // Pop and free empty head block
+        let next = head.next().map(NonNull::from);
         let head = NonNull::from(head).cast::<ffi::c_void>();
-        self.head.store(next, Ordering::Relaxed);
+        self.head.store(next);
         unsafe { allocator.deallocate(head) };
 
         // Can recurse at most once
-        self.free(allocator);
+        self.pop(allocator);
     }
 
-    fn head(&self) -> Option<&Stack> {
+    fn head(&self) -> Option<&Block> {
         self.head.as_deref()
     }
 
-    fn tail(&self) -> Option<&Stack> {
+    fn tail(&self) -> Option<&Block> {
         self.tail.as_deref()
     }
 }
 
-struct Stack {
+struct Block {
     next: AtomicPtr<Self>,
     len: AtomicUsize,
-    data: [AtomicU64; 62],
+    data: [AtomicU64; Self::LEN],
 }
 
-impl Stack {
-    fn free<A: Allocator>(&self, allocator: &mut A) -> bool {
+const _: () = assert!(mem::size_of::<Block>() == 512);
+
+impl Block {
+    const LEN: usize = 62;
+
+    fn push(&self, offset: NonZeroU64) -> bool {
+        let index = match self.len() {
+            index @ 0..Self::LEN => index,
+            Self::LEN => return false,
+            _ => unreachable!(),
+        };
+
+        self.data[index].store(offset.get(), Ordering::Relaxed);
+        self.len.store(index + 1, Ordering::Relaxed);
+        true
+    }
+
+    fn pop<A: Allocator>(&self, allocator: &mut A) -> bool {
         let Some(index) = self.len().checked_sub(1) else {
             return false;
         };
@@ -205,8 +255,6 @@ impl Stack {
         self.next.load(Ordering::Relaxed)
     }
 }
-
-const _: () = assert!(mem::size_of::<Stack>() == 512);
 
 struct AtomicPtr<T> {
     offset: AtomicIsize,
@@ -249,19 +297,18 @@ struct Ptr<T> {
 }
 
 trait PtrStore<T> {
-    fn store(&mut self, address: Option<*const T>, ordering: Ordering);
+    fn store(&mut self, address: Option<NonNull<T>>);
 }
 
 impl<T> PtrStore<T> for Option<Ptr<T>> {
-    fn store(&mut self, address: Option<*const T>, ordering: Ordering) {
+    fn store(&mut self, address: Option<NonNull<T>>) {
         *self = match address {
             None => None,
-            Some(address) => {
-                NonZeroIsize::new(unsafe { address.byte_offset_from(self) }).map(|offset| Ptr {
+            Some(address) => NonZeroIsize::new(unsafe { address.as_ptr().byte_offset_from(self) })
+                .map(|offset| Ptr {
                     offset,
                     _type: PhantomData,
-                })
-            }
+                }),
         };
     }
 }
