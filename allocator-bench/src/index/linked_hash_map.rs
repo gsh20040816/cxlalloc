@@ -164,6 +164,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
     }
 
     fn unlink(&mut self) -> io::Result<()> {
+        self.ebr.unlink()?;
         self.raw.unlink()
     }
 }

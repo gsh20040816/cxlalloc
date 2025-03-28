@@ -1,5 +1,6 @@
 use core::cell::UnsafeCell;
 use core::ffi;
+use core::iter;
 use core::marker::PhantomData;
 use core::mem;
 use core::num::NonZeroIsize;
@@ -32,13 +33,13 @@ impl Global {
     }
 
     pub unsafe fn start<A: Allocator>(&self, thread_id: usize, allocator: &mut A) {
-        let rotate = self.has_token(thread_id);
         let local = unsafe { self.local[thread_id].get().as_mut().unwrap() };
-        if rotate {
+
+        if self.try_pass(thread_id) {
             local.rotate();
         }
 
-        local.free(allocator);
+        local.pop(allocator);
     }
 
     pub unsafe fn retire<A: Allocator>(
@@ -51,8 +52,14 @@ impl Global {
         local.push(allocator, offset);
     }
 
-    fn has_token(&self, thread_id: usize) -> bool {
-        self.token.load(Ordering::Acquire) % self.thread_total == thread_id
+    fn try_pass(&self, thread_id: usize) -> bool {
+        match self.token.load(Ordering::Relaxed) {
+            token if token % self.thread_total != thread_id => false,
+            token => {
+                self.token.store(token + 1, Ordering::Relaxed);
+                true
+            }
+        }
     }
 }
 
@@ -65,38 +72,86 @@ struct Local {
 impl Local {
     fn rotate(&mut self) {
         Stack::transfer(&mut self.old, &mut self.free);
-        mem::swap(&mut self.old, &mut self.new);
-    }
+        Stack::swap(&mut self.new, &mut self.old);
 
-    fn push<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
-        match self.new.head() {
-            Some(stack) if stack.push(offset) => (),
-            None | Some(_) => {
-                let stack = self.new.push(allocator);
-                assert!(stack.push(offset));
-            }
+        #[cfg(feature = "validate")]
+        {
+            self.new.invariant();
+            self.old.invariant();
+            self.free.invariant();
         }
     }
 
-    fn free<A: Allocator>(&mut self, allocator: &mut A) {
-        self.free.pop(allocator);
+    fn push<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
+        self.new.push_allocation(allocator, offset);
+
+        #[cfg(feature = "validate")]
+        {
+            self.new.invariant();
+        }
+    }
+
+    fn pop<A: Allocator>(&mut self, allocator: &mut A) {
+        self.free.pop_allocation(allocator);
+
+        #[cfg(feature = "validate")]
+        {
+            self.free.invariant();
+        }
     }
 }
 
 struct Stack {
+    #[cfg(feature = "validate")]
+    block_count: usize,
+
+    #[cfg(feature = "validate")]
+    allocation_count: usize,
+
     head: Option<Ptr<Block>>,
     tail: Option<Ptr<Block>>,
 }
 
 impl Stack {
+    fn swap(source: &mut Self, dest: &mut Self) {
+        // Need to do pointer conversions here because we're using offset pointers
+        // Note: in theory this could be optimized to add/subtract the appropriate
+        // offset (mem::size_of::<Stack>() assuming contiguous struct layout) when
+        // moving pointers between `old` and `new`.
+        let source_head = source.head().map(NonNull::from);
+        let dest_tail = source.tail().map(NonNull::from);
+
+        source.head.store(dest.head().map(NonNull::from));
+        source.tail.store(dest.tail().map(NonNull::from));
+
+        dest.head.store(source_head);
+        dest.tail.store(dest_tail);
+
+        #[cfg(feature = "validate")]
+        {
+            mem::swap(&mut source.block_count, &mut dest.block_count);
+            mem::swap(&mut source.allocation_count, &mut dest.allocation_count);
+        }
+    }
+
     fn transfer(source: &mut Self, dest: &mut Self) {
         let Some(dest_tail) = &dest.tail else {
-            // Fast path: dest is empty
-            assert!(dest.tail.is_none());
+            // Simple case: dest is empty
             dest.head.store(source.head().map(NonNull::from));
             dest.tail.store(source.tail().map(NonNull::from));
+
             source.head.take();
             source.tail.take();
+
+            #[cfg(feature = "validate")]
+            {
+                dest.block_count = source.block_count;
+                dest.allocation_count = source.allocation_count;
+
+                source.block_count = 0;
+                source.allocation_count = 0;
+            }
+
             return;
         };
 
@@ -147,9 +202,38 @@ impl Stack {
         //  source.tail
         dest.tail.store(source.tail().map(NonNull::from));
         source.tail.store(source.head().map(NonNull::from));
+
+        #[cfg(feature = "validate")]
+        {
+            let block_delta = source.block_count.checked_sub(1).unwrap();
+            dest.block_count += block_delta;
+            source.block_count -= block_delta;
+
+            let allocation_delta = source
+                .allocation_count
+                .checked_sub(source.head().unwrap().len())
+                .unwrap();
+            dest.allocation_count += allocation_delta;
+            source.allocation_count -= allocation_delta;
+        }
     }
 
-    fn push<A: Allocator>(&mut self, allocator: &mut A) -> &Block {
+    fn push_allocation<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
+        match self.head() {
+            Some(head) if head.push(offset) => (),
+            None | Some(_) => {
+                let head = self.push_block(allocator);
+                assert!(head.push(offset));
+            }
+        }
+
+        #[cfg(feature = "validate")]
+        {
+            self.allocation_count += 1;
+        }
+    }
+
+    fn push_block<A: Allocator>(&mut self, allocator: &mut A) -> &Block {
         let handle = allocator.allocate(mem::size_of::<Block>()).unwrap();
 
         // Initialize block
@@ -170,31 +254,82 @@ impl Stack {
             self.tail.store(Some(pointer));
         }
 
+        #[cfg(feature = "validate")]
+        {
+            self.block_count += 1;
+        }
+
         unsafe { pointer.as_ref() }
     }
 
-    fn pop<A: Allocator>(&mut self, allocator: &mut A) {
-        // Empty queue
+    fn pop_allocation<A: Allocator>(&mut self, allocator: &mut A) {
         let Some(head) = self.head.as_ref() else {
             return;
         };
 
-        // Non-empty head
-        if head.pop(allocator) {
-            return;
+        match head.pop(allocator) {
+            None => unreachable!(),
+            Some(false) => {}
+            Some(true) => self.pop_block(allocator),
         }
+
+        #[cfg(feature = "validate")]
+        {
+            self.allocation_count -= 1;
+        }
+    }
+
+    fn pop_block<A: Allocator>(&mut self, allocator: &mut A) {
+        let Some(head) = self.head() else {
+            return;
+        };
 
         // Pop and free empty head block
         let next = head.next().map(NonNull::from);
         let head = NonNull::from(head).cast::<ffi::c_void>();
         self.head.store(next);
+        if next.is_none() {
+            self.tail.store(None);
+        }
 
         let offset = allocator.pointer_to_offset(head);
         let handle = allocator.offset_to_handle(offset);
         unsafe { allocator.deallocate(handle) };
 
-        // Can recurse at most once
-        self.pop(allocator);
+        #[cfg(feature = "validate")]
+        {
+            self.block_count -= 1;
+        }
+    }
+
+    #[cfg(feature = "validate")]
+    fn invariant(&self) {
+        use core::ptr;
+
+        let Some((head, tail)) = self.head().zip(self.tail()) else {
+            assert!(self.head.is_none());
+            assert!(self.tail.is_none());
+            assert_eq!(self.block_count, 0);
+            assert_eq!(self.allocation_count, 0);
+            return;
+        };
+
+        if self.block_count == 1 {
+            assert!(ptr::eq(head, tail));
+        }
+
+        let mut allocation_count = 0;
+        let block_count = head
+            .walk()
+            .inspect(|block| block.invariant())
+            .inspect(|block| allocation_count += block.len())
+            // Only the head block may be non-full
+            .inspect(|block| assert!(ptr::eq(*block, head) || block.len() == Block::LEN))
+            .count();
+
+        assert_eq!(block_count, self.block_count);
+        assert_eq!(allocation_count, self.allocation_count);
+        assert_eq!(tail.walk().count(), 1);
     }
 
     fn head(&self) -> Option<&Block> {
@@ -229,10 +364,8 @@ impl Block {
         true
     }
 
-    fn pop<A: Allocator>(&self, allocator: &mut A) -> bool {
-        let Some(index) = self.len().checked_sub(1) else {
-            return false;
-        };
+    fn pop<A: Allocator>(&self, allocator: &mut A) -> Option<bool> {
+        let index = self.len().checked_sub(1)?;
 
         let offset = NonZeroU64::new(self.data[index].load(Ordering::Relaxed)).unwrap();
         let handle = allocator.offset_to_handle(offset);
@@ -240,25 +373,48 @@ impl Block {
             allocator.deallocate(handle);
         }
 
-        self.data[index - 1].store(0, Ordering::Relaxed);
+        // Can allow `push` to clobber if not validating
+        if cfg!(feature = "validate") {
+            self.data[index].store(0, Ordering::Relaxed);
+        }
+
         self.len.store(index, Ordering::Relaxed);
-        true
+        Some(index == 0)
     }
 
     fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
     }
 
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    fn is_full(&self) -> bool {
-        self.len() == self.data.len()
-    }
-
     fn next(&self) -> Option<&Self> {
         self.next.load(Ordering::Relaxed)
+    }
+
+    #[cfg(feature = "validate")]
+    fn walk(&self) -> impl Iterator<Item = &Self> {
+        let mut walk = Some(self);
+        iter::from_fn(move || {
+            let here = walk;
+            if let Some(here) = walk {
+                walk = here.next();
+            }
+            here
+        })
+    }
+
+    #[cfg(feature = "validate")]
+    fn invariant(&self) {
+        let len = self.len.load(Ordering::Relaxed);
+
+        assert!(len > 0 && len <= Self::LEN);
+
+        for offset in self.data.iter().take(len) {
+            assert_ne!(offset.load(Ordering::Relaxed), 0);
+        }
+
+        for offset in self.data.iter().skip(len) {
+            assert_eq!(offset.load(Ordering::Relaxed), 0);
+        }
     }
 }
 
