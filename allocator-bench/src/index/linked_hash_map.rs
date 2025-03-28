@@ -1,6 +1,5 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
-use core::hint;
 use core::num::NonZeroU64;
 use core::num::NonZeroUsize;
 use core::slice;
@@ -56,10 +55,6 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         size: usize,
         with: F,
     ) {
-        unsafe {
-            self.ebr().start(thread_id, allocator);
-        }
-
         let bucket = self.bucket(key);
 
         // Initialize value
@@ -133,10 +128,20 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             // FIXME: ABA problem
             if bucket
                 .compare_exchange(head, offset_node.get(), Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
+                .is_err()
             {
-                return;
+                continue;
             }
+
+            // Need to increment reference count of node
+            if !self.use_ebr() {
+                let mut link = 0;
+                unsafe {
+                    allocator.link(&mut link, &handle_node);
+                }
+            }
+
+            return;
         }
     }
 
@@ -147,24 +152,15 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         key: &[u8],
         with: F,
     ) -> bool {
-        unsafe {
-            self.ebr().start(thread_id, allocator);
+        if self.use_ebr() {
+            unsafe {
+                self.ebr().start(thread_id, allocator);
+            }
         }
 
         let bucket = self.bucket(key);
-
-        let head = loop {
-            match bucket.load(Ordering::Acquire) {
-                0 => return false,
-                u64::MAX => {
-                    hint::spin_loop();
-                    continue;
-                }
-                offset => break offset,
-            }
-        };
-
-        let Some(handle) = self.find(allocator, key, head) else {
+        let head = bucket.load(Ordering::Acquire);
+        let Some(handle) = self.find(allocator, head, key) else {
             return false;
         };
 
@@ -196,39 +192,54 @@ impl<A: Allocator> LinkedHashMap<A> {
         key: &[u8],
         value: u64,
     ) -> bool {
-        let Some(handle_node) = self.find(allocator, key, head) else {
+        let Some(handle_node) = self.find(allocator, head, key) else {
             return false;
         };
 
         let offset =
             unsafe { AtomicU64::from_ptr(handle_node.as_ptr().byte_add(16).cast::<u64>()) };
         let old = NonZeroU64::new(offset.swap(value, Ordering::AcqRel)).unwrap();
-        unsafe { self.ebr().retire(thread_id, allocator, old) }
+
+        if self.use_ebr() {
+            unsafe { self.ebr().retire(thread_id, allocator, old) }
+        } else {
+            // Decrement reference count of `old`
+            let mut link = old.get();
+            unsafe {
+                allocator.unlink(&mut link);
+            }
+        }
+
         true
     }
 
-    fn find(&self, allocator: &mut A, target: &[u8], head: u64) -> Option<A::Handle> {
-        let offset = NonZeroU64::new(head)?;
-        let mut handle = allocator.offset_to_handle(offset);
+    fn find(&self, allocator: &mut A, head: u64, key: &[u8]) -> Option<A::Handle> {
+        let offset_walk = NonZeroU64::new(head)?;
+        let mut handle_walk = allocator.offset_to_handle(offset_walk);
 
         loop {
             let offset_key =
-                NonZeroU64::new(unsafe { handle.as_ptr().byte_add(8).cast::<u64>().read() })
+                NonZeroU64::new(unsafe { handle_walk.as_ptr().byte_add(8).cast::<u64>().read() })
                     .unwrap();
 
             let handle_key = allocator.offset_to_handle(offset_key);
-            let key_len = unsafe { handle_key.as_ptr().cast::<usize>().read() };
-            let key = unsafe {
-                slice::from_raw_parts(handle_key.as_ptr().cast::<u8>().byte_add(8), key_len)
+            let candidate_len = unsafe { handle_key.as_ptr().cast::<usize>().read() };
+            let candidate = unsafe {
+                slice::from_raw_parts(handle_key.as_ptr().cast::<u8>().byte_add(8), candidate_len)
             };
 
-            if key == target {
-                return Some(handle);
+            if candidate == key {
+                return Some(handle_walk);
             }
 
-            let offset_next = NonZeroU64::new(unsafe { handle.as_ptr().cast::<u64>().read() })?;
-            handle = allocator.offset_to_handle(offset_next);
+            let offset_walk =
+                NonZeroU64::new(unsafe { handle_walk.as_ptr().cast::<u64>().read() })?;
+            handle_walk = allocator.offset_to_handle(offset_walk);
         }
+    }
+
+    fn use_ebr(&self) -> bool {
+        !std::any::type_name::<A>().contains("cxl_shm")
     }
 
     fn ebr(&self) -> &ebr::Global<A> {
