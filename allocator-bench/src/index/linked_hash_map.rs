@@ -2,6 +2,7 @@ use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::num::NonZeroU64;
 use core::num::NonZeroUsize;
+use core::ptr;
 use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -145,7 +146,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         }
     }
 
-    fn get<F: FnOnce(&mut A, *const u8)>(
+    fn get<F: FnOnce(*const u8)>(
         &self,
         thread_id: usize,
         allocator: &mut A,
@@ -164,10 +165,14 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             return false;
         };
 
-        let offset_value =
-            NonZeroU64::new(unsafe { handle.as_ptr().byte_add(16).cast::<u64>().read() }).unwrap();
-        let handle_value = allocator.offset_to_handle(offset_value);
-        with(allocator, handle_value.as_ptr().cast());
+        match NonZeroU64::new(unsafe { handle.as_ptr().byte_add(16).cast::<u64>().read() }) {
+            None => with(ptr::null()),
+            Some(offset) => {
+                let handle_value = allocator.offset_to_handle(offset);
+                with(handle_value.as_ptr().cast());
+            }
+        }
+
         true
     }
 
@@ -198,7 +203,11 @@ impl<A: Allocator> LinkedHashMap<A> {
 
         let offset =
             unsafe { AtomicU64::from_ptr(handle_node.as_ptr().byte_add(16).cast::<u64>()) };
-        let old = NonZeroU64::new(offset.swap(value, Ordering::AcqRel)).unwrap();
+
+        // Allow zero-sized values
+        let Some(old) = NonZeroU64::new(offset.swap(value, Ordering::AcqRel)) else {
+            return true;
+        };
 
         if self.use_ebr() {
             unsafe { self.ebr().retire(thread_id, allocator, old) }

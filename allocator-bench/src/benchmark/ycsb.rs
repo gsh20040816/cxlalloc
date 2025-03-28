@@ -1,5 +1,4 @@
 use core::marker::PhantomData;
-use core::num::NonZeroU64;
 use core::ops::Deref;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
@@ -23,7 +22,6 @@ use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
-use crate::allocator::Handle as _;
 use crate::benchmark;
 use crate::config;
 use crate::index;
@@ -332,15 +330,6 @@ fn with<A: Allocator, I: Index<A>, F: FnOnce(*const u8)>(
     key: &ycsb::Key,
     with: F,
 ) {
-    let found = index.get(
-        thread_id,
-        allocator,
-        &key.id().to_ne_bytes(),
-        |allocator, pointer| {
-            let offset = NonZeroU64::new(unsafe { pointer.cast::<u64>().read() }).unwrap();
-            let handle = allocator.offset_to_handle(offset);
-            with(handle.as_ptr().cast())
-        },
-    );
+    let found = index.get(thread_id, allocator, &key.id().to_ne_bytes(), with);
     assert!(found);
 }

@@ -45,7 +45,7 @@ where
         with: F,
     );
 
-    fn get<F: FnOnce(&mut A, *const u8)>(
+    fn get<F: FnOnce(*const u8)>(
         &self,
         thread_id: usize,
         allocator: &mut A,

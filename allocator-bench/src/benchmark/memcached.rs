@@ -1,5 +1,4 @@
 use core::marker::PhantomData;
-use core::num::NonZeroU64;
 use core::ops::Deref;
 use std::fs::File;
 use std::path::PathBuf;
@@ -24,7 +23,6 @@ use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
-use crate::allocator::Handle as _;
 use crate::benchmark;
 use crate::config;
 use crate::index;
@@ -33,7 +31,7 @@ use crate::index;
 pub struct Config {
     index: index::Config,
 
-    operation_count: usize,
+    operation_count: u64,
 
     trace: PathBuf,
 }
@@ -180,7 +178,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         global: &Self::StateGlobal,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        let limit = self.operation_count / config.thread_total();
+        let limit = self.operation_count as usize / config.thread_total();
         let offset = limit * config.thread_id;
         let file = File::open(&self.trace).unwrap();
         let reader =
@@ -203,7 +201,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         _global: &Self::StateGlobal,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
-        self.operation_count as u64
+        self.operation_count
     }
 
     fn run_worker(
@@ -233,29 +231,20 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
             {
                 match operation {
                     "get" => {
-                        global.index.get(
-                            config.thread_id,
-                            allocator,
-                            key.as_bytes(),
-                            |allocator, pointer| {
-                                let Some(offset) =
-                                    NonZeroU64::new(unsafe { pointer.cast::<u64>().read() })
-                                else {
+                        global
+                            .index
+                            .get(config.thread_id, allocator, key.as_bytes(), |pointer| {
+                                if pointer.is_null() {
                                     return;
-                                };
+                                }
 
-                                let handle = allocator.offset_to_handle(offset);
-                                let value_size = unsafe { handle.as_ptr().cast::<u64>().read() };
+                                let size = unsafe { pointer.cast::<u64>().read() };
                                 let value = unsafe {
-                                    core::slice::from_raw_parts(
-                                        handle.as_ptr().cast::<u8>(),
-                                        value_size as usize,
-                                    )
+                                    core::slice::from_raw_parts(pointer.byte_add(8), size as usize)
                                 };
 
                                 assert!(value.iter().all(|byte| *byte == 0xff));
-                            },
-                        );
+                            });
                     }
                     "set" if value_size == 0 => {
                         global

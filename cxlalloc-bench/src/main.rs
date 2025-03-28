@@ -111,6 +111,9 @@ impl Cli {
 enum Experiment {
     Ycsb(Box<Ycsb>),
     Memcached {
+        #[arg(long, value_delimiter = ',', default_value = "10000000")]
+        operation_count: Vec<u64>,
+
         trace: Vec<PathBuf>,
     },
     Mstress,
@@ -203,10 +206,13 @@ fn main() -> anyhow::Result<()> {
     let config = cli.collect();
 
     match &cli.experiment {
-        Experiment::Memcached { trace } => {
+        Experiment::Memcached {
+            operation_count,
+            trace,
+        } => {
             let total = config.len() * trace.len();
-            for (i, ((config_global, allocator, config_allocator), trace)) in
-                cartesian!(config.iter(), trace.iter()).enumerate()
+            for (i, ((config_global, allocator, config_allocator), operation_count, trace)) in
+                cartesian!(config.iter(), operation_count.iter(), trace.iter()).enumerate()
             {
                 let config = cxlalloc_bench::Config::builder()
                     .allocator(*allocator)
@@ -221,7 +227,7 @@ fn main() -> anyhow::Result<()> {
                                     .len(1 << 25)
                                     .build(),
                             )
-                            .operation_count(10_000_000)
+                            .operation_count(*operation_count)
                             .trace(trace.clone())
                             .build(),
                     ))
