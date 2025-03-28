@@ -60,10 +60,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
             self.ebr().start(thread_id, allocator);
         }
 
-        let view = self.view();
-        let index = self.index(&key);
-
-        let len = key.len();
+        let bucket = self.bucket(key);
 
         // Initialize value
         let handle_value = match NonZeroUsize::new(size) {
@@ -81,10 +78,13 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
             .unwrap_or(0);
 
         // Fast path: swap value in place
-        if let Some(handle) = self.find(allocator, key, view[index].load(Ordering::Relaxed)) {
-            let value = unsafe { AtomicU64::from_ptr(handle.as_ptr().byte_add(16).cast::<u64>()) };
-            let old = NonZeroU64::new(value.swap(offset_value, Ordering::AcqRel)).unwrap();
-            unsafe { self.ebr().retire(thread_id, allocator, old) }
+        if self.try_swap(
+            thread_id,
+            allocator,
+            bucket.load(Ordering::Relaxed),
+            key,
+            offset_value,
+        ) {
             return;
         }
 
@@ -94,14 +94,14 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
 
         // Initialize key
         let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
-        let handle_key = allocator.allocate(8 + len).unwrap();
+        let handle_key = allocator.allocate(8 + key.len()).unwrap();
         unsafe {
             let pointer_key = handle_key.as_ptr();
-            pointer_key.cast::<usize>().write(len);
+            pointer_key.cast::<usize>().write(key.len());
             pointer_key
                 .byte_add(8)
                 .cast::<u8>()
-                .copy_from_nonoverlapping(key.as_ptr(), len);
+                .copy_from_nonoverlapping(key.as_ptr(), key.len());
         }
         unsafe {
             allocator.link(pointer_key, &handle_key);
@@ -114,38 +114,25 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
             Some(handle) => unsafe { allocator.link(pointer_value, handle) },
         }
 
-        let head = &view[index];
         let pointer_next = handle_node.as_ptr().cast::<u64>();
 
         loop {
             // Must store current head before calling find
-            let offset_head = head.load(Ordering::Relaxed);
-            unsafe { pointer_next.write(offset_head) };
+            let head = bucket.load(Ordering::Relaxed);
+            unsafe { pointer_next.write(head) };
 
-            if let Some(handle) = self.find(allocator, key, offset_head) {
-                let value =
-                    unsafe { AtomicU64::from_ptr(handle.as_ptr().byte_add(16).cast::<u64>()) };
-
-                let old = NonZeroU64::new(value.swap(offset_value, Ordering::AcqRel)).unwrap();
-
+            if self.try_swap(thread_id, allocator, head, key, offset_value) {
                 unsafe {
-                    self.ebr().retire(thread_id, allocator, old);
                     allocator.deallocate(handle_key);
                     allocator.deallocate(handle_node);
                 }
-
                 return;
             }
 
             // Try to CAS new node at head
             // FIXME: ABA problem
-            if head
-                .compare_exchange(
-                    offset_head,
-                    offset_node.get(),
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+            if bucket
+                .compare_exchange(head, offset_node.get(), Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 return;
@@ -164,11 +151,10 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
             self.ebr().start(thread_id, allocator);
         }
 
-        let view = self.view();
-        let index = self.index(&key);
+        let bucket = self.bucket(key);
 
         let head = loop {
-            match view[index].load(Ordering::Acquire) {
+            match bucket.load(Ordering::Acquire) {
                 0 => return false,
                 u64::MAX => {
                     hint::spin_loop();
@@ -196,10 +182,29 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
 }
 
 impl LinkedHashMap {
-    fn index<K: Hash>(&self, key: &K) -> usize {
+    fn bucket(&self, key: &[u8]) -> &AtomicU64 {
         let mut hasher = RapidHasher::default();
         key.hash(&mut hasher);
-        hasher.finish() as usize % self.len
+        &self.view()[hasher.finish() as usize % self.len]
+    }
+
+    fn try_swap<A: Allocator>(
+        &self,
+        thread_id: usize,
+        allocator: &mut A,
+        head: u64,
+        key: &[u8],
+        value: u64,
+    ) -> bool {
+        let Some(handle_node) = self.find(allocator, key, head) else {
+            return false;
+        };
+
+        let offset =
+            unsafe { AtomicU64::from_ptr(handle_node.as_ptr().byte_add(16).cast::<u64>()) };
+        let old = NonZeroU64::new(offset.swap(value, Ordering::AcqRel)).unwrap();
+        unsafe { self.ebr().retire(thread_id, allocator, old) }
+        true
     }
 
     fn find<A: Allocator>(&self, allocator: &mut A, target: &[u8], head: u64) -> Option<A::Handle> {
