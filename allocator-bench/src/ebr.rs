@@ -15,23 +15,23 @@ use core::sync::atomic::Ordering;
 use crate::Allocator;
 use crate::allocator::Handle as _;
 
-pub struct Global {
+pub struct Global<A> {
     thread_total: usize,
 
-    local: [Pad<UnsafeCell<Local>>; 64],
+    local: [Pad<UnsafeCell<Local<A>>>; 64],
 
     // FIXME: replace with cache-line padded boolean array if highly contended
     token: AtomicUsize,
 }
 
-impl Global {
+impl<A: Allocator> Global<A> {
     pub unsafe fn init(global: *mut Self, thread_total: usize) {
         unsafe {
             *addr_of_mut!((*global).thread_total) = thread_total;
         }
     }
 
-    pub unsafe fn start<A: Allocator>(&self, thread_id: usize, allocator: &mut A) {
+    pub unsafe fn start(&self, thread_id: usize, allocator: &mut A) {
         let local = unsafe { self.local[thread_id].get().as_mut().unwrap() };
 
         if self.try_pass(thread_id) {
@@ -41,12 +41,7 @@ impl Global {
         local.pop(allocator);
     }
 
-    pub unsafe fn retire<A: Allocator>(
-        &self,
-        thread_id: usize,
-        allocator: &mut A,
-        offset: NonZeroU64,
-    ) {
+    pub unsafe fn retire(&self, thread_id: usize, allocator: &mut A, offset: NonZeroU64) {
         let local = unsafe { self.local[thread_id].get().as_mut().unwrap() };
         local.push(allocator, offset);
     }
@@ -62,14 +57,14 @@ impl Global {
     }
 }
 
-struct Local {
+struct Local<A> {
     dirty: bool,
-    new: Stack,
-    old: Stack,
-    free: Stack,
+    new: Stack<A>,
+    old: Stack<A>,
+    free: Stack<A>,
 }
 
-impl Local {
+impl<A: Allocator> Local<A> {
     fn rotate(&mut self) {
         // Since `transfer` only operates on full blocks, we can skip
         // swapping and transferring until we have at least one block.
@@ -88,7 +83,7 @@ impl Local {
         }
     }
 
-    fn push<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
+    fn push(&mut self, allocator: &mut A, offset: NonZeroU64) {
         self.dirty = self.new.push_allocation(allocator, offset);
 
         #[cfg(feature = "validate")]
@@ -97,7 +92,7 @@ impl Local {
         }
     }
 
-    fn pop<A: Allocator>(&mut self, allocator: &mut A) {
+    fn pop(&mut self, allocator: &mut A) {
         self.free.pop_allocation(allocator);
 
         #[cfg(feature = "validate")]
@@ -107,7 +102,7 @@ impl Local {
     }
 }
 
-struct Stack {
+struct Stack<A> {
     #[cfg(feature = "validate")]
     block_count: usize,
 
@@ -116,9 +111,11 @@ struct Stack {
 
     head: Option<Ptr<Block>>,
     tail: Option<Ptr<Block>>,
+
+    _allocator: PhantomData<fn() -> A>,
 }
 
-impl Stack {
+impl<A: Allocator> Stack<A> {
     fn swap(source: &mut Self, dest: &mut Self) {
         // Need to do pointer conversions here because we're using offset pointers
         // Note: in theory this could be optimized to add/subtract the appropriate
@@ -224,7 +221,7 @@ impl Stack {
         }
     }
 
-    fn push_allocation<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) -> bool {
+    fn push_allocation(&mut self, allocator: &mut A, offset: NonZeroU64) -> bool {
         let dirty = match self.head() {
             Some(head) if head.push(offset) => false,
             None | Some(_) => {
@@ -242,7 +239,7 @@ impl Stack {
         dirty
     }
 
-    fn push_block<A: Allocator>(&mut self, allocator: &mut A) -> &Block {
+    fn push_block(&mut self, allocator: &mut A) -> &Block {
         let handle = allocator.allocate(mem::size_of::<Block>()).unwrap();
 
         // Initialize block
@@ -271,7 +268,7 @@ impl Stack {
         unsafe { pointer.as_ref() }
     }
 
-    fn pop_allocation<A: Allocator>(&mut self, allocator: &mut A) {
+    fn pop_allocation(&mut self, allocator: &mut A) {
         let Some(head) = self.head.as_ref() else {
             return;
         };
@@ -288,7 +285,7 @@ impl Stack {
         }
     }
 
-    fn pop_block<A: Allocator>(&mut self, allocator: &mut A) {
+    fn pop_block(&mut self, allocator: &mut A) {
         let Some(head) = self.head() else {
             return;
         };

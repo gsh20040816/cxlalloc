@@ -39,10 +39,10 @@ impl Config {
         }
     }
 
-    fn specialize_index<A: allocator_bench::allocator::Backend>(&self) {
+    fn specialize_index<B: allocator_bench::allocator::Backend>(&self) {
         match self.index {
-            Index::Linear => self.specialize_benchmark::<A, index::LinearHashMap>(),
-            Index::Linked => self.specialize_benchmark::<A, index::LinkedHashMap>(),
+            Index::Linear => self.specialize_benchmark::<B, index::LinearHashMap>(),
+            Index::Linked => self.specialize_benchmark::<B, index::LinkedHashMap<B::Allocator>>(),
         }
     }
 

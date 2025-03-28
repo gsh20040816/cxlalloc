@@ -21,13 +21,13 @@ use crate::ebr;
 ///
 /// Inserted nodes are one contiguous allocation with the
 /// next pointer, key, and value.
-pub struct LinkedHashMap {
+pub struct LinkedHashMap<A> {
     len: usize,
-    ebr: Shm<ebr::Global>,
+    ebr: Shm<ebr::Global<A>>,
     raw: shm::Raw,
 }
 
-impl<A: Allocator> Index<A> for LinkedHashMap {
+impl<A: Allocator> Index<A> for LinkedHashMap<A> {
     fn new(
         numa: Option<usize>,
         name: &str,
@@ -181,14 +181,14 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
     }
 }
 
-impl LinkedHashMap {
+impl<A: Allocator> LinkedHashMap<A> {
     fn bucket(&self, key: &[u8]) -> &AtomicU64 {
         let mut hasher = RapidHasher::default();
         key.hash(&mut hasher);
         &self.view()[hasher.finish() as usize % self.len]
     }
 
-    fn try_swap<A: Allocator>(
+    fn try_swap(
         &self,
         thread_id: usize,
         allocator: &mut A,
@@ -207,7 +207,7 @@ impl LinkedHashMap {
         true
     }
 
-    fn find<A: Allocator>(&self, allocator: &mut A, target: &[u8], head: u64) -> Option<A::Handle> {
+    fn find(&self, allocator: &mut A, target: &[u8], head: u64) -> Option<A::Handle> {
         let offset = NonZeroU64::new(head)?;
         let mut handle = allocator.offset_to_handle(offset);
 
@@ -231,7 +231,7 @@ impl LinkedHashMap {
         }
     }
 
-    fn ebr(&self) -> &ebr::Global {
+    fn ebr(&self) -> &ebr::Global<A> {
         unsafe { self.ebr.address().as_ref().unwrap() }
     }
 

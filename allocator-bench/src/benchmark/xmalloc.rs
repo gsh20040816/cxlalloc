@@ -4,7 +4,6 @@ use core::cmp;
 use core::mem;
 use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
-use core::ptr::NonNull;
 use core::ptr::addr_of_mut;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicU64;
