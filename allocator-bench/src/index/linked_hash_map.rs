@@ -2,6 +2,7 @@ use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::hint;
 use core::num::NonZeroU64;
+use core::num::NonZeroUsize;
 use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -64,11 +65,35 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
 
         let len = key.len();
 
-        let handle_node = allocator.allocate(24).unwrap();
-        let pointer_next = handle_node.as_ptr().cast::<u64>();
-        let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
-        let pointer_value = unsafe { handle_node.as_ptr().byte_add(16).cast::<u64>() };
+        // Initialize value
+        let handle_value = match NonZeroUsize::new(size) {
+            None => None,
+            Some(size) => {
+                let handle_value = allocator.allocate(size.get()).unwrap();
+                with(handle_value.as_ptr().cast::<u8>());
+                Some(handle_value)
+            }
+        };
+        let offset_value = handle_value
+            .as_ref()
+            .map(|handle| unsafe { allocator.handle_to_offset(handle) })
+            .map(NonZeroU64::get)
+            .unwrap_or(0);
 
+        // Fast path: swap value in place
+        if let Some(handle) = self.find(allocator, key, view[index].load(Ordering::Relaxed)) {
+            let value = unsafe { AtomicU64::from_ptr(handle.as_ptr().byte_add(16).cast::<u64>()) };
+            let old = NonZeroU64::new(value.swap(offset_value, Ordering::AcqRel)).unwrap();
+            unsafe { self.ebr().retire(thread_id, allocator, old) }
+            return;
+        }
+
+        // Slow path: allocate node
+        let handle_node = allocator.allocate(24).unwrap();
+        let offset_node = unsafe { allocator.handle_to_offset(&handle_node) };
+
+        // Initialize key
+        let pointer_key = unsafe { handle_node.as_ptr().byte_add(8).cast::<u64>() };
         let handle_key = allocator.allocate(8 + len).unwrap();
         unsafe {
             let pointer_key = handle_key.as_ptr();
@@ -82,32 +107,48 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
             allocator.link(pointer_key, &handle_key);
         }
 
-        if size > 0 {
-            let handle_value = allocator.allocate(size).unwrap();
-            with(handle_value.as_ptr().cast::<u8>());
-            unsafe {
-                allocator.link(pointer_value, &handle_value);
-            }
-        } else {
-            unsafe {
-                pointer_value.write(0);
-            }
+        // Link value into node
+        let pointer_value = unsafe { handle_node.as_ptr().byte_add(16).cast::<u64>() };
+        match handle_value.as_ref() {
+            None => unsafe { pointer_value.write(0) },
+            Some(handle) => unsafe { allocator.link(pointer_value, handle) },
         }
 
         let head = &view[index];
-        loop {
-            let next = head.load(Ordering::Acquire);
+        let pointer_next = handle_node.as_ptr().cast::<u64>();
 
-            unsafe {
-                pointer_next.write(next);
+        loop {
+            // Must store current head before calling find
+            let offset_head = head.load(Ordering::Relaxed);
+            unsafe { pointer_next.write(offset_head) };
+
+            if let Some(handle) = self.find(allocator, key, offset_head) {
+                let value =
+                    unsafe { AtomicU64::from_ptr(handle.as_ptr().byte_add(16).cast::<u64>()) };
+
+                let old = NonZeroU64::new(value.swap(offset_value, Ordering::AcqRel)).unwrap();
+
+                unsafe {
+                    self.ebr().retire(thread_id, allocator, old);
+                    allocator.deallocate(handle_key);
+                    allocator.deallocate(handle_node);
+                }
+
+                return;
             }
 
-            match head.compare_exchange(next, u64::MAX, Ordering::AcqRel, Ordering::Acquire) {
-                Ok(_) => unsafe {
-                    allocator.link(head.as_ptr(), &handle_node);
-                    return;
-                },
-                Err(_) => continue,
+            // Try to CAS new node at head
+            // FIXME: ABA problem
+            if head
+                .compare_exchange(
+                    offset_head,
+                    offset_node.get(),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return;
             }
         }
     }
@@ -126,7 +167,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
         let view = self.view();
         let index = self.index(&key);
 
-        let mut head = loop {
+        let head = loop {
             match view[index].load(Ordering::Acquire) {
                 0 => return false,
                 u64::MAX => {
@@ -137,30 +178,15 @@ impl<A: Allocator> Index<A> for LinkedHashMap {
             }
         };
 
-        loop {
-            let handle = match NonZeroU64::new(head) {
-                None => return false,
-                Some(offset) => allocator.offset_to_handle(offset),
-            };
+        let Some(handle) = self.find(allocator, key, head) else {
+            return false;
+        };
 
-            let pointer_next = handle.as_ptr().cast::<u64>();
-            let pointer_walk = unsafe { handle.as_ptr().byte_add(8) };
-            let pointer_value = unsafe { handle.as_ptr().byte_add(8 + 8).cast::<u8>() };
-
-            let walk_len = unsafe { pointer_walk.cast::<usize>().read() };
-            let walk =
-                unsafe { slice::from_raw_parts(pointer_walk.byte_add(8).cast::<u8>(), walk_len) };
-
-            match key == walk {
-                true => {
-                    with(allocator, pointer_value);
-                    return true;
-                }
-                false => {
-                    head = unsafe { pointer_next.read() };
-                }
-            }
-        }
+        let offset_value =
+            NonZeroU64::new(unsafe { handle.as_ptr().byte_add(16).cast::<u64>().read() }).unwrap();
+        let handle_value = allocator.offset_to_handle(offset_value);
+        with(allocator, handle_value.as_ptr().cast());
+        true
     }
 
     fn unlink(&mut self) -> io::Result<()> {
@@ -174,6 +200,30 @@ impl LinkedHashMap {
         let mut hasher = RapidHasher::default();
         key.hash(&mut hasher);
         hasher.finish() as usize % self.len
+    }
+
+    fn find<A: Allocator>(&self, allocator: &mut A, target: &[u8], head: u64) -> Option<A::Handle> {
+        let offset = NonZeroU64::new(head)?;
+        let mut handle = allocator.offset_to_handle(offset);
+
+        loop {
+            let offset_key =
+                NonZeroU64::new(unsafe { handle.as_ptr().byte_add(8).cast::<u64>().read() })
+                    .unwrap();
+
+            let handle_key = allocator.offset_to_handle(offset_key);
+            let key_len = unsafe { handle_key.as_ptr().cast::<usize>().read() };
+            let key = unsafe {
+                slice::from_raw_parts(handle_key.as_ptr().cast::<u8>().byte_add(8), key_len)
+            };
+
+            if key == target {
+                return Some(handle);
+            }
+
+            let offset_next = NonZeroU64::new(unsafe { handle.as_ptr().cast::<u64>().read() })?;
+            handle = allocator.offset_to_handle(offset_next);
+        }
     }
 
     fn ebr(&self) -> &ebr::Global {
