@@ -1,6 +1,5 @@
 use core::cell::UnsafeCell;
 use core::ffi;
-use core::iter;
 use core::marker::PhantomData;
 use core::mem;
 use core::num::NonZeroIsize;
@@ -64,6 +63,7 @@ impl Global {
 }
 
 struct Local {
+    dirty: bool,
     new: Stack,
     old: Stack,
     free: Stack,
@@ -71,6 +71,12 @@ struct Local {
 
 impl Local {
     fn rotate(&mut self) {
+        // Since `transfer` only operates on full blocks, we can skip
+        // swapping and transferring until we have at least one block.
+        if !mem::take(&mut self.dirty) {
+            return;
+        }
+
         Stack::transfer(&mut self.old, &mut self.free);
         Stack::swap(&mut self.new, &mut self.old);
 
@@ -83,7 +89,7 @@ impl Local {
     }
 
     fn push<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
-        self.new.push_allocation(allocator, offset);
+        self.dirty = self.new.push_allocation(allocator, offset);
 
         #[cfg(feature = "validate")]
         {
@@ -218,19 +224,22 @@ impl Stack {
         }
     }
 
-    fn push_allocation<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) {
-        match self.head() {
-            Some(head) if head.push(offset) => (),
+    fn push_allocation<A: Allocator>(&mut self, allocator: &mut A, offset: NonZeroU64) -> bool {
+        let dirty = match self.head() {
+            Some(head) if head.push(offset) => false,
             None | Some(_) => {
                 let head = self.push_block(allocator);
                 assert!(head.push(offset));
+                true
             }
-        }
+        };
 
         #[cfg(feature = "validate")]
         {
             self.allocation_count += 1;
         }
+
+        dirty
     }
 
     fn push_block<A: Allocator>(&mut self, allocator: &mut A) -> &Block {
@@ -393,7 +402,7 @@ impl Block {
     #[cfg(feature = "validate")]
     fn walk(&self) -> impl Iterator<Item = &Self> {
         let mut walk = Some(self);
-        iter::from_fn(move || {
+        core::iter::from_fn(move || {
             let here = walk;
             if let Some(here) = walk {
                 walk = here.next();
