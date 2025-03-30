@@ -1,3 +1,5 @@
+use core::any;
+use core::cmp;
 use core::marker::PhantomData;
 use core::ops::Deref;
 use std::fs::File;
@@ -64,7 +66,7 @@ const MAX_SIZE: usize = 1_000;
 pub struct Global<I> {
     index: I,
 
-    schema: SchemaDescriptor,
+    mask: ProjectionMask,
 
     metadata: ArrowReaderMetadata,
 }
@@ -148,6 +150,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                 .unwrap(),
         ));
 
+        let mask = ProjectionMask::columns(&schema, ["key_value", "value_size", "operation"]);
+
         let metadata =
             ArrowReaderMetadata::load(&file, ArrowReaderOptions::new().with_page_index(true))
                 .unwrap();
@@ -160,7 +164,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                 config.thread_total(),
             )
             .unwrap(),
-            schema,
+            mask,
             metadata,
         }
     }
@@ -185,11 +189,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
             ParquetRecordBatchReaderBuilder::new_with_metadata(file, global.metadata.clone())
                 .with_offset(offset)
                 .with_limit(limit)
-                .with_projection(ProjectionMask::columns(&global.schema, [
-                    "key_value",
-                    "value_size",
-                    "operation",
-                ]))
+                .with_projection(global.mask.clone())
                 .build()
                 .unwrap();
         Worker { reader }
@@ -252,7 +252,12 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                             .insert(config.thread_id, allocator, key.as_bytes(), 0, |_| ())
                     }
                     "set" => {
-                        // FIXME: handle collision
+                        let value_size = if any::type_name::<B>().contains("cxl_shm") {
+                            cmp::min(value_size, 992)
+                        } else {
+                            value_size
+                        };
+
                         global.index.insert(
                             config.thread_id,
                             allocator,

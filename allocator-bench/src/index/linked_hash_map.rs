@@ -67,11 +67,6 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
                 Some(handle_value)
             }
         };
-        let offset_value = handle_value
-            .as_ref()
-            .map(|handle| unsafe { allocator.handle_to_offset(handle) })
-            .map(NonZeroU64::get)
-            .unwrap_or(0);
 
         // Fast path: swap value in place
         if self.try_swap(
@@ -79,7 +74,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             allocator,
             bucket.load(Ordering::Relaxed),
             key,
-            offset_value,
+            handle_value.as_ref(),
         ) {
             return;
         }
@@ -117,9 +112,13 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             let head = bucket.load(Ordering::Relaxed);
             unsafe { pointer_next.write(head) };
 
-            if self.try_swap(thread_id, allocator, head, key, offset_value) {
+            if self.try_swap(thread_id, allocator, head, key, handle_value.as_ref()) {
                 unsafe {
+                    allocator.unlink(pointer_key);
                     allocator.deallocate(handle_key);
+
+                    allocator.unlink(pointer_value);
+
                     allocator.deallocate(handle_node);
                 }
                 return;
@@ -195,27 +194,39 @@ impl<A: Allocator> LinkedHashMap<A> {
         allocator: &mut A,
         head: u64,
         key: &[u8],
-        value: u64,
+        value: Option<&A::Handle>,
     ) -> bool {
         let Some(handle_node) = self.find(allocator, head, key) else {
             return false;
         };
 
-        let offset =
-            unsafe { AtomicU64::from_ptr(handle_node.as_ptr().byte_add(16).cast::<u64>()) };
+        let site = unsafe { AtomicU64::from_ptr(handle_node.as_ptr().byte_add(16).cast::<u64>()) };
+        let new = value
+            .map(|handle| unsafe { allocator.handle_to_offset(handle) })
+            .map(NonZeroU64::get)
+            .unwrap_or(0);
 
-        // Allow zero-sized values
-        let Some(old) = NonZeroU64::new(offset.swap(value, Ordering::AcqRel)) else {
-            return true;
-        };
+        let old = NonZeroU64::new(site.swap(new, Ordering::AcqRel));
 
         if self.use_ebr() {
-            unsafe { self.ebr().retire(thread_id, allocator, old) }
+            if let Some(old) = old {
+                unsafe { self.ebr().retire(thread_id, allocator, old) }
+            }
         } else {
             // Decrement reference count of `old`
-            let mut link = old.get();
-            unsafe {
-                allocator.unlink(&mut link);
+            if let Some(old) = old {
+                let mut link = old.get();
+                unsafe {
+                    allocator.unlink(&mut link);
+                }
+            }
+
+            // Increment reference count of `new`
+            if let Some(value) = value {
+                let mut link = 0;
+                unsafe {
+                    allocator.link(&mut link, value);
+                }
             }
         }
 
