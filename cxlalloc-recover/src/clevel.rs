@@ -18,7 +18,6 @@ use memento::pmem::PoolHandle;
 use memento::pmem::RootObj;
 use memento::Collectable;
 use memento::Memento;
-use rand::distr::uniform::UniformFloat;
 use rand::distr::Uniform;
 use rand::rngs::SmallRng;
 use rand::Rng as _;

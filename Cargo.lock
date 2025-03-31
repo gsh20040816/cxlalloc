@@ -767,11 +767,14 @@ dependencies = [
 name = "cxlalloc-recover"
 version = "0.1.0"
 dependencies = [
+ "bon",
+ "cartesian",
  "clap",
  "core_affinity",
  "crossbeam-channel 0.1.0",
  "crossbeam-epoch",
  "crossbeam-utils 0.8.5",
+ "duct",
  "memento",
  "rand 0.9.0",
  "serde",

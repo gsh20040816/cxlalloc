@@ -1,5 +1,6 @@
 pub mod clevel;
 pub mod queue;
+pub mod worker;
 
 use core::cell::Cell;
 use core::sync::atomic::AtomicBool;
