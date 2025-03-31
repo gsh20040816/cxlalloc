@@ -33,12 +33,12 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         name: &str,
         len: usize,
         populate: bool,
-        thread_total: usize,
+        thread_count: usize,
     ) -> io::Result<Self> {
         let ebr = shm::Shm::new(numa, c"/ebr".to_owned(), populate)?;
 
         unsafe {
-            ebr::Global::init(ebr.address_mut(), thread_total);
+            ebr::Global::init(ebr.address_mut(), thread_count);
         }
 
         Ok(Self {

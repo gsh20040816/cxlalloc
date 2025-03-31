@@ -1,21 +1,35 @@
 use core::ops::Deref;
 
-use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Builder, Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Global {
     /// Number of processes
     pub process_count: usize,
 
-    /// Number of threads per process
+    /// Number of threads
     pub thread_count: usize,
 }
 
 impl Global {
-    pub fn thread_total(&self) -> usize {
-        self.process_count * self.thread_count
+    pub fn new(process_count: usize, thread_count: usize) -> Self {
+        assert_eq!(
+            thread_count % process_count,
+            0,
+            "thread count {} must be evenly divisible by process count {}",
+            thread_count,
+            process_count
+        );
+
+        Self {
+            process_count,
+            thread_count,
+        }
+    }
+
+    pub fn thread_count_per_process(&self) -> usize {
+        self.thread_count / self.process_count
     }
 
     pub fn with_process_id(&self, process_id: usize) -> Process {

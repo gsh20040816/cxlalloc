@@ -36,7 +36,7 @@ struct Cli {
     process_count: Vec<usize>,
 
     #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
-    thread_total: Vec<usize>,
+    thread_count: Vec<usize>,
 
     #[arg(long, value_delimiter = ',', default_value = "0")]
     allocator_numa: Vec<usize>,
@@ -76,23 +76,20 @@ impl Cli {
     )> {
         cartesian!(
             self.process_count.iter(),
-            self.thread_total.iter(),
+            self.thread_count.iter(),
             self.allocator.iter(),
             self.allocator_numa.iter(),
             self.allocator_size.iter(),
             self.allocator_populate.iter()
         )
         .filter_map(
-            |(process_count, thread_total, allocator, numa, size, populate)| {
-                if thread_total % process_count != 0 {
+            |(process_count, thread_count, allocator, numa, size, populate)| {
+                if thread_count % process_count != 0 {
                     return None;
                 }
 
                 Some((
-                    allocator_bench::config::Global::builder()
-                        .process_count(*process_count)
-                        .thread_count(thread_total / process_count)
-                        .build(),
+                    allocator_bench::config::Global::new(*process_count, *thread_count),
                     *allocator,
                     allocator_bench::allocator::Config::builder()
                         .numa(*numa)

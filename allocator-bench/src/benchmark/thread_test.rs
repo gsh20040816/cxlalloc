@@ -46,14 +46,13 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         config: &config::Process,
         _allocator: &allocator::Config,
     ) -> Self::StateGlobal {
-        let thread_total = config.thread_total();
         assert_eq!(
-            self.object_count as usize % thread_total,
+            self.object_count as usize % config.thread_count,
             0,
             "Object count should be multiple of total thread count"
         );
 
-        self.object_count as usize / thread_total
+        self.object_count as usize / config.thread_count
     }
 
     fn setup_coordinator(

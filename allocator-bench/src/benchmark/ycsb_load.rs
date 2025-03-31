@@ -90,7 +90,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
                 "index",
                 self.index.len,
                 self.index.populate,
-                config.thread_total(),
+                config.thread_count,
             )
             .unwrap(),
         }
@@ -157,7 +157,7 @@ pub(super) fn load<A: Allocator, I: Index<A>>(
     allocator: &mut A,
     index: &I,
 ) {
-    let mut loader = workload.loader(config.thread_total(), config.thread_id);
+    let mut loader = workload.loader(config.thread_count, config.thread_id);
 
     while let Some(key) = loader.next_key() {
         insert::<_, _>(config.thread_id, allocator, index, &key);

@@ -120,7 +120,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
                 "index",
                 self.index.len,
                 self.index.populate,
-                config.thread_total(),
+                config.thread_count,
             )
             .unwrap(),
             acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),

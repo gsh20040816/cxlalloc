@@ -21,7 +21,7 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         name: &str,
         len: usize,
         populate: bool,
-        _thread_total: usize,
+        _thread_count: usize,
     ) -> io::Result<Self> {
         Ok(Self {
             len,

@@ -84,7 +84,7 @@ pub struct Output {
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B::Allocator, I> {
-    const NAME: &str = "ycsb";
+    const NAME: &str = "mc";
     type StateGlobal = Global<I>;
 
     type StateCoordinator = ();
@@ -161,7 +161,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                 "index",
                 self.index.len,
                 self.index.populate,
-                config.thread_total(),
+                config.thread_count,
             )
             .unwrap(),
             mask,
@@ -182,7 +182,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         global: &Self::StateGlobal,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        let limit = self.operation_count as usize / config.thread_total();
+        let limit = self.operation_count as usize / config.thread_count;
         let offset = limit * config.thread_id;
         let file = File::open(&self.trace).unwrap();
         let reader =

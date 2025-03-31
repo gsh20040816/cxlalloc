@@ -31,7 +31,7 @@ where
         name: &str,
         len: usize,
         populate: bool,
-        thread_total: usize,
+        thread_count: usize,
     ) -> io::Result<Self>;
 
     fn unlink(&mut self) -> io::Result<()>;

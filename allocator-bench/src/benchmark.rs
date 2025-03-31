@@ -81,20 +81,20 @@ pub trait Benchmark<B: Backend>: Sync {
     ) -> Self::OutputGlobal;
 
     fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
-        let thread_count = config.thread_count as u64 + 1;
-        let thread_total = config.process_count as u64 * thread_count;
+        let thread_count_per_process = config.thread_count_per_process() as u64 + 1;
+        let thread_count = config.process_count as u64 * thread_count_per_process;
 
-        let mut barrier = Barrier::new(thread_total).unwrap();
+        let mut barrier = Barrier::new(thread_count).unwrap();
 
         // Prevent race conditions between creating and opening shared memory data structures
         let backend = match config.process_id {
             0 => {
                 let backend = B::create(allocator, Self::NAME);
-                barrier.wait(thread_count);
+                barrier.wait(thread_count_per_process);
                 backend
             }
             _ => {
-                barrier.wait(thread_count);
+                barrier.wait(thread_count_per_process);
                 B::open(allocator, Self::NAME)
             }
         }
@@ -117,8 +117,8 @@ pub trait Benchmark<B: Backend>: Sync {
         };
 
         thread::scope(|scope| {
-            let workers = (config.process_id * config.thread_count..)
-                .take(config.thread_count)
+            let workers = (config.process_id * config.thread_count_per_process()..)
+                .take(config.thread_count_per_process())
                 .map(|thread_id| {
                     let barrier = &barrier;
                     let backend = &backend;

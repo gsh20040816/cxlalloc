@@ -16,7 +16,7 @@ use crate::Allocator;
 use crate::allocator::Handle as _;
 
 pub struct Global<A> {
-    thread_total: usize,
+    thread_count: usize,
 
     local: [Pad<UnsafeCell<Local<A>>>; 64],
 
@@ -25,9 +25,9 @@ pub struct Global<A> {
 }
 
 impl<A: Allocator> Global<A> {
-    pub unsafe fn init(global: *mut Self, thread_total: usize) {
+    pub unsafe fn init(global: *mut Self, thread_count: usize) {
         unsafe {
-            *addr_of_mut!((*global).thread_total) = thread_total;
+            *addr_of_mut!((*global).thread_count) = thread_count;
         }
     }
 
@@ -48,7 +48,7 @@ impl<A: Allocator> Global<A> {
 
     fn try_pass(&self, thread_id: usize) -> bool {
         match self.token.load(Ordering::Relaxed) {
-            token if token % self.thread_total != thread_id => false,
+            token if token % self.thread_count != thread_id => false,
             token => {
                 self.token.store(token + 1, Ordering::Relaxed);
                 true
