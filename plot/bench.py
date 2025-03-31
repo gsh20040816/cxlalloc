@@ -1,80 +1,81 @@
 import sys
 import polars as pl
-import plotly.express as px
+import altair as alt
 
 
 def main():
-    df = pl.read_ndjson(sys.argv[1])
+    alt.renderers.enable("browser")
 
-    fig = None
-    if "load" in sys.argv[1]:
-        fig = plot_load(df)
-    else:
-        fig = plot_insert_proportion(df)
+    df = pl.scan_ndjson(sys.argv[1])
+    df = unnest_all(df, "/").sort(
+        ["allocator", "config_benchmark/trace", "config_global/thread_count"]
+    )
 
-    fig.write_image("plot.svg")
-    fig.show()
+    baseline = (
+        df.filter(pl.col("allocator") == "cxlalloc")
+        .select("output/throughput")
+        .collect()
+        .to_series(0)
+    )
 
-
-def plot_load(df):
     df = (
-        df.group_by("allocator", "control", "ycsb", "index")
+        df.group_by("allocator")
         .agg(
-            index_inline=pl.col("ycsb").struct["index_inline"].first(),
-            time_mean=pl.col("time").mean() / 1e6,
-            time_std=pl.col("time").std() / 1e6,
+            trace=pl.col("config_benchmark/trace"),
+            thread_count=pl.col("config_global/thread_count"),
+            throughput=pl.col("output/throughput"),
+            throughput_relative=pl.col("output/throughput") / baseline,
         )
-        .with_columns(
-            thread_total=pl.col("control").struct["process_count"]
-            * pl.col("control").struct["thread_count"]
+        .explode(["trace", "thread_count", "throughput", "throughput_relative"])
+        .filter(
+            (
+                (pl.col("allocator") == "cxl_shm")
+                & pl.col("trace").is_in(
+                    [
+                        "./twitter/cluster12.000.parquet",
+                        "./twitter/cluster37.000.parquet",
+                    ]
+                )
+            ).not_()
         )
-        .sort("allocator", "thread_total")
+        .collect()
     )
 
-    fig = px.line(
-        df,
-        x="thread_total",
-        y="time_mean",
-        error_y="time_std",
+    chart = df.plot.bar(
+        x="thread_count:N",
+        y="throughput_relative",
         color="allocator",
-        facet_col="index_inline",
-        facet_row="index",
-        markers=True,
-    )
-
-    fig.update_xaxes(title_text="Thread Count", tickvals=df["thread_total"].unique())
-    fig.update_yaxes(title_text="Time (s)", autorangeoptions_include=0.0)
-    return fig
+        xOffset="allocator",
+    ).facet(column="trace")
+    chart.show()
 
 
-def plot_insert_proportion(df):
-    df = (
-        df.group_by("allocator", "index", "control", "ycsb")
-        .agg(
-            pl.col("ycsb").struct["insert_proportion"].first(),
-            pl.col("ycsb").struct["index_inline"].first(),
-            time_mean=pl.col("time").max() / 1e6,
-            time_std=pl.col("time").std() / 1e6,
-        )
-        .sort("allocator", "insert_proportion")
-    )
+# https://github.com/pola-rs/polars/issues/12353
+def unnest_all(df, separator="."):
+    def _unnest_all(schema, separator):
+        def _unnest(schema, path=[]):
+            for name, dtype in schema.items():
+                base_type = dtype.base_type()
 
-    fig = px.line(
-        df,
-        x="insert_proportion",
-        y="time_mean",
-        error_y="time_std",
-        color="allocator",
-        facet_col="index_inline",
-        facet_row="index",
-        markers=True,
-    )
+                if base_type == pl.Struct:
+                    yield from _unnest(dtype.to_schema(), path + [name])
+                else:
+                    yield path + [name], dtype
 
-    fig.update_xaxes(
-        title_text="Insert Proportion", tickvals=df["insert_proportion"].unique()
-    )
-    fig.update_yaxes(title_text="Time (s)", autorangeoptions_include=0.0)
-    return fig
+        for (col, *fields), dtype in _unnest(schema):
+            expr = pl.col(col)
+
+            for field in fields:
+                expr = expr.struct[field]
+
+            if col == "":
+                name = separator.join(fields)
+            else:
+                name = separator.join([col] + fields)
+
+            yield expr.alias(name)
+
+    return df.select(_unnest_all(df.schema, separator))
 
 
 if __name__ == "__main__":
