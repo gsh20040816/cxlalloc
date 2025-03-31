@@ -2,13 +2,38 @@ import sys
 import polars as pl
 import altair as alt
 
+SORT = [
+    "cxlalloc",
+    "mimalloc",
+    "ralloc",
+    "cxl_shm",
+    "boost",
+    "lightning",
+]
+
+FILTER_MEMCACHED = (pl.col("allocator") == "cxl_shm") & pl.col(
+    "config_benchmark/trace"
+).is_in(
+    [
+        "./twitter/cluster12.000.parquet",
+        "./twitter/cluster37.000.parquet",
+    ]
+)
+
 
 def main():
     alt.renderers.enable("browser")
 
     df = pl.scan_ndjson(sys.argv[1])
-    df = unnest_all(df, "/").sort(
-        ["allocator", "config_benchmark/trace", "config_global/thread_count"]
+    df = (
+        unnest_all(df, "/")
+        .sort("allocator", "config_benchmark/trace", "config_global/thread_count")
+        .with_columns(
+            pl.when(FILTER_MEMCACHED)
+            .then(0)
+            .otherwise(pl.col("output/throughput"))
+            .alias("output/throughput")
+        )
     )
 
     baseline = (
@@ -27,27 +52,44 @@ def main():
             throughput_relative=pl.col("output/throughput") / baseline,
         )
         .explode(["trace", "thread_count", "throughput", "throughput_relative"])
-        .filter(
-            (
-                (pl.col("allocator") == "cxl_shm")
-                & pl.col("trace").is_in(
-                    [
-                        "./twitter/cluster12.000.parquet",
-                        "./twitter/cluster37.000.parquet",
-                    ]
-                )
-            ).not_()
-        )
         .collect()
     )
 
-    chart = df.plot.bar(
+    base = alt.Chart(df).encode(
         x="thread_count:N",
-        y="throughput_relative",
-        color="allocator",
-        xOffset="allocator",
-    ).facet(column="trace")
-    chart.show()
+        y=alt.Y("throughput").axis(format="s"),
+        xOffset=alt.XOffset("allocator", sort=SORT),
+    )
+
+    bar = base.mark_bar().encode(color=alt.Color("allocator", sort=SORT))
+
+    absolute = (
+        base.transform_filter(alt.datum.allocator == "cxlalloc")
+        .mark_text(align="left", angle=270, dx=5)
+        .encode(text=alt.Text("throughput", format=".2s"))
+    )
+
+    relative = (
+        base.transform_filter(alt.datum.allocator != "cxlalloc")
+        .transform_calculate(
+            text=alt.expr.if_(
+                alt.datum.throughput > 0,
+                alt.expr.format(alt.datum.throughput_relative, ".2f") + "x",
+                "X",
+            ),
+        )
+        .mark_text(align="left", angle=270, dx=5)
+        .encode(
+            text="text:N",
+            color=alt.condition(
+                alt.datum.throughput > 0,
+                alt.value("black"),
+                alt.value("red"),
+            ),
+        )
+    )
+
+    (bar + absolute + relative).facet(row="trace").resolve_scale(y="independent").show()
 
 
 # https://github.com/pola-rs/polars/issues/12353
