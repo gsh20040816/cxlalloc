@@ -1,5 +1,6 @@
 use core::sync::atomic::Ordering;
 use std::io;
+use std::io::Write as _;
 use std::sync::Barrier;
 use std::time::Instant;
 use std::time::SystemTime;
@@ -188,4 +189,5 @@ fn main() {
 
     let mut stdout = io::stdout().lock();
     serde_json::to_writer(&mut stdout, &Experiment { config, output }).unwrap();
+    stdout.write_all(b"\n").unwrap();
 }

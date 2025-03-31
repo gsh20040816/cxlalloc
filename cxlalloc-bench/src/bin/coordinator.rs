@@ -1,4 +1,5 @@
 use std::io;
+use std::io::Write as _;
 
 use cxlalloc_bench::Observation;
 
@@ -39,9 +40,9 @@ fn main() -> anyhow::Result<()> {
             config: config.clone(),
             output,
         })
-        .for_each(|output| {
-            serde_json::to_writer(&mut stdout, &output).unwrap();
-        });
-
-    Ok(())
+        .try_for_each(|output| -> anyhow::Result<()> {
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            Ok(())
+        })
 }
