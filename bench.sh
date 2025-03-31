@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 
+set -o errexit
+set -o nounset
+set -o pipefail
+
 readonly ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 cd "$ROOT"
 
-rm /dev/shm/{barrier,tt*,xm*,ycsb*,mc*,ms*,acked,index,ebr}
+rm /dev/shm/{barrier,tt*,xm*,ycsb*,mc*,ms*,acked,index,ebr} || true
 
 cargo build --release --package cxlalloc-bench
 
