@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use allocator_bench::allocator::Consistency;
 use anyhow::anyhow;
 use cartesian::cartesian;
-use cartesian::TuplePrepend as _;
 use clap::Parser;
 use cxlalloc_bench::Allocator;
 use cxlalloc_bench::Index;
@@ -75,12 +74,12 @@ impl Cli {
         allocator_bench::allocator::Config,
     )> {
         cartesian!(
-            self.process_count.iter(),
-            self.thread_count.iter(),
-            self.allocator.iter(),
-            self.allocator_numa.iter(),
-            self.allocator_size.iter(),
-            self.allocator_populate.iter()
+            &self.process_count,
+            &self.thread_count,
+            &self.allocator,
+            &self.allocator_numa,
+            &self.allocator_size,
+            &self.allocator_populate,
         )
         .filter_map(
             |(process_count, thread_count, allocator, numa, size, populate)| {
@@ -160,11 +159,11 @@ struct Ycsb {
 impl Ycsb {
     fn collect(&self) -> Vec<(Index, allocator_bench::index::Config, usize, usize)> {
         cartesian!(
-            self.index.iter(),
-            self.index_len.iter(),
-            self.index_populate.iter(),
-            self.record_count.iter(),
-            self.operation_count.iter()
+            &self.index,
+            &self.index_len,
+            &self.index_populate,
+            &self.record_count,
+            &self.operation_count,
         )
         .map(|(index, len, populate, record_count, operation_count)| {
             (
@@ -212,7 +211,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             let total = config.len() * trace.len();
             for (i, ((config_global, allocator, config_allocator), operation_count, trace)) in
-                cartesian!(config.iter(), operation_count.iter(), trace.iter()).enumerate()
+                cartesian!(&config, &operation_count, &trace).enumerate()
             {
                 let config = cxlalloc_bench::Config::builder()
                     .allocator(*allocator)
@@ -263,7 +262,7 @@ fn main() -> anyhow::Result<()> {
                     (config_global, allocator, config_allocator),
                     (index, config_index, record_count, operation_count),
                 ),
-            ) in cartesian!(config.iter(), config_ycsb.iter()).enumerate()
+            ) in cartesian!(&config, &config_ycsb).enumerate()
             {
                 let config = || {
                     cxlalloc_bench::Config::builder()
@@ -306,7 +305,7 @@ fn main() -> anyhow::Result<()> {
                         };
 
                         for (j, (throughput, insert_proportion)) in
-                            cartesian!(throughput, insert_proportion.iter()).enumerate()
+                            cartesian!(throughput, &insert_proportion).enumerate()
                         {
                             let config = config()
                                 .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
@@ -369,13 +368,7 @@ fn main() -> anyhow::Result<()> {
                     object_count,
                     object_size,
                 ),
-            ) in cartesian!(
-                config.into_iter(),
-                iteration_count.iter(),
-                object_count.iter(),
-                object_size.iter()
-            )
-            .enumerate()
+            ) in cartesian!(config, &iteration_count, &object_count, &object_size).enumerate()
             {
                 cli.run(
                     &cxlalloc_bench::Config::builder()

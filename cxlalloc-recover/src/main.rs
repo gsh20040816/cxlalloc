@@ -39,35 +39,31 @@ fn main() {
 
     const PATH: &str = "/dev/shm/pool";
 
-    cartesian!(
-        cli.workload.iter(),
-        cli.crash_count.iter(),
-        cli.block.iter()
-    )
-    .map(|(workload, crash_count, block)| {
-        cxlalloc_recover::worker::Config::builder()
-            .allocator(cxlalloc_recover::worker::Allocator::default())
-            .crash_victim(2)
-            .crash_count(*crash_count)
-            .block(*block)
-            .path(PATH.to_owned())
-            .object_count(1_000_000)
-            .thread_count(40)
-            .heap_size(1 << 36)
-            .workload(workload.clone())
-            .build()
-    })
-    .map(|config| serde_json::to_vec(&config).unwrap())
-    .inspect(|_| fs::remove_file(PATH).unwrap())
-    .try_for_each(|config| {
-        let empty: [String; 0] = [];
-        duct::cmd(&cli.worker, empty)
-            .stdin_bytes(config)
-            .stdout_file(output.try_clone().unwrap())
-            .start()
-            .unwrap()
-            .wait()
-            .map(drop)
-    })
-    .unwrap();
+    cartesian!(&cli.workload, &cli.crash_count, &cli.block)
+        .map(|(workload, crash_count, block)| {
+            cxlalloc_recover::worker::Config::builder()
+                .allocator(cxlalloc_recover::worker::Allocator::default())
+                .crash_victim(2)
+                .crash_count(*crash_count)
+                .block(*block)
+                .path(PATH.to_owned())
+                .object_count(1_000_000)
+                .thread_count(40)
+                .heap_size(1 << 36)
+                .workload(workload.clone())
+                .build()
+        })
+        .map(|config| serde_json::to_vec(&config).unwrap())
+        .inspect(|_| fs::remove_file(PATH).unwrap())
+        .try_for_each(|config| {
+            let empty: [String; 0] = [];
+            duct::cmd(&cli.worker, empty)
+                .stdin_bytes(config)
+                .stdout_file(output.try_clone().unwrap())
+                .start()
+                .unwrap()
+                .wait()
+                .map(drop)
+        })
+        .unwrap();
 }
