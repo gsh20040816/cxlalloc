@@ -421,8 +421,6 @@ impl Cli {
             ));
         }
 
-        out.write_all(b"\n")?;
-
         Ok(())
     }
 }
