@@ -28,21 +28,21 @@ struct Cli {
         short,
         long,
         value_delimiter = ',',
-        default_value = "cxlalloc,cxl-shm,boost,lightning"
+        default_value = "cxlalloc,cxl-shm,boost,lightning,mimalloc,ralloc"
     )]
     allocator: Vec<Allocator>,
 
     #[arg(short, long, value_delimiter = ',', default_value = "1")]
     process_count: Vec<usize>,
 
-    #[arg(short, long, value_delimiter = ',', default_value = "40")]
+    #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
     thread_total: Vec<usize>,
 
-    #[arg(long, value_delimiter = ',', default_value = "1")]
+    #[arg(long, value_delimiter = ',', default_value = "0")]
     allocator_numa: Vec<usize>,
 
-    // 2^35
-    #[arg(long, value_delimiter = ',', default_value = "34359738368")]
+    // 2^36 = 64 GiB
+    #[arg(long, value_delimiter = ',', default_value = "68719476736")]
     allocator_size: Vec<usize>,
 
     #[arg(long, value_delimiter = ',', default_value = "false")]
@@ -114,6 +114,14 @@ enum Experiment {
         #[arg(long, value_delimiter = ',', default_value = "10000000")]
         operation_count: Vec<u64>,
 
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "\
+            twitter/cluster12.000.parquet,\
+            twitter/cluster15.000.parquet,\
+            twitter/cluster31.000.parquet"
+        )]
         trace: Vec<PathBuf>,
     },
     Mstress,
@@ -186,12 +194,7 @@ enum Workload {
         #[arg(long, value_delimiter = ',')]
         throughput: Vec<u64>,
 
-        #[arg(
-            short,
-            long,
-            value_delimiter = ',',
-            default_value = "0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0"
-        )]
+        #[arg(short, long, value_delimiter = ',', default_value = "0.05")]
         insert_proportion: Vec<f32>,
     },
 }
