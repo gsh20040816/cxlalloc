@@ -1,5 +1,6 @@
 import sys
 import polars as pl
+import polars.selectors as cs
 import altair as alt
 
 SORT = [
@@ -11,17 +12,20 @@ SORT = [
     "lightning",
 ]
 
-FILTER_MEMCACHED = (pl.col("allocator") == "cxl_shm") & pl.col(
-    "config_benchmark/trace"
-).is_in(
+THROUGHPUT = "Throughput"
+THROUGHPUT_RELATIVE = "Relative Throughput"
+MAX_RSS = "Max RSS"
+MAX_RSS_RELATIVE = "Relative Max RSS"
+ALLOC = "Allocator"
+TRACE = "Trace"
+THREAD_COUNT = "Thread Count"
+
+FILTER_MEMCACHED = (pl.col(ALLOC) == "cxl_shm") & pl.col(TRACE).is_in(
     [
-        "./twitter/cluster12.000.parquet",
-        "./twitter/cluster37.000.parquet",
+        "12",
+        "37",
     ]
 )
-
-THROUGHPUT = "output/throughput"
-MAX_RSS = "output/resource_usage/max_rss"
 
 
 def main():
@@ -30,8 +34,18 @@ def main():
     df = pl.scan_ndjson(sys.argv[1])
     df = (
         unnest_all(df, "/")
-        .sort("allocator", "config_benchmark/trace", "config_global/thread_count")
-        .filter(pl.col("config_global/thread_count").is_in([1, 4, 16, 32]))
+        .select(
+            pl.col("allocator").alias(ALLOC),
+            pl.col("config_benchmark/trace")
+            .str.strip_prefix("./twitter/cluster")
+            .str.strip_suffix(".000.parquet")
+            .alias(TRACE),
+            pl.col("config_global/thread_count").alias(THREAD_COUNT),
+            pl.col("output/throughput").alias(THROUGHPUT),
+            pl.col("output/resource_usage/max_rss").alias(MAX_RSS),
+        )
+        .filter(pl.col(THREAD_COUNT).is_in([1, 4, 16, 32]))
+        .sort(ALLOC, TRACE, THREAD_COUNT)
         .with_columns(
             pl.when(FILTER_MEMCACHED)
             .then(0)
@@ -42,74 +56,78 @@ def main():
     )
 
     baseline = (
-        df.filter(pl.col("allocator") == "cxlalloc")
-        .select(THROUGHPUT, MAX_RSS)
-        .collect()
+        df.filter(pl.col(ALLOC) == "cxlalloc").select(THROUGHPUT, MAX_RSS).collect()
     )
 
     df = (
-        df.group_by("allocator")
+        df.group_by(ALLOC)
         .agg(
-            trace=pl.col("config_benchmark/trace"),
-            thread_count=pl.col("config_global/thread_count"),
-            throughput=pl.col(THROUGHPUT),
-            throughput_relative=pl.col(THROUGHPUT) / baseline.get_column(THROUGHPUT),
-            max_rss=pl.col(MAX_RSS),
-            max_rss_relative=pl.col(MAX_RSS) / baseline.get_column(MAX_RSS),
+            cs.by_name(TRACE, THREAD_COUNT, THROUGHPUT, MAX_RSS),
+            pl.col(THROUGHPUT)
+            .truediv(baseline.get_column(THROUGHPUT))
+            .alias(THROUGHPUT_RELATIVE),
+            pl.col(MAX_RSS)
+            .truediv(baseline.get_column(MAX_RSS))
+            .alias(MAX_RSS_RELATIVE),
         )
-        .explode(
-            [
-                "trace",
-                "thread_count",
-                "throughput",
-                "throughput_relative",
-                "max_rss",
-                "max_rss_relative",
-            ]
-        )
+        .explode(cs.exclude(ALLOC))
         .collect()
     )
 
-    tput = plot(df, "throughput", True)
-    rss = plot(df, "max_rss", False)
+    tput = plot(df, THROUGHPUT, True)
+    rss = plot(df, MAX_RSS, False)
 
-    chart = alt.vconcat(
-        tput,
-        rss,
-        title=alt.Title("Memcached Workloads", anchor="middle"),
+    chart = (
+        alt.vconcat(
+            tput,
+            rss,
+            title=alt.Title("Memcached Workloads", anchor="middle"),
+            spacing=0.0,
+        )
+        .configure_facet(spacing=0.0)
+        .configure_legend(
+            orient="none",
+            legendX=450,
+            legendY=380,
+            direction="horizontal",
+            titleOrient="left",
+        )
     )
 
+    chart.save("memcached.json")
     chart.show()
 
 
 def plot(df, metric: str, top: bool):
     y = alt.Y(metric).axis(format="s", title=None)
 
-    if metric == "max_rss":
-        y = y.scale(alt.Scale(domain=[0, 14 * 2**30], clamp=True))
+    if metric == MAX_RSS:
+        y = y.scale(alt.Scale(domain=[0, 14 * 2**30], clamp=True, nice=False))
 
     base = alt.Chart(df, width=alt.Step(10)).encode(
-        x=alt.X("thread_count:N", title=None if top else "Thread Count").axis(
-            labels=False if top else True
+        x=alt.X(THREAD_COUNT + ":N", title=None if top else THREAD_COUNT).axis(
+            # HACK: Why is there an offset?
+            offset=-6,
+            labels=False if top else True,
         ),
         y=y,
-        xOffset=alt.XOffset("allocator", sort=SORT),
+        xOffset=alt.XOffset(ALLOC, sort=SORT),
     )
 
-    bar = base.mark_bar().encode(color=alt.Color("allocator", sort=SORT))
+    bar = base.mark_bar().encode(color=alt.Color(ALLOC, sort=SORT))
 
     absolute = (
-        base.transform_filter(alt.datum.allocator == "cxlalloc")
+        base.transform_filter(alt.datum[ALLOC] == "cxlalloc")
         .mark_text(align="left", angle=270, dx=5)
         .encode(text=alt.Text(metric, format=".2s"))
     )
 
     relative = (
-        base.transform_filter(alt.datum.allocator != "cxlalloc")
+        base.transform_filter(alt.datum[ALLOC] != "cxlalloc")
         .transform_calculate(
             text=alt.expr.if_(
                 alt.datum[metric] > 0,
-                alt.expr.format(alt.datum[metric + "_relative"], ".2r") + "x",
+                alt.expr.format(alt.datum["Relative " + metric], ".2r") + "x",
                 "X",
             ),
         )
@@ -125,10 +143,10 @@ def plot(df, metric: str, top: bool):
     )
 
     chart = (bar + absolute + relative).properties(
-        height=100 if metric == "max_rss" else 200
+        height=100 if metric == MAX_RSS else 200
     )
     column = alt.Column(
-        "trace",
+        TRACE,
         header=alt.Header(title=metric, titleOrient="left", labels=top),
     )
 
