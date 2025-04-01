@@ -1,7 +1,6 @@
 use core::cmp;
 use core::iter;
 use std::fs::File;
-use std::io::Write as _;
 use std::path::PathBuf;
 
 use allocator_bench::allocator::Consistency;
