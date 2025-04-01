@@ -20,6 +20,10 @@ ALLOC = "Allocator"
 TRACE = "Trace"
 THREAD_COUNT = "Thread Count"
 
+BASELINE = "cxlalloc"
+ABSOLUTE = "absolute"
+RELATIVE = "relative"
+
 FILTER_MEMCACHED = (pl.col(ALLOC) == "cxl_shm") & pl.col(TRACE).is_in(
     [
         "12",
@@ -32,6 +36,8 @@ def main():
     alt.renderers.enable("browser")
 
     df = pl.scan_ndjson(sys.argv[1])
+
+    # Reshape data
     df = (
         unnest_all(df, "/")
         .select(
@@ -56,9 +62,10 @@ def main():
     )
 
     baseline = (
-        df.filter(pl.col(ALLOC) == "cxlalloc").select(THROUGHPUT, MAX_RSS).collect()
+        df.filter(pl.col(ALLOC) == BASELINE).select(THROUGHPUT, MAX_RSS).collect()
     )
 
+    # Compute relative metrics
     df = (
         df.group_by(ALLOC)
         .agg(
@@ -74,22 +81,81 @@ def main():
         .collect()
     )
 
-    tput = plot(df, THROUGHPUT, True)
-    rss = plot(df, MAX_RSS, False)
+    outer = []
+
+    height = 100
+
+    for row, (absolute, relative) in enumerate(
+        [(THROUGHPUT, THROUGHPUT_RELATIVE), (MAX_RSS, MAX_RSS_RELATIVE)]
+    ):
+        inner = []
+
+        for col, trace in enumerate(df.get_column(TRACE).unique(maintain_order=True)):
+            data = df.filter(pl.col(TRACE) == trace).select(
+                cs.by_name(ALLOC, THREAD_COUNT),
+                pl.col(absolute).alias(ABSOLUTE),
+                pl.col(relative).alias(RELATIVE),
+            )
+
+            # RSS has one outlier and otherwise similar values
+            # Clamp outlier and focus on reasonable range
+            y = alt.Y(ABSOLUTE).axis(format="s", title=None)
+            if absolute == MAX_RSS:
+                cutoff = (
+                    data.filter(pl.col(ALLOC) == BASELINE).select(ABSOLUTE).max().item()
+                    * 1.7
+                )
+                y = y.scale(alt.Scale(domain=[0, cutoff], clamp=True))
+
+            title = ""
+            if row == 0:
+                title = alt.Title("Cluster " + trace)
+
+            base = alt.Chart(data, width=alt.Step(10), title=title).encode(
+                x=alt.X(THREAD_COUNT + ":N", title=None).axis(
+                    alt.Axis(labels=row == 1)
+                ),
+                y=y,
+                xOffset=alt.XOffset(ALLOC, sort=SORT),
+            )
+
+            chart = base.mark_bar().encode(
+                color=alt.Color(ALLOC, sort=SORT)
+            ) + annotate(base)
+
+            inner.append(chart.properties(width=alt.Step(10), height=height))
+
+        outer.append(
+            alt.hconcat(
+                *inner,
+                title=alt.Title(
+                    absolute, orient="left", align="center", anchor="middle"
+                ),
+            )
+        )
+
+    outer.append(
+        alt.hconcat(
+            *[],
+            title=alt.Title(
+                "Thread Count", orient="bottom", align="center", anchor="middle"
+            ),
+        )
+    )
 
     chart = (
         alt.vconcat(
-            tput,
-            rss,
-            title=alt.Title("Memcached Workloads", anchor="middle"),
-            spacing=0.0,
+            *outer,
+            center=True,
+            title=alt.Title("Memcached Workload", align="center", anchor="middle"),
         )
-        .configure_facet(spacing=0.0)
+        .configure_concat(spacing=5)
         .configure_legend(
             orient="none",
-            legendX=450,
-            legendY=380,
             direction="horizontal",
+            legendX=0,
+            # HACK: need to manually set position to force overlap
+            legendY=height * 2.75,
             titleOrient="left",
         )
     )
@@ -98,36 +164,19 @@ def main():
     chart.show()
 
 
-def plot(df, metric: str, top: bool):
-    y = alt.Y(metric).axis(format="s", title=None)
-
-    if metric == MAX_RSS:
-        y = y.scale(alt.Scale(domain=[0, 14 * 2**30], clamp=True, nice=False))
-
-    base = alt.Chart(df, width=alt.Step(10)).encode(
-        x=alt.X(THREAD_COUNT + ":N", title=None if top else THREAD_COUNT).axis(
-            # HACK: Why is there an offset?
-            offset=-6,
-            labels=False if top else True,
-        ),
-        y=y,
-        xOffset=alt.XOffset(ALLOC, sort=SORT),
-    )
-
-    bar = base.mark_bar().encode(color=alt.Color(ALLOC, sort=SORT))
-
+def annotate(base):
     absolute = (
         base.transform_filter(alt.datum[ALLOC] == "cxlalloc")
         .mark_text(align="left", angle=270, dx=5)
-        .encode(text=alt.Text(metric, format=".2s"))
+        .encode(text=alt.Text(ABSOLUTE, format=".2s"))
     )
 
     relative = (
         base.transform_filter(alt.datum[ALLOC] != "cxlalloc")
         .transform_calculate(
             text=alt.expr.if_(
-                alt.datum[metric] > 0,
-                alt.expr.format(alt.datum["Relative " + metric], ".2r") + "x",
+                alt.datum[ABSOLUTE] > 0,
+                alt.expr.format(alt.datum[RELATIVE], ".2r") + "x",
                 "X",
             ),
         )
@@ -135,22 +184,14 @@ def plot(df, metric: str, top: bool):
         .encode(
             text="text:N",
             color=alt.condition(
-                alt.datum[metric] > 0,
+                alt.datum[ABSOLUTE] > 0,
                 alt.value("black"),
                 alt.value("red"),
             ),
         )
     )
 
-    chart = (bar + absolute + relative).properties(
-        height=100 if metric == MAX_RSS else 200
-    )
-    column = alt.Column(
-        TRACE,
-        header=alt.Header(title=metric, titleOrient="left", labels=top),
-    )
-
-    return chart.facet(column=column).resolve_scale(y="independent")
+    return absolute + relative
 
 
 # https://github.com/pola-rs/polars/issues/12353
