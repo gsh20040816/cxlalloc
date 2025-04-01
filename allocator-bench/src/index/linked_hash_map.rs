@@ -206,6 +206,19 @@ impl<A: Allocator> LinkedHashMap<A> {
             .map(NonZeroU64::get)
             .unwrap_or(0);
 
+        if !self.use_ebr() {
+            // Increment reference count of `new` *before* publishing
+            //
+            // Necessary to prevent race condition with reference count
+            // decrement from another thread that swaps and unlinks.
+            if let Some(value) = value {
+                let mut link = 0;
+                unsafe {
+                    allocator.link(&mut link, value);
+                }
+            }
+        }
+
         let old = NonZeroU64::new(site.swap(new, Ordering::AcqRel));
 
         if self.use_ebr() {
@@ -218,14 +231,6 @@ impl<A: Allocator> LinkedHashMap<A> {
                 let mut link = old.get();
                 unsafe {
                     allocator.unlink(&mut link);
-                }
-            }
-
-            // Increment reference count of `new`
-            if let Some(value) = value {
-                let mut link = 0;
-                unsafe {
-                    allocator.link(&mut link, value);
                 }
             }
         }

@@ -64,10 +64,6 @@ impl<A: Allocator, I: Index<A>> Deref for Ycsb<A, I> {
     }
 }
 
-// HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
-#[expect(unused)]
-const MAX_SIZE: usize = 1_000;
-
 pub struct Global<I> {
     index: I,
     acked: Shm<ycsb::Acknowledged>,
