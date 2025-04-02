@@ -1,3 +1,6 @@
+from pathlib import PurePath
+import os
+import subprocess as sp
 import sys
 import polars as pl
 import polars.selectors as cs
@@ -16,70 +19,73 @@ THROUGHPUT = "Throughput"
 THROUGHPUT_RELATIVE = "Relative Throughput"
 MAX_RSS = "Max RSS"
 MAX_RSS_RELATIVE = "Relative Max RSS"
-ALLOC = "Allocator"
-TRACE = "Trace"
+ALLOCATOR = "Allocator"
+WORKLOAD = "Workload"
 THREAD_COUNT = "Thread Count"
 
 BASELINE = "cxlalloc"
 ABSOLUTE = "absolute"
 RELATIVE = "relative"
 
-FILTER_MEMCACHED = (pl.col(ALLOC) == "cxl_shm") & pl.col(TRACE).is_in(
-    [
-        "12",
-        "37",
-    ]
+FILTER_MEMCACHED = (pl.col(ALLOCATOR) == "cxl_shm") & (
+    pl.col(WORKLOAD).str.starts_with("Cluster 12")
+    | pl.col(WORKLOAD).str.starts_with("Cluster 37")
 )
 
 
 def main():
     alt.renderers.enable("browser")
 
-    df = pl.scan_ndjson(sys.argv[1])
+    path = sys.argv[1]
 
-    # Reshape data
-    df = (
-        unnest_all(df, "/")
-        .select(
-            pl.col("allocator").alias(ALLOC),
+    df = pl.scan_ndjson(path)
+    title_workload = None
+    translate = None
+
+    if "memcached" in path:
+        title_workload = "Memcached Trace"
+        translate = pl.concat_str(
+            pl.lit("Cluster "),
             pl.col("config_benchmark/trace")
-            .str.strip_prefix("./twitter/cluster")
-            .str.strip_suffix(".000.parquet")
-            .alias(TRACE),
-            pl.col("config_global/thread_count").alias(THREAD_COUNT),
-            pl.col("output/throughput").alias(THROUGHPUT),
-            pl.col("output/resource_usage/max_rss").alias(MAX_RSS),
+            .str.strip_prefix("twitter/cluster")
+            .str.strip_suffix(".000.parquet"),
         )
-        .filter(pl.col(THREAD_COUNT).is_in([1, 4, 16, 32]))
-        .sort(ALLOC, TRACE, THREAD_COUNT)
-        .with_columns(
-            pl.when(FILTER_MEMCACHED)
-            .then(0)
-            .otherwise(pl.col(THROUGHPUT))
-            .alias(THROUGHPUT),
-            pl.when(FILTER_MEMCACHED).then(0).otherwise(pl.col(MAX_RSS)).alias(MAX_RSS),
+    elif "ycsb" in path:
+        title_workload = "YCSB Workload"
+        translate = (
+            pl.when(pl.col("config_benchmark/name") == "ycsb_load")
+            .then(pl.lit("Load"))
+            .otherwise(pl.lit("YCSB-D"))
         )
-    )
+    elif "microbenchmark" in path:
+        title_workload = "Microbenchmark"
+        translate = (
+            pl.when(pl.col("config_benchmark/name") == "thread_test")
+            .then(pl.lit("Threadtest"))
+            .otherwise(pl.lit("Xmalloc"))
+        )
 
-    baseline = (
-        df.filter(pl.col(ALLOC) == BASELINE).select(THROUGHPUT, MAX_RSS).collect()
-    )
+    else:
+        raise Exception(f"Unhandled benchmark: {path}")
+
+    df = reshape(df, translate)
+    bl = baseline(df)
 
     # Compute relative metrics
     df = (
-        df.group_by(ALLOC)
+        df.group_by(ALLOCATOR)
         .agg(
-            cs.by_name(TRACE, THREAD_COUNT, THROUGHPUT, MAX_RSS),
+            cs.by_name(WORKLOAD, THREAD_COUNT, THROUGHPUT, MAX_RSS),
             pl.col(THROUGHPUT)
-            .truediv(baseline.get_column(THROUGHPUT))
+            .truediv(bl.get_column(THROUGHPUT))
             .alias(THROUGHPUT_RELATIVE),
-            pl.col(MAX_RSS)
-            .truediv(baseline.get_column(MAX_RSS))
-            .alias(MAX_RSS_RELATIVE),
+            pl.col(MAX_RSS).truediv(bl.get_column(MAX_RSS)).alias(MAX_RSS_RELATIVE),
         )
-        .explode(cs.exclude(ALLOC))
+        .explode(cs.exclude(ALLOCATOR))
         .collect()
     )
+
+    workloads = df.get_column(WORKLOAD).unique(maintain_order=True)
 
     outer = []
 
@@ -90,9 +96,9 @@ def main():
     ):
         inner = []
 
-        for col, trace in enumerate(df.get_column(TRACE).unique(maintain_order=True)):
-            data = df.filter(pl.col(TRACE) == trace).select(
-                cs.by_name(ALLOC, THREAD_COUNT),
+        for col, workload in enumerate(workloads):
+            data = df.filter(pl.col(WORKLOAD) == workload).select(
+                cs.by_name(ALLOCATOR, THREAD_COUNT),
                 pl.col(absolute).alias(ABSOLUTE),
                 pl.col(relative).alias(RELATIVE),
             )
@@ -102,25 +108,32 @@ def main():
             y = alt.Y(ABSOLUTE).axis(format="s", title=None)
             if absolute == MAX_RSS:
                 cutoff = (
-                    data.filter(pl.col(ALLOC) == BASELINE).select(ABSOLUTE).max().item()
+                    data.filter(pl.col(ALLOCATOR) == BASELINE)
+                    .select(ABSOLUTE)
+                    .max()
+                    .item()
                     * 1.7
                 )
                 y = y.scale(alt.Scale(domain=[0, cutoff], clamp=True))
 
-            title = ""
+            header_workload = ""
             if row == 0:
-                title = alt.Title("Cluster " + trace)
+                header_workload = alt.Title(workload)
 
-            base = alt.Chart(data, width=alt.Step(10), title=title).encode(
-                x=alt.X(THREAD_COUNT + ":N", title=None).axis(
+            title_x = ""
+            if row == 1 and col == len(workloads) - 1:
+                title_x = THREAD_COUNT
+
+            base = alt.Chart(data, width=alt.Step(10), title=header_workload).encode(
+                x=alt.X(THREAD_COUNT + ":N", title=title_x).axis(
                     alt.Axis(labels=row == 1)
                 ),
                 y=y,
-                xOffset=alt.XOffset(ALLOC, sort=SORT),
+                xOffset=alt.XOffset(ALLOCATOR, sort=SORT),
             )
 
             chart = base.mark_bar().encode(
-                color=alt.Color(ALLOC, sort=SORT)
+                color=alt.Color(ALLOCATOR, sort=SORT)
             ) + annotate(base)
 
             inner.append(chart.properties(width=alt.Step(10), height=height))
@@ -134,20 +147,20 @@ def main():
             )
         )
 
-    outer.append(
-        alt.hconcat(
-            *[],
-            title=alt.Title(
-                "Thread Count", orient="bottom", align="center", anchor="middle"
-            ),
-        )
-    )
+    # outer.append(
+    #     alt.hconcat(
+    #         *[],
+    #         title=alt.Title(
+    #             "Thread Count", orient="bottom", align="right", anchor="middle"
+    #         ),
+    #     )
+    # )
 
     chart = (
         alt.vconcat(
             *outer,
             center=True,
-            title=alt.Title("Memcached Workload", align="center", anchor="middle"),
+            title=alt.Title(title_workload, align="center", anchor="middle"),
         )
         .configure_concat(spacing=5)
         .configure_legend(
@@ -155,24 +168,70 @@ def main():
             direction="horizontal",
             legendX=0,
             # HACK: need to manually set position to force overlap
-            legendY=height * 2.75,
+            legendY=height * 2.66,
             titleOrient="left",
         )
     )
 
-    chart.save("memcached.json")
+    path = PurePath(path)
+    json = f"{path.stem}.json"
+    pdf = f"{path.stem}.pdf"
+
+    # Export to PDF
+    chart.save(json)
+    sp.run(
+        [
+            PurePath(os.environ.get("HOME"), ".cargo", "bin", "vl-convert"),
+            "vl2pdf",
+            "--input",
+            json,
+            "--output",
+            pdf,
+        ]
+    )
+    os.remove(json)
+
     chart.show()
+
+
+def baseline(df):
+    return (
+        df.filter(pl.col(ALLOCATOR) == BASELINE).select(THROUGHPUT, MAX_RSS).collect()
+    )
+
+
+def reshape(df, workload):
+    return (
+        unnest_all(df, "/")
+        .select(
+            pl.col("allocator").alias(ALLOCATOR),
+            pl.col("config_global/thread_count").alias(THREAD_COUNT),
+            workload.alias(WORKLOAD),
+            pl.col("output/throughput").alias(THROUGHPUT),
+            pl.col("output/resource_usage/max_rss").alias(MAX_RSS),
+        )
+        .filter(pl.col(THREAD_COUNT).is_in([1, 4, 16, 32]))
+        .with_columns(
+            # Filter out cxl-shm for certain workloads
+            pl.when(FILTER_MEMCACHED)
+            .then(pl.struct(pl.lit(0).alias(THROUGHPUT), pl.lit(0).alias(MAX_RSS)))
+            .otherwise(pl.struct(THROUGHPUT, MAX_RSS))
+            .struct.rename_fields([THROUGHPUT, MAX_RSS])
+            .struct.unnest(),
+        )
+        .sort(ALLOCATOR, WORKLOAD, THREAD_COUNT)
+    )
 
 
 def annotate(base):
     absolute = (
-        base.transform_filter(alt.datum[ALLOC] == "cxlalloc")
+        base.transform_filter(alt.datum[ALLOCATOR] == BASELINE)
         .mark_text(align="left", angle=270, dx=5)
         .encode(text=alt.Text(ABSOLUTE, format=".2s"))
     )
 
     relative = (
-        base.transform_filter(alt.datum[ALLOC] != "cxlalloc")
+        base.transform_filter(alt.datum[ALLOCATOR] != BASELINE)
         .transform_calculate(
             text=alt.expr.if_(
                 alt.datum[ABSOLUTE] > 0,
@@ -219,7 +278,7 @@ def unnest_all(df, separator="."):
 
             yield expr.alias(name)
 
-    return df.select(_unnest_all(df.schema, separator))
+    return df.select(_unnest_all(df.collect_schema(), separator))
 
 
 if __name__ == "__main__":
