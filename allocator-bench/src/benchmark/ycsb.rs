@@ -273,22 +273,25 @@ impl Config {
                 },
             };
 
-            let key = runner.next_key(&mut rng);
             let operation = runner.next_operation(&mut rng);
             match operation {
-                ycsb::Operation::Read => with(
-                    config.thread_id,
-                    allocator,
-                    &global.index,
-                    &key,
-                    |value| unsafe {
-                        let record = value.cast::<Record>().as_ref().unwrap();
-                        for field in &record.0 {
-                            (field as *const Field).read_volatile();
-                        }
-                    },
-                ),
+                ycsb::Operation::Read => {
+                    let key = runner.next_key_read(&mut rng);
+                    with(
+                        config.thread_id,
+                        allocator,
+                        &global.index,
+                        &key,
+                        |value| unsafe {
+                            let record = value.cast::<Record>().as_ref().unwrap();
+                            for field in &record.0 {
+                                (field as *const Field).read_volatile();
+                            }
+                        },
+                    )
+                }
                 ycsb::Operation::Update => {
+                    let key = runner.next_key_read(&mut rng);
                     let field = runner.next_field(&mut rng);
                     with(
                         config.thread_id,
@@ -303,7 +306,9 @@ impl Config {
                 }
                 ycsb::Operation::Scan => todo!(),
                 ycsb::Operation::Insert => {
+                    let key = runner.next_key_insert(&mut rng);
                     insert(config.thread_id, allocator, &global.index, &key);
+                    runner.acknowledge(key);
                 }
                 ycsb::Operation::ReadModifyWrite => todo!(),
             }

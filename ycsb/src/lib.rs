@@ -95,8 +95,16 @@ impl Workload {
         self.record_count
     }
 
-    pub fn loader(&self, thread_total: usize, thread_id: usize) -> Loader {
-        let insert_count = (self.record_count / thread_total) as u64;
+    pub fn loader(&self, thread_count: usize, thread_id: usize) -> Loader {
+        assert_eq!(
+            self.record_count % thread_count,
+            0,
+            "Record count {} must be divisible by thread total {}",
+            self.record_count,
+            thread_count
+        );
+
+        let insert_count = (self.record_count / thread_count) as u64;
         let insert_start = insert_count * thread_id as u64;
         Loader {
             insert_order: self.insert_order,
@@ -195,12 +203,25 @@ impl Runner<'_> {
     }
 
     #[inline]
-    pub fn next_key<R: Rng>(&mut self, rng: &mut R) -> Key {
-        let max = self.record_count as u64 + self.acked.max();
+    pub fn next_key_insert<R: Rng>(&mut self, rng: &mut R) -> Key {
+        self.next_key_inner(rng, 1)
+    }
+
+    #[inline]
+    pub fn next_key_read<R: Rng>(&mut self, rng: &mut R) -> Key {
+        self.next_key_inner(rng, 0)
+    }
+
+    #[inline]
+    fn next_key_inner<R: Rng>(&mut self, rng: &mut R, window: u64) -> Key {
+        let max = self.record_count as u64 + self.acked.max() + window;
         let key = loop {
             let key = match self.request_distribution {
                 RequestDistribution::Uniform => self.key_chooser.next(rng),
-                RequestDistribution::Latest => max - self.key_chooser.next(rng),
+                RequestDistribution::Latest => match max.checked_sub(self.key_chooser.next(rng)) {
+                    Some(key) => break key,
+                    None => continue,
+                },
                 RequestDistribution::Zipfian => {
                     let key = self.key_chooser.next(rng);
                     let mut hasher = RapidHasher::default();
@@ -222,11 +243,13 @@ impl Runner<'_> {
         self.field_chooser.next(rng)
     }
 
-    /// Only newly inserted keys can be acknowledged
+    /// Only track newly inserted keys
     #[inline]
     pub fn acknowledge(&self, key: Key) {
-        self.acked
-            .acknowledge(key.sequence() - self.record_count as u64);
+        let Some(index) = key.sequence().checked_sub(self.record_count as u64) else {
+            return;
+        };
+        self.acked.acknowledge(index);
     }
 
     // FIXME
