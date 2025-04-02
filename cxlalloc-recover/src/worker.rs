@@ -1,4 +1,6 @@
 use core::sync::atomic::Ordering;
+use std::ffi::OsStr;
+use std::fs;
 use std::io;
 use std::io::Write as _;
 use std::sync::Barrier;
@@ -43,10 +45,6 @@ pub struct Config {
 
     /// Block for garbage collection
     block: bool,
-
-    /// File name
-    #[serde(skip_serializing)]
-    path: String,
 
     object_count: u64,
 
@@ -98,6 +96,11 @@ pub struct Output {
     cache_size: usize,
 }
 
+// FIXME: make these two consistent
+// memento's ralloc uses former (open vs. shm_open)
+const PATH: &str = "/dev/shm/pool";
+const NAME: &str = "/pool";
+
 impl Config {
     pub fn run(self) {
         if let Some(thread) = self.crash_victim {
@@ -119,6 +122,8 @@ impl Config {
 
         let time;
 
+        unlink(NAME).unwrap();
+
         match self.workload {
             Workload::Queue => {
                 FINAL.store(
@@ -128,7 +133,7 @@ impl Config {
                 BARRIER.get_or_init(|| Barrier::new(self.thread_count as usize));
 
                 let pool = Pool::create::<Queue<PPtr<u64>>, queue::Mmt>(
-                    &self.path,
+                    PATH,
                     self.heap_size,
                     self.thread_count as usize,
                 )
@@ -155,7 +160,7 @@ impl Config {
                 }
 
                 let pool = Pool::create::<Clevel<u64, PPtr<u64>>, clevel::Mmt>(
-                    &self.path,
+                    PATH,
                     self.heap_size,
                     self.thread_count as usize,
                 )
@@ -166,6 +171,8 @@ impl Config {
                 time = start.elapsed();
             }
         }
+
+        unlink(NAME).unwrap();
 
         let output = Output {
             time: time.as_micros(),
@@ -190,4 +197,21 @@ impl Config {
         .unwrap();
         stdout.write_all(b"\n").unwrap();
     }
+}
+
+fn unlink(prefix: &str) -> io::Result<()> {
+    let prefix = prefix.trim_start_matches("/");
+
+    for entry in std::fs::read_dir("/dev/shm")? {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+        if name.starts_with(prefix) {
+            std::fs::remove_file(path)?;
+        }
+    }
+
+    Ok(())
 }

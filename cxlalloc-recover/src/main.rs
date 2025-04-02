@@ -1,4 +1,3 @@
-use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -10,6 +9,12 @@ use cxlalloc_recover::worker::Workload;
 pub struct Cli {
     #[arg(long, value_delimiter = ',', default_value = "queue,clevel")]
     workload: Vec<Workload>,
+
+    #[arg(short, long, value_delimiter = ',', default_value = "40")]
+    thread_count: Vec<u64>,
+
+    #[arg(short, long, value_delimiter = ',', default_value = "1000000")]
+    object_count: Vec<u64>,
 
     #[arg(long, value_delimiter = ',', default_value = "1,2,4,8")]
     crash_count: Vec<u64>,
@@ -36,33 +41,37 @@ fn main() {
         .open(&cli.output)
         .unwrap();
 
-    const PATH: &str = "/dev/shm/pool";
-
-    cartesian!(&cli.workload, &cli.crash_count, &cli.block)
-        .map(|(workload, crash_count, block)| {
+    cartesian!(
+        &cli.workload,
+        &cli.thread_count,
+        &cli.object_count,
+        &cli.crash_count,
+        &cli.block
+    )
+    .map(
+        |(workload, thread_count, object_count, crash_count, block)| {
             cxlalloc_recover::worker::Config::builder()
                 .allocator(cxlalloc_recover::worker::Allocator::default())
                 .crash_victim(2)
                 .crash_count(*crash_count)
                 .block(*block)
-                .path(PATH.to_owned())
-                .object_count(1_000_000)
-                .thread_count(40)
+                .object_count(*object_count)
+                .thread_count(*thread_count)
                 .heap_size(1 << 36)
                 .workload(workload.clone())
                 .build()
-        })
-        .map(|config| serde_json::to_vec(&config).unwrap())
-        .inspect(|_| fs::remove_file(PATH).unwrap())
-        .try_for_each(|config| {
-            let empty: [String; 0] = [];
-            duct::cmd(&cli.worker, empty)
-                .stdin_bytes(config)
-                .stdout_file(output.try_clone().unwrap())
-                .start()
-                .unwrap()
-                .wait()
-                .map(drop)
-        })
-        .unwrap();
+        },
+    )
+    .map(|config| serde_json::to_vec(&config).unwrap())
+    .try_for_each(|config| {
+        let empty: [String; 0] = [];
+        duct::cmd(&cli.worker, empty)
+            .stdin_bytes(config)
+            .stdout_file(output.try_clone().unwrap())
+            .start()
+            .unwrap()
+            .wait()
+            .map(drop)
+    })
+    .unwrap();
 }
