@@ -92,7 +92,11 @@ impl Raw {
         let size = size.next_multiple_of(PAGE);
 
         if create {
-            let _ = Self::unlink_inner(&name);
+            match Self::unlink_inner(&name) {
+                Ok(()) => log::info!("Unlinked stale shm object: {}", name.to_string_lossy()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error),
+            }
         }
 
         let (create, fd) = match unsafe {
