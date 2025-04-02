@@ -93,8 +93,13 @@ impl allocator_bench::Allocator for CxlShm {
     }
 
     #[inline]
-    fn pointer_to_offset(&self, _pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
-        unreachable!()
+    fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
+        NonZeroU64::new(
+            pointer.as_ptr() as u64
+                - unsafe { sys::cxl_shm_get_start(&self.0 as *const _ as *mut _) } as u64
+                - 24,
+        )
+        .unwrap()
     }
 }
 

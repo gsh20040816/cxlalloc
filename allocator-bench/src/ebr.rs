@@ -260,6 +260,13 @@ impl<A: Allocator> Stack<A> {
             self.tail.store(Some(pointer));
         }
 
+        if Self::has_reference_count() {
+            let mut link = 0;
+            unsafe {
+                allocator.link(&mut link, &handle);
+            }
+        }
+
         #[cfg(feature = "validate")]
         {
             self.block_count += 1;
@@ -298,9 +305,10 @@ impl<A: Allocator> Stack<A> {
             self.tail.store(None);
         }
 
-        let offset = allocator.pointer_to_offset(head);
-        let handle = allocator.offset_to_handle(offset);
-        unsafe { allocator.deallocate(handle) };
+        let mut offset = allocator.pointer_to_offset(head).get();
+        unsafe {
+            allocator.unlink(&mut offset);
+        }
 
         #[cfg(feature = "validate")]
         {
@@ -345,6 +353,10 @@ impl<A: Allocator> Stack<A> {
     fn tail(&self) -> Option<&Block> {
         self.tail.as_deref()
     }
+
+    fn has_reference_count() -> bool {
+        std::any::type_name::<A>().contains("cxl_shm")
+    }
 }
 
 struct Block {
@@ -373,10 +385,8 @@ impl Block {
     fn pop<A: Allocator>(&self, allocator: &mut A) -> Option<bool> {
         let index = self.len().checked_sub(1)?;
 
-        let offset = NonZeroU64::new(self.data[index].load(Ordering::Relaxed)).unwrap();
-        let handle = allocator.offset_to_handle(offset);
         unsafe {
-            allocator.deallocate(handle);
+            allocator.unlink(self.data[index].as_ptr());
         }
 
         // Can allow `push` to clobber if not validating
