@@ -9,8 +9,10 @@ pub use allocator::Allocator;
 pub use barrier::Barrier;
 pub use index::Index;
 
+use core::cell::Cell;
 use core::mem::MaybeUninit;
 use core::ops::Sub;
+use core::sync::atomic::AtomicUsize;
 use std::fs::File;
 use std::io;
 use std::io::Read as _;
@@ -20,7 +22,13 @@ use std::path::Path;
 use serde::Deserialize;
 use serde::Serialize;
 
-pub struct Timer {}
+pub static PROCESS_ID: AtomicUsize = AtomicUsize::new(0);
+pub static PROCESS_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    pub static THREAD_ID: Cell<Option<usize>> = const { Cell::new(None) };
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct Output {

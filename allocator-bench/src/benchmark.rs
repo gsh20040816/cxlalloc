@@ -1,3 +1,4 @@
+use core::sync::atomic::Ordering;
 use std::env;
 use std::thread;
 use std::time::SystemTime;
@@ -100,6 +101,10 @@ pub trait Benchmark<B: Backend>: Sync {
     ) -> Self::OutputProcess;
 
     fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
+        crate::PROCESS_ID.store(config.process_id, Ordering::Relaxed);
+        crate::PROCESS_COUNT.store(config.process_count, Ordering::Relaxed);
+        crate::THREAD_COUNT.store(config.thread_count, Ordering::Relaxed);
+
         let thread_count_per_process = config.thread_count_per_process() as u64 + 1;
         let thread_count = config.process_count as u64 * thread_count_per_process;
 
@@ -150,12 +155,14 @@ pub trait Benchmark<B: Backend>: Sync {
                     let global = &global;
                     let process = &process;
                     let handle = scope.spawn(move || {
+                        crate::THREAD_ID.set(Some(thread_id));
+
                         let config = config::Thread {
                             process: *config,
                             thread_id,
                         };
                         let core = thread_id % cores.len();
-                        core_affinity::set_for_current(cores[core]);
+                        assert!(core_affinity::set_for_current(cores[core]));
 
                         let mut allocator = backend.allocator(thread_id);
                         let mut worker =
