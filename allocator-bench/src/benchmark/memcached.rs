@@ -158,7 +158,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         Global {
             index: I::new(
                 Some(allocator.numa),
-                "index",
                 self.index.len,
                 config.is_leader(),
                 self.index.populate,

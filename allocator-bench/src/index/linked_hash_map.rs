@@ -30,7 +30,6 @@ pub struct LinkedHashMap<A> {
 impl<A: Allocator> Index<A> for LinkedHashMap<A> {
     fn new(
         numa: Option<usize>,
-        name: &str,
         len: usize,
         create: bool,
         populate: bool,
@@ -54,8 +53,9 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             ebr,
             raw: shm::Raw::builder()
                 .maybe_numa(numa)
-                .name(CString::new(name).unwrap())
+                .name(CString::new("/index").unwrap())
                 .size(len * 8)
+                .create(create)
                 .populate(populate)
                 .build()?,
         })

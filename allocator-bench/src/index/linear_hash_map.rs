@@ -17,7 +17,6 @@ pub struct LinearHashMap {
 impl<A: Allocator> Index<A> for LinearHashMap {
     fn new(
         _numa: Option<usize>,
-        _name: &str,
         _len: usize,
         _create: bool,
         _populate: bool,

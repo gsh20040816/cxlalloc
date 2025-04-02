@@ -28,7 +28,6 @@ where
 {
     fn new(
         numa: Option<usize>,
-        name: &str,
         len: usize,
         create: bool,
         populate: bool,

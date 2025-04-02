@@ -82,9 +82,8 @@ impl Raw {
         #[builder(default)] create: bool,
         #[builder(default)] populate: bool,
     ) -> io::Result<Raw> {
-        assert_eq!(
-            name.as_bytes()[0],
-            b'/',
+        assert!(
+            name.as_bytes()[0] == b'/',
             "Shared memory name {:?} should start with /",
             name.to_string_lossy(),
         );
