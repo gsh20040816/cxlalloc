@@ -3,7 +3,6 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use cartesian::cartesian;
-use cartesian::TuplePrepend as _;
 use clap::Parser;
 use cxlalloc_recover::worker::Workload;
 
