@@ -114,10 +114,12 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
 
             if self.try_swap(thread_id, allocator, head, key, handle_value.as_ref()) {
                 unsafe {
-                    allocator.unlink(pointer_key);
-                    allocator.deallocate(handle_key);
-
-                    allocator.unlink(pointer_value);
+                    if self.use_ebr() {
+                        allocator.deallocate(handle_key);
+                    } else {
+                        allocator.unlink(pointer_key);
+                        allocator.unlink(pointer_value);
+                    }
 
                     allocator.deallocate(handle_node);
                 }
