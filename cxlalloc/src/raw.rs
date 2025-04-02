@@ -1,18 +1,21 @@
 pub mod backend;
-mod builder;
 pub(crate) mod region;
 
 pub use backend::Backend;
-pub use builder::Builder;
+
+pub use raw_builder::State as BuilderState;
 pub(crate) use region::Page;
 use region::Region;
 pub(crate) use region::Reservation;
+pub use RawBuilder as Builder;
 
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
 use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
+
+use bon::bon;
 
 use crate::allocator;
 use crate::heap;
@@ -95,16 +98,16 @@ macro_rules! layout {
     };
 }
 
+#[bon]
 impl Raw {
-    fn new(
-        id: &str,
-        Builder {
-            backend,
-            size_small,
-            size_large,
-            thread_count,
-            free,
-        }: Builder,
+    #[builder]
+    pub fn new(
+        #[builder(finish_fn)] id: &str,
+        #[builder(default, into)] backend: Backend,
+        #[builder(default)] size_small: usize,
+        #[builder(default)] size_large: usize,
+        #[builder(default = 1)] thread_count: usize,
+        #[builder(default)] free: bool,
     ) -> crate::Result<Raw> {
         log::info!(
             "Requesting heap with \
@@ -216,7 +219,9 @@ impl Raw {
             free,
         })
     }
+}
 
+impl Raw {
     pub fn allocator<S, O>(&self, id: thread::Id) -> Allocator<S, O> {
         unsafe { Allocator::new(self.unfocused().focus(id)) }
     }

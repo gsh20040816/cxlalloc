@@ -234,7 +234,7 @@ pub unsafe extern "C" fn cxlalloc_init(
             libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
         }
 
-        raw::Builder::default()
+        raw::Raw::builder()
             .backend(BACKEND.get_or_init(|| Backend::Mmap).instantiate())
             .size_small(size)
             .thread_count(thread_count as usize)

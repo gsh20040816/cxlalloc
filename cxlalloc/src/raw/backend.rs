@@ -66,6 +66,15 @@ impl Backend {
     }
 }
 
+impl Default for Backend {
+    fn default() -> Self {
+        Backend::Mmap(Mmap {
+            numa: None,
+            populate: false,
+        })
+    }
+}
+
 /// Specific backend implementations.
 //
 // This trait is an implementation detail for requiring

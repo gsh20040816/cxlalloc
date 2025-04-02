@@ -7,10 +7,7 @@ use cxlalloc::raw;
 #[test]
 fn remote() {
     let _ = env_logger::try_init();
-    let raw = raw::Builder::default()
-        .size_small(1 << 30)
-        .build("")
-        .unwrap();
+    let raw = raw::Raw::builder().size_small(1 << 30).build("").unwrap();
 
     let id = unsafe { cxlalloc::thread::Id::new(0) };
     let mut allocator = raw.allocator::<(), ()>(id);

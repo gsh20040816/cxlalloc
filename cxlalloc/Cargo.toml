@@ -29,6 +29,7 @@ validate = []
 
 [dependencies]
 arrayvec.workspace = true
+bon.workspace = true
 hdrhistogram = { workspace = true, optional = true }
 gcollections.workspace = true
 intervallum.workspace = true

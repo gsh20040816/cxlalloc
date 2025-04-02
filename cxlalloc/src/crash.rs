@@ -11,7 +11,7 @@ fn coverage() {
 }
 
 fn allocate(crash: crash::Dynamic, reclaim: bool) {
-    let raw = raw::Builder::default()
+    let raw = raw::Raw::builder()
         .size_small(2usize.pow(28))
         .build("")
         .unwrap();

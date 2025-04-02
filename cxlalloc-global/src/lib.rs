@@ -10,7 +10,7 @@ use cxlalloc::Allocator;
 
 static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
 
-pub use cxlalloc::raw::Builder;
+pub use cxlalloc::raw::Raw;
 pub use cxlalloc::raw::backend;
 
 thread_local! {
@@ -20,7 +20,10 @@ thread_local! {
     }));
 }
 
-pub fn initialize_process(builder: cxlalloc::raw::Builder, name: &str) {
+pub fn initialize_process<T: cxlalloc::raw::BuilderState>(
+    builder: cxlalloc::raw::Builder<T>,
+    name: &str,
+) {
     RAW.get_or_init(|| builder.build(name).unwrap());
 
     let mut action = unsafe { mem::zeroed::<libc::sigaction>() };

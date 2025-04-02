@@ -144,7 +144,7 @@ impl Worker {
         };
 
         let raw = RAW.get_or_init(|| {
-            cxlalloc::raw::Builder::default()
+            cxlalloc::raw::Raw::builder()
                 .backend(cxlalloc::raw::backend::Shm {
                     numa: None,
                     populate: false,

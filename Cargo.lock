@@ -709,6 +709,7 @@ name = "cxlalloc"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
+ "bon",
  "crash",
  "env_logger",
  "gcollections",

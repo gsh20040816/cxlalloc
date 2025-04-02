@@ -19,7 +19,7 @@ impl allocator_bench::allocator::Backend for Backend {
         }
 
         cxlalloc_global::initialize_process(
-            cxlalloc_global::Builder::default()
+            cxlalloc_global::Raw::builder()
                 .backend(cxlalloc_global::backend::Shm {
                     numa: Some(config.numa),
                     populate: config.populate,

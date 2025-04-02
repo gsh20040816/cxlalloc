@@ -1,6 +1,5 @@
 use core::sync::atomic::Ordering;
 use std::ffi::OsStr;
-use std::fs;
 use std::io;
 use std::io::Write as _;
 use std::sync::Barrier;

@@ -79,7 +79,7 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
         .ok()
         .and_then(|numa| numa.parse::<usize>().ok());
 
-    cxlalloc::raw::Builder::default()
+    cxlalloc::raw::Raw::builder()
         .backend(Backend::Mmap(Mmap {
             numa,
             populate: false,

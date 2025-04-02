@@ -13,10 +13,7 @@ const PAGE: usize = 4096;
 
 fn with_allocator<F: FnOnce(&mut Allocator)>(apply: F) {
     let _ = env_logger::try_init();
-    let raw = raw::Builder::default()
-        .size_small(1 << 34)
-        .build("")
-        .unwrap();
+    let raw = raw::Raw::builder().size_small(1 << 34).build("").unwrap();
     let id = unsafe { cxlalloc::thread::Id::new(0) };
     let mut allocator = raw.allocator(id);
     apply(&mut allocator)
@@ -174,10 +171,7 @@ impl<const THREADS: usize> StateMachineTest for Concrete<THREADS> {
     ) -> Self::SystemUnderTest {
         assert!(ref_state.iter().all(|state| state.is_empty()));
         Self {
-            raw: raw::Builder::default()
-                .size_small(1 << 34)
-                .build("")
-                .unwrap(),
+            raw: raw::Raw::builder().size_small(1 << 34).build("").unwrap(),
             allocations: std::array::from_fn(|_| HashMap::new()),
         }
     }
