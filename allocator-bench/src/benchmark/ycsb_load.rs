@@ -65,17 +65,17 @@ pub struct Output {
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B::Allocator, I> {
-    const NAME: &str = "ycsb";
+    const NAME: &str = "/ycsb-load";
     type StateGlobal = Global<I>;
-
+    type StateProcess = ();
     type StateCoordinator = ();
     type StateWorker = ();
 
     type OutputWorker = u128;
     type OutputCoordinator = u64;
-    type OutputGlobal = Output;
+    type OutputProcess = Output;
 
-    fn setup_process(
+    fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
@@ -85,6 +85,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
                 Some(allocator.numa),
                 "index",
                 self.index.len,
+                config.is_leader(),
                 self.index.populate,
                 config.thread_count,
             )
@@ -92,10 +93,18 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         }
     }
 
+    fn setup_process(
+        &self,
+        _config: &config::Process,
+        _allocator: &allocator::Config,
+    ) -> Self::StateProcess {
+    }
+
     fn setup_coordinator(
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
     ) -> Self::StateCoordinator {
     }
 
@@ -103,6 +112,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         &self,
         _config: &config::Thread,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
     }
@@ -111,6 +121,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
         self.workload.record_count as u64
@@ -120,6 +131,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         &self,
         config: &config::Thread,
         global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
@@ -128,8 +140,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         start.elapsed().as_nanos()
     }
 
-    fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
-        if config.process_id != 0 {
+    fn teardown_global(&self, config: &config::Process, mut global: Self::StateGlobal) {
+        if !config.is_leader() {
             return;
         }
 
@@ -139,7 +151,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
     fn aggregate(
         record_count: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputGlobal {
+    ) -> Self::OutputProcess {
         let total = workers.iter().sum::<u128>();
         let time = total / workers.len() as u128;
         let throughput = (record_count as f64 / time as f64 * 1e9) as u64;

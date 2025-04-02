@@ -94,17 +94,17 @@ pub struct Output {
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::Allocator, I> {
-    const NAME: &str = "ycsb";
+    const NAME: &str = "/ycsb";
     type StateGlobal = Global<I>;
-
+    type StateProcess = ();
     type StateCoordinator = Coordinator;
     type StateWorker = ();
 
     type OutputWorker = OutputThread;
     type OutputCoordinator = Duration;
-    type OutputGlobal = Output;
+    type OutputProcess = Output;
 
-    fn setup_process(
+    fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
@@ -115,20 +115,34 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
                 Some(allocator.numa),
                 "index",
                 self.index.len,
+                config.is_leader(),
                 self.index.populate,
                 config.thread_count,
             )
             .unwrap(),
-            acked: Shm::new(None, c"acked".to_owned(), true).unwrap(),
+            acked: Shm::builder()
+                .name(c"/acked".to_owned())
+                .create(config.is_leader())
+                .populate(true)
+                .build()
+                .unwrap(),
             tx: Mutex::new(Some(tx)),
             rx,
         }
+    }
+
+    fn setup_process(
+        &self,
+        _config: &config::Process,
+        _allocator: &allocator::Config,
+    ) -> Self::StateProcess {
     }
 
     fn setup_coordinator(
         &self,
         config: &config::Process,
         global: &Self::StateGlobal,
+        (): &Self::StateProcess,
     ) -> Self::StateCoordinator {
         Coordinator {
             interval: self.throughput.map(|throughput| {
@@ -143,6 +157,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
         &self,
         config: &config::Thread,
         global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
         load(&self.workload, config, allocator, &global.index)
@@ -152,6 +167,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
         let tx = coordinator.tx.take().unwrap();
@@ -193,6 +209,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
         &self,
         config: &config::Thread,
         global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
@@ -203,8 +220,8 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
         self.run(config, &mut runner, allocator, global)
     }
 
-    fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
-        if config.process_id != 0 {
+    fn teardown_global(&self, config: &config::Process, mut global: Self::StateGlobal) {
+        if !config.is_leader() {
             return;
         }
 
@@ -215,7 +232,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
     fn aggregate(
         time: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputGlobal {
+    ) -> Self::OutputProcess {
         let latency = workers.iter().fold(
             Histogram::new(3).unwrap(),
             |mut acc,

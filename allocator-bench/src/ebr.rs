@@ -27,7 +27,8 @@ pub struct Global<A> {
 impl<A: Allocator> Global<A> {
     pub unsafe fn init(global: *mut Self, thread_count: usize) {
         unsafe {
-            *addr_of_mut!((*global).thread_count) = thread_count;
+            AtomicUsize::from_ptr(addr_of_mut!((*global).thread_count))
+                .store(thread_count, Ordering::Relaxed);
         }
     }
 

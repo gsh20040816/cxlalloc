@@ -51,28 +51,23 @@ unsafe impl Sync for Backend {}
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Boost;
-    fn create(config: &Config, name: &str) -> io::Result<Self> {
-        unsafe {
-            let shm = shm::Raw::new(
-                Some(config.numa),
-                CString::new(name).unwrap(),
-                config.size,
-                config.populate,
-            )?;
-            let inner = sys::managed_create(shm.address_mut().cast(), config.size);
-            Ok(Self { shm, inner })
-        }
-    }
 
-    fn open(config: &Config, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
         unsafe {
-            let shm = shm::Raw::new(
-                Some(config.numa),
-                CString::new(name).unwrap(),
-                config.size,
-                config.populate,
-            )?;
-            let inner = sys::managed_open(shm.address_mut().cast(), config.size);
+            let shm = shm::Raw::builder()
+                .numa(config.numa)
+                .name(CString::new(name).unwrap())
+                .size(config.size)
+                .populate(config.populate)
+                .build()?;
+
+            let open = match create {
+                true => sys::managed_create,
+                false => sys::managed_open,
+            };
+
+            let inner = open(shm.address_mut().cast(), config.size);
+
             Ok(Self { shm, inner })
         }
     }

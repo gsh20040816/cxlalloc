@@ -31,15 +31,22 @@ pub struct Output {
 }
 
 impl<B: Backend> benchmark::Benchmark<B> for Mstress {
-    const NAME: &str = "ms";
+    const NAME: &str = "/ms";
     type StateGlobal = ();
-
+    type StateProcess = ();
     type StateCoordinator = ();
     type StateWorker = ();
 
     type OutputWorker = u128;
     type OutputCoordinator = ();
-    type OutputGlobal = Output;
+    type OutputProcess = Output;
+
+    fn setup_global(
+        &self,
+        _config: &config::Process,
+        _allocator: &allocator::Config,
+    ) -> Self::StateGlobal {
+    }
 
     fn setup_process(
         &self,
@@ -52,6 +59,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
     ) -> Self::StateCoordinator {
     }
 
@@ -59,6 +67,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
         &self,
         _config: &config::Thread,
         (): &Self::StateGlobal,
+        (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
     }
@@ -67,6 +76,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
     }
@@ -75,6 +85,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
         &self,
         _config: &config::Thread,
         (): &Self::StateGlobal,
+        (): &Self::StateProcess,
         (): &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
@@ -131,7 +142,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
     fn aggregate(
         (): Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputGlobal {
+    ) -> Self::OutputProcess {
         let len = workers.len() as u128;
         Output {
             time: workers.into_iter().sum::<u128>() / len,

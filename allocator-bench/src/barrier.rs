@@ -16,8 +16,13 @@ unsafe impl Sync for Barrier {}
 impl Barrier {
     const PATH: &CStr = c"/barrier";
 
-    pub fn new(total: u64) -> io::Result<Self> {
-        Shm::new(None, Self::PATH.to_owned(), true).map(|shm| Self { total, shm })
+    pub fn new(create: bool, total: u64) -> io::Result<Self> {
+        Shm::builder()
+            .create(create)
+            .name(Self::PATH.to_owned())
+            .populate(true)
+            .build()
+            .map(|shm| Self { total, shm })
     }
 
     pub fn unlink(&mut self) -> io::Result<()> {

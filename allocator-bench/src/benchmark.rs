@@ -32,29 +32,38 @@ pub trait Benchmark<B: Backend>: Sync {
     const NAME: &str;
 
     type StateGlobal: Sync;
+    type StateProcess: Sync;
     type StateCoordinator;
     type StateWorker;
 
-    type OutputGlobal: Serialize;
+    type OutputProcess: Serialize;
     type OutputWorker: Send;
     type OutputCoordinator: Send;
 
-    fn setup_process(
+    fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal;
 
+    fn setup_process(
+        &self,
+        config: &config::Process,
+        allocator: &allocator::Config,
+    ) -> Self::StateProcess;
+
     fn setup_coordinator(
         &self,
         config: &config::Process,
         global: &Self::StateGlobal,
+        process: &Self::StateProcess,
     ) -> Self::StateCoordinator;
 
     fn setup_worker(
         &self,
         config: &config::Thread,
         global: &Self::StateGlobal,
+        process: &Self::StateProcess,
         allocator: &mut B::Allocator,
     ) -> Self::StateWorker;
 
@@ -62,6 +71,7 @@ pub trait Benchmark<B: Backend>: Sync {
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        _process: &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator;
 
@@ -69,38 +79,53 @@ pub trait Benchmark<B: Backend>: Sync {
         &self,
         config: &config::Thread,
         global: &Self::StateGlobal,
+        process: &Self::StateProcess,
         worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker;
 
-    fn teardown_process(&self, _config: &config::Process, _global: Self::StateGlobal) {}
+    fn teardown_process(
+        &self,
+        _config: &config::Process,
+        _global: &Self::StateGlobal,
+        _process: Self::StateProcess,
+    ) {
+    }
+
+    fn teardown_global(&self, _config: &config::Process, _global: Self::StateGlobal) {}
 
     fn aggregate(
         coordinator: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputGlobal;
+    ) -> Self::OutputProcess;
 
     fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
         let thread_count_per_process = config.thread_count_per_process() as u64 + 1;
         let thread_count = config.process_count as u64 * thread_count_per_process;
 
-        let mut barrier = Barrier::new(thread_count).unwrap();
+        // External coordinator must bootstrap barrier synchronization
+        let mut barrier = Barrier::new(false, thread_count).unwrap();
 
         // Prevent race conditions between creating and opening shared memory data structures
-        let backend = match config.process_id {
-            0 => {
-                let backend = B::create(allocator, Self::NAME);
+        let (backend, global) = match config.is_leader() {
+            true => {
+                let backend = B::new(true, allocator, Self::NAME).unwrap();
+                let global = self.setup_global(config, allocator);
                 barrier.wait(thread_count_per_process);
-                backend
-            }
-            _ => {
-                barrier.wait(thread_count_per_process);
-                B::open(allocator, Self::NAME)
-            }
-        }
-        .unwrap();
 
-        let global = self.setup_process(config, allocator);
+                (backend, global)
+            }
+            false => {
+                barrier.wait(thread_count_per_process);
+                let backend = B::new(false, allocator, Self::NAME).unwrap();
+                let global = self.setup_global(config, allocator);
+
+                (backend, global)
+            }
+        };
+
+        let process = self.setup_process(config, allocator);
+
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
         let date = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -108,11 +133,11 @@ pub trait Benchmark<B: Backend>: Sync {
             .as_secs();
 
         let mut perf = match (
-            config.process_id,
+            config.is_leader(),
             env::var("PERF_CTL_FIFO"),
             env::var("PERF_ACK_FIFO"),
         ) {
-            (0, Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
+            (true, Ok(ctl), Ok(ack)) => Some(Perf::new(ctl, ack)),
             _ => None,
         };
 
@@ -123,6 +148,7 @@ pub trait Benchmark<B: Backend>: Sync {
                     let barrier = &barrier;
                     let backend = &backend;
                     let global = &global;
+                    let process = &process;
                     let handle = scope.spawn(move || {
                         let config = config::Thread {
                             process: *config,
@@ -132,10 +158,12 @@ pub trait Benchmark<B: Backend>: Sync {
                         core_affinity::set_for_current(cores[core]);
 
                         let mut allocator = backend.allocator(thread_id);
-                        let mut worker = self.setup_worker(&config, global, &mut allocator);
+                        let mut worker =
+                            self.setup_worker(&config, global, process, &mut allocator);
 
                         barrier.wait(1);
-                        let data = self.run_worker(&config, global, &mut worker, &mut allocator);
+                        let data =
+                            self.run_worker(&config, global, process, &mut worker, &mut allocator);
                         barrier.wait(1);
 
                         drop(allocator);
@@ -147,7 +175,7 @@ pub trait Benchmark<B: Backend>: Sync {
                 .collect::<Vec<_>>();
 
             let coordinator = scope.spawn(|| {
-                let mut coordinator = self.setup_coordinator(config, &global);
+                let mut coordinator = self.setup_coordinator(config, &global, &process);
 
                 if let Some(perf) = &mut perf {
                     perf.enable();
@@ -155,7 +183,7 @@ pub trait Benchmark<B: Backend>: Sync {
 
                 let before = ResourceUsage::new().unwrap();
                 barrier.wait(1);
-                let output = self.run_coordinator(config, &global, &mut coordinator);
+                let output = self.run_coordinator(config, &global, &process, &mut coordinator);
                 barrier.wait(1);
                 let after = ResourceUsage::new().unwrap();
 
@@ -186,9 +214,11 @@ pub trait Benchmark<B: Backend>: Sync {
             .unwrap();
         });
 
-        self.teardown_process(config, global);
+        self.teardown_process(config, &global, process);
 
-        if config.process_id == 0 {
+        self.teardown_global(config, global);
+
+        if config.is_leader() {
             barrier.unlink().unwrap();
             backend.unlink().unwrap();
         }

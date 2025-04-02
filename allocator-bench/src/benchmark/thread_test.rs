@@ -31,17 +31,17 @@ pub struct Output {
 }
 
 impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
-    const NAME: &str = "tt";
+    const NAME: &str = "/tt";
     type StateGlobal = usize;
-
+    type StateProcess = ();
     type StateCoordinator = ();
     type StateWorker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
 
     type OutputWorker = u128;
     type OutputCoordinator = u64;
-    type OutputGlobal = Output;
+    type OutputProcess = Output;
 
-    fn setup_process(
+    fn setup_global(
         &self,
         config: &config::Process,
         _allocator: &allocator::Config,
@@ -55,10 +55,18 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         self.object_count as usize / config.thread_count
     }
 
+    fn setup_process(
+        &self,
+        _config: &config::Process,
+        _allocator: &allocator::Config,
+    ) -> Self::StateProcess {
+    }
+
     fn setup_coordinator(
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
     ) -> Self::StateCoordinator {
     }
 
@@ -66,6 +74,7 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         &self,
         _config: &config::Thread,
         object_count: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
         (0..*object_count).map(|_| None).collect()
@@ -75,6 +84,7 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
         self.object_count * self.iteration_count * 2
@@ -84,6 +94,7 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         &self,
         _config: &config::Thread,
         _: &Self::StateGlobal,
+        (): &Self::StateProcess,
         handles: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
@@ -108,7 +119,7 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
     fn aggregate(
         count: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputGlobal {
+    ) -> Self::OutputProcess {
         let total = workers.iter().copied().sum::<u128>();
         let time = total / workers.len() as u128;
         let throughput = (count as f64 / time as f64) * 1e9;

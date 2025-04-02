@@ -1,7 +1,6 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::sync::atomic::AtomicU64;
-use std::ffi::CString;
 use std::io;
 
 use rapidhash::RapidHasher;
@@ -17,16 +16,14 @@ pub struct LinearHashMap {
 
 impl<A: Allocator> Index<A> for LinearHashMap {
     fn new(
-        numa: Option<usize>,
-        name: &str,
-        len: usize,
-        populate: bool,
+        _numa: Option<usize>,
+        _name: &str,
+        _len: usize,
+        _create: bool,
+        _populate: bool,
         _thread_count: usize,
     ) -> io::Result<Self> {
-        Ok(Self {
-            len,
-            raw: shm::Raw::new(numa, CString::new(name).unwrap(), len * 8, populate)?,
-        })
+        todo!()
     }
 
     fn insert<F: FnOnce(*mut u8)>(

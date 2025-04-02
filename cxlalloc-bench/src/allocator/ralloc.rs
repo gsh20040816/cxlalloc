@@ -19,21 +19,17 @@ pub struct Ralloc;
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Ralloc;
 
-    fn create(config: &Config, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
         unsafe {
-            let name = CString::new(name).unwrap();
             // FIXME: hacky workaround for now, since ralloc
             // maps several different files
             assert!(!config.populate);
             std::env::set_var("CXL_NUMA_NODE", config.numa.to_string());
-            sys::RP_init(name.as_ptr(), config.size as u64);
-        }
 
-        Ok(Self(name.to_owned()))
-    }
+            if create {
+                unlink(name)?;
+            }
 
-    fn open(config: &Config, name: &str) -> io::Result<Self> {
-        unsafe {
             let name = CString::new(name).unwrap();
             sys::RP_init(name.as_ptr(), config.size as u64);
         }
@@ -46,18 +42,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 
     fn unlink(self) -> io::Result<()> {
-        for entry in std::fs::read_dir("/dev/shm")? {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
-                continue;
-            };
-            if name.starts_with(&self.0) {
-                std::fs::remove_file(path)?;
-            }
-        }
-
-        Ok(())
+        unlink(&self.0)
     }
 }
 
@@ -88,4 +73,21 @@ impl allocator_bench::Allocator for Ralloc {
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(unsafe { sys::RP_pointer_to_offset(pointer.as_ptr()) } as u64).unwrap()
     }
+}
+
+fn unlink(prefix: &str) -> io::Result<()> {
+    let prefix = prefix.trim_start_matches("/");
+
+    for entry in std::fs::read_dir("/dev/shm")? {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+        if name.starts_with(prefix) {
+            std::fs::remove_file(path)?;
+        }
+    }
+
+    Ok(())
 }

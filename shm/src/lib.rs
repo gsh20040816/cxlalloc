@@ -1,4 +1,5 @@
 use core::ffi;
+use core::ffi::CStr;
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr;
@@ -7,6 +8,8 @@ use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::fd::FromRawFd as _;
 use std::os::fd::OwnedFd;
+
+use bon::bon;
 
 const PAGE: usize = 4096;
 
@@ -21,16 +24,32 @@ pub struct Raw {
     address: *mut ffi::c_void,
 }
 
+#[bon]
 impl<T> Shm<T> {
-    const SIZE: usize = mem::size_of::<T>().next_multiple_of(PAGE);
+    #[builder]
+    pub fn new(
+        numa: Option<usize>,
+        name: CString,
+        #[builder(default)] create: bool,
+        populate: bool,
+    ) -> io::Result<Self> {
+        let inner = Raw::builder()
+            .maybe_numa(numa)
+            .name(name)
+            .size(Self::SIZE)
+            .create(create)
+            .populate(populate)
+            .build()?;
 
-    pub fn new(numa: Option<usize>, name: CString, populate: bool) -> io::Result<Self> {
-        let inner = Raw::new(numa, name, Self::SIZE, populate)?;
         Ok(Self {
             inner,
             r#type: PhantomData,
         })
     }
+}
+
+impl<T> Shm<T> {
+    const SIZE: usize = mem::size_of::<T>().next_multiple_of(PAGE);
 
     pub fn address(&self) -> *const T {
         self.inner.address.cast()
@@ -53,14 +72,28 @@ impl<T> Shm<T> {
     }
 }
 
+#[bon]
 impl Raw {
+    #[builder]
     pub fn new(
         numa: Option<usize>,
         name: CString,
         size: usize,
-        populate: bool,
-    ) -> io::Result<Self> {
+        #[builder(default)] create: bool,
+        #[builder(default)] populate: bool,
+    ) -> io::Result<Raw> {
+        assert_eq!(
+            name.as_bytes()[0],
+            b'/',
+            "Shared memory name {:?} should start with /",
+            name.to_string_lossy(),
+        );
+
         let size = size.next_multiple_of(PAGE);
+
+        if create {
+            let _ = Self::unlink_inner(&name);
+        }
 
         let (create, fd) = match unsafe {
             libc::shm_open(
@@ -115,7 +148,9 @@ impl Raw {
             address,
         })
     }
+}
 
+impl Raw {
     pub fn address(&self) -> *const ffi::c_void {
         self.address
     }
@@ -137,7 +172,11 @@ impl Raw {
     }
 
     pub fn unlink(&mut self) -> io::Result<()> {
-        if unsafe { libc::shm_unlink(self.name.as_ptr()) } == -1 {
+        Self::unlink_inner(&self.name)
+    }
+
+    fn unlink_inner(name: &CStr) -> io::Result<()> {
+        if unsafe { libc::shm_unlink(name.as_ptr()) } == -1 {
             return Err(io::Error::last_os_error());
         }
 

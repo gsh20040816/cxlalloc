@@ -88,24 +88,32 @@ pub struct Output {
 unsafe impl Sync for Global {}
 
 impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
-    const NAME: &str = "xm";
+    const NAME: &str = "/xm";
     type StateGlobal = Global;
+    type StateProcess = ();
     type StateCoordinator = ();
     type StateWorker = SmallRng;
 
     type OutputWorker = OutputWorker;
     type OutputCoordinator = u64;
-    type OutputGlobal = Output;
+    type OutputProcess = Output;
 
-    fn setup_process(
+    fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
-        let root = Shm::<Root>::new(Some(allocator.numa), c"xmalloc".to_owned(), false).unwrap();
-        let stop = AtomicBool::new(false);
+        let create = config.is_leader();
 
-        if config.process_id == 0 {
+        let root = Shm::<Root>::builder()
+            .create(create)
+            .numa(allocator.numa)
+            .name(c"/xmalloc".to_owned())
+            .populate(true)
+            .build()
+            .unwrap();
+
+        if create {
             unsafe {
                 let mut attr = MaybeUninit::<libc::pthread_mutexattr_t>::zeroed();
                 libc::pthread_mutexattr_init(attr.as_mut_ptr());
@@ -126,13 +134,24 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
             }
         }
 
-        Global { root, stop }
+        Global {
+            root,
+            stop: AtomicBool::new(false),
+        }
+    }
+
+    fn setup_process(
+        &self,
+        _config: &config::Process,
+        _allocator: &allocator::Config,
+    ) -> Self::StateProcess {
     }
 
     fn setup_coordinator(
         &self,
         _config: &config::Process,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
     ) -> Self::StateCoordinator {
     }
 
@@ -140,6 +159,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         &self,
         config: &config::Thread,
         _global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
         SmallRng::seed_from_u64(config.thread_id as u64)
@@ -149,6 +169,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         &self,
         _: &config::Process,
         global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         (): &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
         std::thread::sleep(Duration::from_secs(self.time));
@@ -167,6 +188,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         &self,
         config: &config::Thread,
         global: &Self::StateGlobal,
+        (): &Self::StateProcess,
         rng: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
@@ -224,8 +246,8 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         }
     }
 
-    fn teardown_process(&self, config: &config::Process, mut global: Self::StateGlobal) {
-        if config.process_id != 0 {
+    fn teardown_global(&self, config: &config::Process, mut global: Self::StateGlobal) {
+        if !config.is_leader() {
             return;
         }
 
@@ -235,7 +257,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     fn aggregate(
         time: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputGlobal {
+    ) -> Self::OutputProcess {
         let operations = workers
             .iter()
             .map(|OutputWorker { operations }| *operations)

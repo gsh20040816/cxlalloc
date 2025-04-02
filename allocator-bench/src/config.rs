@@ -49,6 +49,12 @@ pub struct Process {
     pub process_id: usize,
 }
 
+impl Process {
+    pub fn is_leader(&self) -> bool {
+        self.process_id == 0
+    }
+}
+
 impl Deref for Process {
     type Target = Global;
     fn deref(&self) -> &Self::Target {

@@ -40,13 +40,15 @@ unsafe impl Sync for sys::LightningAllocator {}
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Lightning;
 
-    fn open(config: &Config, name: &str) -> io::Result<Self> {
-        let shm = shm::Raw::new(
-            Some(config.numa),
-            CString::new(name).unwrap(),
-            config.size,
-            config.populate,
-        )?;
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+        let shm = shm::Raw::builder()
+            .numa(config.numa)
+            .name(CString::new(name).unwrap())
+            .size(config.size)
+            .create(create)
+            .populate(config.populate)
+            .build()?;
+
         let mut store = MaybeUninit::<sys::LightningAllocator>::uninit();
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(
@@ -56,13 +58,12 @@ impl allocator_bench::allocator::Backend for Backend {
             );
             store.assume_init()
         });
-        Ok(Self { shm, inner })
-    }
 
-    fn create(config: &Config, name: &str) -> io::Result<Self> {
-        let lightning = Self::open(config, name)?;
-        unsafe { LightningAllocator_Initialize(lightning.inner.deref() as *const _ as *mut _, 0) }
-        Ok(lightning)
+        if create {
+            unsafe { LightningAllocator_Initialize(inner.deref() as *const _ as *mut _, 0) }
+        }
+
+        Ok(Self { shm, inner })
     }
 
     fn allocator(&self, id: usize) -> Self::Allocator {

@@ -26,14 +26,15 @@ pub struct CxlShm(sys::cxl_shm);
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = CxlShm;
 
-    fn open(config: &Config, name: &str) -> io::Result<Self> {
-        shm::Raw::new(
-            Some(config.numa),
-            CString::new(name).unwrap(),
-            config.size,
-            config.populate,
-        )
-        .map(Self)
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+        shm::Raw::builder()
+            .numa(config.numa)
+            .name(CString::new(name).unwrap())
+            .size(config.size)
+            .create(create)
+            .populate(config.populate)
+            .build()
+            .map(Self)
     }
 
     fn unlink(mut self) -> io::Result<()> {

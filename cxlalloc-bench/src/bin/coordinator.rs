@@ -1,12 +1,17 @@
 use std::io;
 use std::io::Write as _;
 
+use allocator_bench::Barrier;
 use cxlalloc_bench::Observation;
 
 fn main() -> anyhow::Result<()> {
     let stdin = io::stdin().lock();
     let mut stdout = std::io::stdout().lock();
     let config = serde_json::from_reader::<_, cxlalloc_bench::Config>(stdin)?;
+
+    // Initialize barrier for processes to synchronize on
+    Barrier::new(true, 0)?;
+
     (0..config.config_global.process_count)
         .map(|process_id| {
             let command = serde_json::to_vec(&config.with_process_id(process_id)).unwrap();

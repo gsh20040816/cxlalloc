@@ -32,19 +32,32 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         numa: Option<usize>,
         name: &str,
         len: usize,
+        create: bool,
         populate: bool,
         thread_count: usize,
     ) -> io::Result<Self> {
-        let ebr = shm::Shm::new(numa, c"/ebr".to_owned(), populate)?;
+        let ebr = shm::Shm::builder()
+            .maybe_numa(numa)
+            .name(c"/ebr".to_owned())
+            .create(create)
+            .populate(populate)
+            .build()?;
 
-        unsafe {
-            ebr::Global::init(ebr.address_mut(), thread_count);
+        if create {
+            unsafe {
+                ebr::Global::init(ebr.address_mut(), thread_count);
+            }
         }
 
         Ok(Self {
             len,
             ebr,
-            raw: shm::Raw::new(numa, CString::new(name).unwrap(), len * 8, populate)?,
+            raw: shm::Raw::builder()
+                .maybe_numa(numa)
+                .name(CString::new(name).unwrap())
+                .size(len * 8)
+                .populate(populate)
+                .build()?,
         })
     }
 

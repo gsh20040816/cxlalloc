@@ -13,7 +13,11 @@ pub struct Cxlalloc;
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Cxlalloc;
 
-    fn open(config: &Config, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+        if create {
+            unlink(name)?;
+        }
+
         cxlalloc_global::initialize_process(
             cxlalloc_global::Builder::default()
                 .backend(cxlalloc_global::backend::Shm {
@@ -34,18 +38,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 
     fn unlink(self) -> io::Result<()> {
-        for entry in std::fs::read_dir("/dev/shm")? {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
-                continue;
-            };
-            if name.starts_with(&self.0) {
-                std::fs::remove_file(path)?;
-            }
-        }
-
-        Ok(())
+        unlink(&self.0)
     }
 }
 
@@ -76,4 +69,21 @@ impl allocator_bench::Allocator for Cxlalloc {
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(cxlalloc_global::pointer_to_offset(pointer) as u64 + 1).unwrap()
     }
+}
+
+fn unlink(prefix: &str) -> io::Result<()> {
+    let prefix = prefix.trim_start_matches("/");
+
+    for entry in std::fs::read_dir("/dev/shm")? {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+        if name.starts_with(prefix) {
+            std::fs::remove_file(path)?;
+        }
+    }
+
+    Ok(())
 }

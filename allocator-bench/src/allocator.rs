@@ -40,11 +40,8 @@ pub enum Consistency {
 
 pub trait Backend: Sync + Sized {
     type Allocator: Allocator;
-    fn create(config: &Config, name: &str) -> io::Result<Self> {
-        Self::open(config, name)
-    }
 
-    fn open(config: &Config, name: &str) -> io::Result<Self>;
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self>;
 
     fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
@@ -101,7 +98,7 @@ pub struct Libc;
 impl Backend for Libc {
     type Allocator = Self;
 
-    fn open(_config: &Config, _name: &str) -> io::Result<Self> {
+    fn new(_create: bool, _config: &Config, _name: &str) -> io::Result<Self> {
         Ok(Self)
     }
 

@@ -30,6 +30,7 @@ where
         numa: Option<usize>,
         name: &str,
         len: usize,
+        create: bool,
         populate: bool,
         thread_count: usize,
     ) -> io::Result<Self>;

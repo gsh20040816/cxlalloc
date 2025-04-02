@@ -26,13 +26,14 @@ pub struct Mimalloc(*mut sys::mi_heap_t);
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Mimalloc;
 
-    fn open(config: &Config, name: &str) -> io::Result<Self> {
-        let raw = shm::Raw::new(
-            Some(config.numa),
-            CString::new(name).unwrap(),
-            config.size,
-            config.populate,
-        )?;
+    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+        let raw = shm::Raw::builder()
+            .numa(config.numa)
+            .name(CString::new(name).unwrap())
+            .size(config.size)
+            .create(create)
+            .populate(config.populate)
+            .build()?;
 
         let arena = unsafe {
             let mut arena = MaybeUninit::<sys::mi_arena_id_t>::zeroed();
