@@ -1,3 +1,6 @@
+use core::sync::atomic::Ordering;
+use std::time::SystemTime;
+
 use allocator_bench::benchmark;
 use allocator_bench::index;
 use bon::Builder;
@@ -24,7 +27,56 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn run(&self) {
+    pub fn run(self) {
+        let _ = env_logger::Builder::from_default_env()
+            .format(move |buffer, record| {
+                use std::io::Write;
+
+                use env_logger::fmt::style;
+
+                let process_id = allocator_bench::PROCESS_ID.load(Ordering::Relaxed);
+                let style_process = style::Ansi256Color::from(process_id as u8 + 1).on_default();
+
+                // Color-code process ID if there is more than one process
+                if allocator_bench::PROCESS_COUNT.load(Ordering::Relaxed) > 1 {
+                    write!(buffer, "[{style_process}P{process_id:02}{style_process:#}]")?;
+                }
+
+                // Color-code thread ID
+                match allocator_bench::THREAD_ID.get() {
+                    None => {
+                        write!(buffer, "[{style_process}C{process_id:02}{style_process:#}]")?;
+                    }
+                    Some(thread_id) => {
+                        let style_thread =
+                            style::Ansi256Color::from(thread_id as u8 + 17).on_default();
+                        write!(buffer, "[{style_thread}T{thread_id:02}{style_thread:#}]")?;
+                    }
+                }
+
+                // Abbreviated log level
+                let level = match record.level() {
+                    log::Level::Error => "E",
+                    log::Level::Warn => "W",
+                    log::Level::Info => "I",
+                    log::Level::Debug => "D",
+                    log::Level::Trace => "T",
+                };
+                let style_level = buffer.default_level_style(record.level());
+                write!(buffer, "[{style_level}{level}{style_level:#}]")?;
+
+                let time = SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_secs())
+                    .unwrap_or(0);
+                write!(buffer, "[{time:016}]")?;
+
+                writeln!(buffer, "[{}]: {}", record.target(), record.args())?;
+                buffer.flush()?;
+                Ok(())
+            })
+            .try_init();
+
         self.specialize_allocator()
     }
 

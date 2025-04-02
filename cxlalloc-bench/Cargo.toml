@@ -29,7 +29,9 @@ clap.workspace = true
 cxlalloc-global = { path = "../cxlalloc-global", features = ["backend-shm"] }
 cxx.workspace = true
 duct.workspace = true
+env_logger.workspace = true
 libc.workspace = true
+log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shm.path = "../shm"
