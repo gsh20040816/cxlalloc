@@ -114,11 +114,11 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
 
             if self.try_swap(thread_id, allocator, head, key, handle_value.as_ref()) {
                 unsafe {
-                    if self.use_ebr() {
-                        allocator.deallocate(handle_key);
-                    } else {
+                    if Self::has_reference_count() {
                         allocator.unlink(pointer_key);
                         allocator.unlink(pointer_value);
+                    } else {
+                        allocator.deallocate(handle_key);
                     }
 
                     allocator.deallocate(handle_node);
@@ -135,8 +135,8 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
                 continue;
             }
 
-            // Need to increment reference count of node
-            if !self.use_ebr() {
+            // Increment reference count of node
+            if Self::has_reference_count() {
                 let mut link = 0;
                 unsafe {
                     allocator.link(&mut link, &handle_node);
@@ -154,19 +154,17 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         key: &[u8],
         with: F,
     ) -> bool {
-        if self.use_ebr() {
-            unsafe {
-                self.ebr().start(thread_id, allocator);
-            }
+        unsafe {
+            self.ebr().start(thread_id, allocator);
         }
 
         let bucket = self.bucket(key);
         let head = bucket.load(Ordering::Acquire);
-        let Some(handle) = self.find(allocator, head, key) else {
+        let Some(handle_node) = self.find(allocator, head, key) else {
             return false;
         };
 
-        match NonZeroU64::new(unsafe { handle.as_ptr().byte_add(16).cast::<u64>().read() }) {
+        match NonZeroU64::new(unsafe { handle_node.as_ptr().byte_add(16).cast::<u64>().read() }) {
             None => with(ptr::null()),
             Some(offset) => {
                 let handle_value = allocator.offset_to_handle(offset);
@@ -208,11 +206,8 @@ impl<A: Allocator> LinkedHashMap<A> {
             .map(NonZeroU64::get)
             .unwrap_or(0);
 
-        if !self.use_ebr() {
+        if Self::has_reference_count() {
             // Increment reference count of `new` *before* publishing
-            //
-            // Necessary to prevent race condition with reference count
-            // decrement from another thread that swaps and unlinks.
             if let Some(value) = value {
                 let mut link = 0;
                 unsafe {
@@ -221,20 +216,8 @@ impl<A: Allocator> LinkedHashMap<A> {
             }
         }
 
-        let old = NonZeroU64::new(site.swap(new, Ordering::AcqRel));
-
-        if self.use_ebr() {
-            if let Some(old) = old {
-                unsafe { self.ebr().retire(thread_id, allocator, old) }
-            }
-        } else {
-            // Decrement reference count of `old`
-            if let Some(old) = old {
-                let mut link = old.get();
-                unsafe {
-                    allocator.unlink(&mut link);
-                }
-            }
+        if let Some(old) = NonZeroU64::new(site.swap(new, Ordering::AcqRel)) {
+            unsafe { self.ebr().retire(thread_id, allocator, old) }
         }
 
         true
@@ -265,8 +248,8 @@ impl<A: Allocator> LinkedHashMap<A> {
         }
     }
 
-    fn use_ebr(&self) -> bool {
-        !std::any::type_name::<A>().contains("cxl_shm")
+    fn has_reference_count() -> bool {
+        std::any::type_name::<A>().contains("cxl_shm")
     }
 
     fn ebr(&self) -> &ebr::Global<A> {
