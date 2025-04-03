@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-use core::ops::Deref;
 use core::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -10,7 +8,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
 
-use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
@@ -35,30 +32,6 @@ pub struct Config {
     workload: ycsb::Workload,
 }
 
-#[derive(Serialize)]
-pub struct Ycsb<A: Allocator, I: Index<A>> {
-    #[serde(flatten)]
-    config: Config,
-    #[serde(skip)]
-    _index: PhantomData<fn() -> (A, I)>,
-}
-
-impl<A: Allocator, I: Index<A>> Ycsb<A, I> {
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            _index: PhantomData,
-        }
-    }
-}
-
-impl<A: Allocator, I: Index<A>> Deref for Ycsb<A, I> {
-    type Target = Config;
-    fn deref(&self) -> &Self::Target {
-        &self.config
-    }
-}
-
 pub struct Global<I> {
     index: I,
     acked: Shm<ycsb::Acknowledged>,
@@ -77,7 +50,7 @@ pub struct Worker {
     operation_count: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::Allocator, I> {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capture<Config, I> {
     const NAME: &str = "/ycsb";
     type StateGlobal = Global<I>;
     type StateProcess = ();

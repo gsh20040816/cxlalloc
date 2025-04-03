@@ -26,12 +26,9 @@ mod xmalloc;
 pub mod ycsb;
 pub mod ycsb_load;
 
-pub use memcached::Memcached;
 pub use mstress::Mstress;
 pub use thread_test::ThreadTest;
 pub use xmalloc::Xmalloc;
-pub use ycsb::Ycsb;
-pub use ycsb_load::YcsbLoad;
 
 pub trait Benchmark<B: Backend>: Sync + Serialize {
     const NAME: &str;

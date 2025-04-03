@@ -1,7 +1,5 @@
 use core::any;
 use core::cmp;
-use core::marker::PhantomData;
-use core::ops::Deref;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,7 +19,6 @@ use parquet::schema::types::Type;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
@@ -36,30 +33,6 @@ pub struct Config {
     operation_count: u64,
 
     trace: PathBuf,
-}
-
-#[derive(Serialize)]
-pub struct Memcached<A: Allocator, I: Index<A>> {
-    #[serde(flatten)]
-    config: Config,
-    #[serde(skip)]
-    _index: PhantomData<fn() -> (A, I)>,
-}
-
-impl<A: Allocator, I: Index<A>> Memcached<A, I> {
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            _index: PhantomData,
-        }
-    }
-}
-
-impl<A: Allocator, I: Index<A>> Deref for Memcached<A, I> {
-    type Target = Config;
-    fn deref(&self) -> &Self::Target {
-        &self.config
-    }
 }
 
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)
@@ -87,7 +60,7 @@ pub struct OutputWorker {
     operation_count: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B::Allocator, I> {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capture<Config, I> {
     const NAME: &str = "/mc";
     type StateGlobal = Global<I>;
     type StateProcess = ();

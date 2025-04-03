@@ -92,8 +92,8 @@ impl Config {
         match self.benchmark.clone() {
             benchmark::Config::Memcached(memcached) => {
                 assert_eq!(memcached.index.name, "linked");
-                self.run_benchmark::<B, _>(allocator_bench::benchmark::Memcached::<
-                    B::Allocator,
+                self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
+                    _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(memcached))
             }
@@ -101,15 +101,15 @@ impl Config {
             benchmark::Config::ThreadTest(thread_test) => self.run_benchmark::<B, _>(thread_test),
             benchmark::Config::Ycsb(ycsb) => {
                 assert_eq!(ycsb.index.name, "linked");
-                self.run_benchmark::<B, _>(allocator_bench::benchmark::Ycsb::<
-                    B::Allocator,
+                self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
+                    _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(ycsb))
             }
             benchmark::Config::YcsbLoad(ycsb_load) => {
                 assert_eq!(ycsb_load.index.name, "linked");
-                self.run_benchmark::<B, _>(allocator_bench::benchmark::YcsbLoad::<
-                    B::Allocator,
+                self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
+                    _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(ycsb_load))
             }

@@ -5,12 +5,39 @@ use bon::Builder;
 pub use linear_hash_map::LinearHashMap;
 pub use linked_hash_map::LinkedHashMap;
 
+use core::marker::PhantomData;
+use core::ops::Deref;
 use std::io;
 
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::Allocator;
+
+#[derive(Serialize)]
+pub struct Capture<T, I> {
+    #[serde(flatten)]
+    inner: T,
+
+    #[serde(skip)]
+    _index: PhantomData<fn() -> I>,
+}
+
+impl<T, I> Capture<T, I> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner,
+            _index: PhantomData,
+        }
+    }
+}
+
+impl<T, I> Deref for Capture<T, I> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {

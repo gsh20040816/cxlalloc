@@ -1,6 +1,4 @@
-use core::marker::PhantomData;
 use core::mem;
-use core::ops::Deref;
 use core::sync::atomic::AtomicU8;
 use std::time::Instant;
 
@@ -24,30 +22,6 @@ pub struct Config {
     workload: ycsb::Workload,
 }
 
-#[derive(Serialize)]
-pub struct YcsbLoad<A: Allocator, I: Index<A>> {
-    #[serde(flatten)]
-    config: Config,
-    #[serde(skip)]
-    _index: PhantomData<fn() -> (A, I)>,
-}
-
-impl<A: Allocator, I: Index<A>> YcsbLoad<A, I> {
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            _index: PhantomData,
-        }
-    }
-}
-
-impl<A: Allocator, I: Index<A>> Deref for YcsbLoad<A, I> {
-    type Target = Config;
-    fn deref(&self) -> &Self::Target {
-        &self.config
-    }
-}
-
 pub struct Global<I> {
     index: I,
 }
@@ -67,7 +41,7 @@ pub struct OutputWorker {
     operation_count: u64,
 }
 
-impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B::Allocator, I> {
+impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capture<Config, I> {
     const NAME: &str = "/ycsb-load";
     type StateGlobal = Global<I>;
     type StateProcess = ();
