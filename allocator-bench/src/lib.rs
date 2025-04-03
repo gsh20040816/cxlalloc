@@ -31,6 +31,33 @@ thread_local! {
 }
 
 #[derive(Deserialize, Serialize)]
+pub struct Observation {
+    config: Config,
+    output: Output,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Config {
+    cargo: Cargo,
+    r#global: config::Global,
+    allocator: serde_json::Value,
+    benchmark: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Cargo {
+    release: bool,
+}
+
+impl Default for Cargo {
+    fn default() -> Self {
+        Self {
+            release: !cfg!(debug_assertions),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct Output {
     date: u64,
     process: OutputProcess,

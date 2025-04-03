@@ -22,6 +22,12 @@ const CONSISTENCY: Consistency = if cfg!(feature = "consistency-sfence") {
 
 #[derive(Parser)]
 struct Cli {
+    #[arg(short, long, value_delimiter = ',', default_value = "1")]
+    process_count: Vec<usize>,
+
+    #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
+    thread_count: Vec<usize>,
+
     #[arg(
         short,
         long,
@@ -30,11 +36,8 @@ struct Cli {
     )]
     allocator: Vec<Allocator>,
 
-    #[arg(short, long, value_delimiter = ',', default_value = "1")]
-    process_count: Vec<usize>,
-
-    #[arg(short, long, value_delimiter = ',', default_value = "1,2,4,8,16,32,40")]
-    thread_count: Vec<usize>,
+    #[arg(long, value_delimiter = ',', default_value = "null")]
+    allocator_config: Vec<String>,
 
     #[arg(long, value_delimiter = ',', default_value = "0")]
     allocator_numa: Vec<usize>,
@@ -69,31 +72,32 @@ impl Cli {
         &self,
     ) -> Vec<(
         allocator_bench::config::Global,
-        Allocator,
-        allocator_bench::allocator::Config,
+        allocator_bench::allocator::Config<serde_json::Value>,
     )> {
         cartesian!(
             &self.process_count,
             &self.thread_count,
             &self.allocator,
+            &self.allocator_config,
             &self.allocator_numa,
             &self.allocator_size,
             &self.allocator_populate,
         )
         .filter_map(
-            |(process_count, thread_count, allocator, numa, size, populate)| {
+            |(process_count, thread_count, allocator, config, numa, size, populate)| {
                 if thread_count % process_count != 0 {
                     return None;
                 }
 
                 Some((
                     allocator_bench::config::Global::new(*process_count, *thread_count),
-                    *allocator,
                     allocator_bench::allocator::Config::builder()
+                        .name(allocator.to_string())
                         .numa(*numa)
                         .size(*size)
                         .populate(*populate)
                         .consistency(CONSISTENCY)
+                        .inner(serde_json::from_str(config).unwrap())
                         .build(),
                 ))
             },
@@ -162,7 +166,7 @@ struct Ycsb {
 }
 
 impl Ycsb {
-    fn collect(&self) -> Vec<(Index, allocator_bench::index::Config, usize, usize)> {
+    fn collect(&self) -> Vec<(allocator_bench::index::Config, usize, usize)> {
         cartesian!(
             &self.index,
             &self.index_len,
@@ -172,8 +176,8 @@ impl Ycsb {
         )
         .map(|(index, len, populate, record_count, operation_count)| {
             (
-                *index,
                 allocator_bench::index::Config::builder()
+                    .name(index.to_string())
                     .populate(*populate)
                     .len(*len)
                     .build(),
@@ -215,18 +219,18 @@ fn main() -> anyhow::Result<()> {
             trace,
         } => {
             let total = config.len() * trace.len();
-            for (i, ((config_global, allocator, config_allocator), operation_count, trace)) in
+            for (i, ((global, allocator), operation_count, trace)) in
                 cartesian!(&config, &operation_count, &trace).enumerate()
             {
+                let index = Index::Linked;
                 let config = cxlalloc_bench::Config::builder()
-                    .allocator(*allocator)
-                    .index(Index::Linked)
-                    .config_allocator(*config_allocator)
-                    .config_global(*config_global)
-                    .config_benchmark(allocator_bench::benchmark::Config::Memcached(
+                    .global(*global)
+                    .allocator(allocator.clone())
+                    .benchmark(allocator_bench::benchmark::Config::Memcached(
                         allocator_bench::benchmark::memcached::Config::builder()
                             .index(
                                 allocator_bench::index::Config::builder()
+                                    .name(index.to_string())
                                     .populate(false)
                                     .len(1 << 25)
                                     .build(),
@@ -242,14 +246,11 @@ fn main() -> anyhow::Result<()> {
         }
         Experiment::Mstress => {
             let total = config.len();
-            for (i, (config_global, allocator, config_allocator)) in config.into_iter().enumerate()
-            {
+            for (i, (global, allocator)) in config.into_iter().enumerate() {
                 let config = cxlalloc_bench::Config::builder()
+                    .global(global)
                     .allocator(allocator)
-                    .index(Index::Linked)
-                    .config_allocator(config_allocator)
-                    .config_global(config_global)
-                    .config_benchmark(allocator_bench::benchmark::Config::Mstress(
+                    .benchmark(allocator_bench::benchmark::Config::Mstress(
                         allocator_bench::benchmark::Mstress::builder().build(),
                     ))
                     .build();
@@ -261,28 +262,21 @@ fn main() -> anyhow::Result<()> {
             let config_ycsb = ycsb.collect();
             let total = config.len() * config_ycsb.len();
 
-            for (
-                i,
-                (
-                    (config_global, allocator, config_allocator),
-                    (index, config_index, record_count, operation_count),
-                ),
-            ) in cartesian!(&config, &config_ycsb).enumerate()
+            for (i, ((global, allocator), (index, record_count, operation_count))) in
+                cartesian!(&config, &config_ycsb).enumerate()
             {
                 let config = || {
                     cxlalloc_bench::Config::builder()
-                        .allocator(*allocator)
-                        .index(*index)
-                        .config_allocator(*config_allocator)
-                        .config_global(*config_global)
+                        .allocator(allocator.clone())
+                        .global(*global)
                 };
 
                 match &ycsb.workload {
                     Workload::Load => {
                         let config = config()
-                            .config_benchmark(allocator_bench::benchmark::Config::YcsbLoad(
+                            .benchmark(allocator_bench::benchmark::Config::YcsbLoad(
                                 allocator_bench::benchmark::ycsb_load::Config::builder()
-                                    .index(config_index.clone())
+                                    .index(index.clone())
                                     .workload(
                                         ycsb::Workload::builder()
                                             .record_count(*record_count)
@@ -313,9 +307,9 @@ fn main() -> anyhow::Result<()> {
                             cartesian!(throughput, &insert_proportion).enumerate()
                         {
                             let config = config()
-                                .config_benchmark(allocator_bench::benchmark::Config::Ycsb(
+                                .benchmark(allocator_bench::benchmark::Config::Ycsb(
                                     allocator_bench::benchmark::ycsb::Config::builder()
-                                        .index(config_index.clone())
+                                        .index(index.clone())
                                         .workload(ycsb::Workload {
                                             record_count: *record_count,
                                             operation_count: *operation_count,
@@ -341,16 +335,14 @@ fn main() -> anyhow::Result<()> {
         } => {
             let total = config.len() * limit.len() * operation_count.len();
 
-            for (index, ((config_global, allocator, config_allocator), &limit, &operation_count)) in
-                cartesian!(config.into_iter(), &limit, &operation_count).enumerate()
+            for (index, ((global, allocator), &limit, &operation_count)) in
+                cartesian!(&config, &limit, &operation_count).enumerate()
             {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
-                        .allocator(allocator)
-                        .index(Index::Linear)
-                        .config_global(config_global)
-                        .config_allocator(config_allocator)
-                        .config_benchmark(allocator_bench::benchmark::Config::Xmalloc(
+                        .global(*global)
+                        .allocator(allocator.clone())
+                        .benchmark(allocator_bench::benchmark::Config::Xmalloc(
                             allocator_bench::benchmark::Xmalloc::builder()
                                 .limit(limit)
                                 .operation_count(operation_count)
@@ -371,24 +363,14 @@ fn main() -> anyhow::Result<()> {
             let total =
                 config.len() * iteration_count.len() * operation_count.len() * object_size.len();
 
-            for (
-                index,
-                (
-                    (config_global, allocator, config_allocator),
-                    iteration_count,
-                    operation_count,
-                    object_size,
-                ),
-            ) in
-                cartesian!(config, &iteration_count, &operation_count, &object_size).enumerate()
+            for (index, ((global, allocator), iteration_count, operation_count, object_size)) in
+                cartesian!(&config, &iteration_count, &operation_count, &object_size).enumerate()
             {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
-                        .allocator(allocator)
-                        .index(Index::Linear)
-                        .config_global(config_global)
-                        .config_allocator(config_allocator)
-                        .config_benchmark(allocator_bench::benchmark::Config::ThreadTest(
+                        .global(*global)
+                        .allocator(allocator.clone())
+                        .benchmark(allocator_bench::benchmark::Config::ThreadTest(
                             allocator_bench::benchmark::ThreadTest::builder()
                                 .iteration_count(*iteration_count)
                                 .operation_count(*operation_count)

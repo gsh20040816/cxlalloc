@@ -8,9 +8,12 @@ use std::io;
 use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-#[derive(Builder, Copy, Clone, Debug, Deserialize, Serialize)]
-pub struct Config {
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+pub struct Config<T> {
+    pub name: String,
+
     /// NUMA node for remote memory
     pub numa: usize,
 
@@ -21,6 +24,23 @@ pub struct Config {
     pub populate: bool,
 
     pub consistency: Consistency,
+
+    #[serde(default)]
+    #[serde(flatten)]
+    pub inner: T,
+}
+
+impl<T> Config<T> {
+    pub fn map<F: FnOnce(&T) -> U, U>(&self, apply: F) -> Config<U> {
+        Config {
+            name: self.name.clone(),
+            numa: self.numa,
+            size: self.size,
+            populate: self.populate,
+            consistency: self.consistency,
+            inner: apply(&self.inner),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -40,8 +60,9 @@ pub enum Consistency {
 
 pub trait Backend: Sync + Sized {
     type Allocator: Allocator;
+    type Config: DeserializeOwned + Serialize;
 
-    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self>;
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self>;
 
     fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
@@ -97,8 +118,9 @@ pub struct Libc;
 
 impl Backend for Libc {
     type Allocator = Self;
+    type Config = ();
 
-    fn new(_create: bool, _config: &Config, _name: &str) -> io::Result<Self> {
+    fn new(_create: bool, _config: &Config<Self::Config>, _name: &str) -> io::Result<Self> {
         Ok(Self)
     }
 

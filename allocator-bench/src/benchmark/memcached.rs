@@ -31,15 +31,18 @@ use crate::index;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    index: index::Config,
+    pub index: index::Config,
 
     operation_count: u64,
 
     trace: PathBuf,
 }
 
+#[derive(Serialize)]
 pub struct Memcached<A: Allocator, I: Index<A>> {
+    #[serde(flatten)]
     config: Config,
+    #[serde(skip)]
     _index: PhantomData<fn() -> (A, I)>,
 }
 
@@ -97,7 +100,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
     fn setup_global(
         &self,
         config: &config::Process,
-        allocator: &allocator::Config,
+        allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
         assert_eq!(
             self.operation_count % config.thread_count as u64,
@@ -180,7 +183,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
     fn setup_process(
         &self,
         _config: &config::Process,
-        _allocator: &allocator::Config,
+        _allocator: &allocator::Config<B::Config>,
     ) -> Self::StateProcess {
     }
 

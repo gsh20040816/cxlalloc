@@ -14,6 +14,8 @@ use crate::Allocator;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    pub name: String,
+
     /// Size of hash map backing array
     pub(crate) len: usize,
 

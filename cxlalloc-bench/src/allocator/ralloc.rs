@@ -18,8 +18,9 @@ pub struct Ralloc;
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Ralloc;
+    type Config = ();
 
-    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
         unsafe {
             // FIXME: hacky workaround for now, since ralloc
             // maps several different files

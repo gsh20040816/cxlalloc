@@ -51,8 +51,9 @@ unsafe impl Sync for Backend {}
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Boost;
+    type Config = ();
 
-    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
         unsafe {
             let shm = shm::Raw::builder()
                 .numa(config.numa)

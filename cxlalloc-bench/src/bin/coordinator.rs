@@ -2,7 +2,6 @@ use std::io;
 use std::io::Write as _;
 
 use allocator_bench::Barrier;
-use cxlalloc_bench::Observation;
 
 fn main() -> anyhow::Result<()> {
     let stdin = io::stdin().lock();
@@ -12,7 +11,7 @@ fn main() -> anyhow::Result<()> {
     // Initialize barrier for processes to synchronize on
     Barrier::new(true, 0)?;
 
-    (0..config.config_global.process_count)
+    (0..config.global.process_count)
         .map(|process_id| {
             let command = serde_json::to_vec(&config.with_process_id(process_id)).unwrap();
             let empty: [String; 0] = [];
@@ -33,20 +32,8 @@ fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .into_iter()
         .map(|handle| handle.into_output().unwrap().stdout)
-        .flat_map(|stdout| {
-            stdout
-                .trim_ascii()
-                .split(|byte| *byte == b'\n')
-                .map(serde_json::from_slice::<allocator_bench::Output>)
-                .collect::<Vec<_>>()
-        })
-        .map(Result::unwrap)
-        .map(|output| Observation {
-            config: config.clone(),
-            output,
-        })
         .try_for_each(|output| -> anyhow::Result<()> {
-            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(&output)?;
             stdout.write_all(b"\n")?;
             Ok(())
         })

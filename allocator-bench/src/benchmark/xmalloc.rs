@@ -110,7 +110,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     fn setup_global(
         &self,
         config: &config::Process,
-        allocator: &allocator::Config,
+        allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
         assert!(
             config.thread_count & 1 == 0,
@@ -169,7 +169,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     fn setup_process(
         &self,
         _config: &config::Process,
-        _allocator: &allocator::Config,
+        _allocator: &allocator::Config<B::Config>,
     ) -> Self::StateProcess {
     }
 

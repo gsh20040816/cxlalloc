@@ -8,6 +8,7 @@ pub mod mimalloc;
 pub mod ralloc;
 
 pub use boost::Boost;
+use clap::ValueEnum;
 pub use cxl_shm::CxlShm;
 pub use cxlalloc::Cxlalloc;
 pub use lightning::Lightning;
@@ -16,8 +17,6 @@ pub use ralloc::Ralloc;
 
 use serde::Deserialize;
 use serde::Serialize;
-
-use clap::ValueEnum;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]

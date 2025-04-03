@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::Barrier;
+use crate::Observation;
 use crate::Output;
 use crate::OutputProcess;
 use crate::OutputThread;
@@ -32,7 +33,7 @@ pub use xmalloc::Xmalloc;
 pub use ycsb::Ycsb;
 pub use ycsb_load::YcsbLoad;
 
-pub trait Benchmark<B: Backend>: Sync {
+pub trait Benchmark<B: Backend>: Sync + Serialize {
     const NAME: &str;
 
     type StateGlobal: Sync;
@@ -46,13 +47,13 @@ pub trait Benchmark<B: Backend>: Sync {
     fn setup_global(
         &self,
         config: &config::Process,
-        allocator: &allocator::Config,
+        allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal;
 
     fn setup_process(
         &self,
         config: &config::Process,
-        allocator: &allocator::Config,
+        allocator: &allocator::Config<B::Config>,
     ) -> Self::StateProcess;
 
     fn setup_coordinator(
@@ -97,7 +98,7 @@ pub trait Benchmark<B: Backend>: Sync {
 
     fn teardown_global(&self, _config: &config::Process, _global: Self::StateGlobal) {}
 
-    fn run_process(&self, config: &config::Process, allocator: &allocator::Config) {
+    fn run_process(&self, config: &config::Process, allocator: &allocator::Config<B::Config>) {
         crate::PROCESS_ID.store(config.process_id, Ordering::Relaxed);
         crate::PROCESS_COUNT.store(config.process_count, Ordering::Relaxed);
         crate::THREAD_COUNT.store(config.thread_count, Ordering::Relaxed);
@@ -207,20 +208,28 @@ pub trait Benchmark<B: Backend>: Sync {
             let (before, output_coordinator, after) = coordinator.join().unwrap();
 
             let mut stdout = std::io::stdout().lock();
-            serde_json::ser::to_writer(&mut stdout, &Output {
-                date,
-                process: OutputProcess {
-                    id: config.process_id,
-                    resource_usage: after - before,
-                    output: serde_json::to_value(output_coordinator).unwrap(),
+            serde_json::ser::to_writer(&mut stdout, &Observation {
+                config: crate::Config {
+                    cargo: crate::Cargo::default(),
+                    r#global: config.global,
+                    allocator: serde_json::to_value(allocator).unwrap(),
+                    benchmark: serde_json::to_value(self).unwrap(),
                 },
-                thread: output_workers
-                    .into_iter()
-                    .map(|(id, output)| OutputThread {
-                        id,
-                        output: serde_json::to_value(output).unwrap(),
-                    })
-                    .collect(),
+                output: Output {
+                    date,
+                    process: OutputProcess {
+                        id: config.process_id,
+                        resource_usage: after - before,
+                        output: serde_json::to_value(output_coordinator).unwrap(),
+                    },
+                    thread: output_workers
+                        .into_iter()
+                        .map(|(id, output)| OutputThread {
+                            id,
+                            output: serde_json::to_value(output).unwrap(),
+                        })
+                        .collect(),
+                },
             })
             .unwrap();
         });

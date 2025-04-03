@@ -1,3 +1,5 @@
+use core::fmt::Display;
+
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
@@ -7,4 +9,14 @@ use serde::Serialize;
 pub enum Index {
     Linear,
     Linked,
+}
+
+impl Display for Index {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Linked => "linked",
+            Self::Linear => "linear",
+        };
+        write!(f, "{}", name)
+    }
 }

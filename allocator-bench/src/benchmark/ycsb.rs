@@ -25,7 +25,7 @@ use super::ycsb_load::load;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    index: index::Config,
+    pub index: index::Config,
 
     throughput: Option<u64>,
 
@@ -35,8 +35,11 @@ pub struct Config {
     workload: ycsb::Workload,
 }
 
+#[derive(Serialize)]
 pub struct Ycsb<A: Allocator, I: Index<A>> {
+    #[serde(flatten)]
     config: Config,
+    #[serde(skip)]
     _index: PhantomData<fn() -> (A, I)>,
 }
 
@@ -87,7 +90,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
     fn setup_global(
         &self,
         config: &config::Process,
-        allocator: &allocator::Config,
+        allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
         assert_eq!(
             self.workload.operation_count % config.thread_count,
@@ -118,7 +121,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Ycsb<B::All
     fn setup_process(
         &self,
         _config: &config::Process,
-        _allocator: &allocator::Config,
+        _allocator: &allocator::Config<B::Config>,
     ) -> Self::StateProcess {
     }
 

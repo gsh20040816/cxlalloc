@@ -11,46 +11,17 @@ use serde::Serialize;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    pub config_global: allocator_bench::config::Global,
-    config_allocator: allocator_bench::allocator::Config,
-    config_benchmark: allocator_bench::benchmark::Config,
-    #[builder(skip)]
-    #[serde(default)]
-    config_cargo: Cargo,
-
-    allocator: Allocator,
-    index: Index,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct Cargo {
-    release: bool,
-}
-
-impl Default for Cargo {
-    fn default() -> Self {
-        Self {
-            release: !cfg!(debug_assertions),
-        }
-    }
+    pub global: allocator_bench::config::Global,
+    allocator: allocator_bench::allocator::Config<serde_json::Value>,
+    benchmark: allocator_bench::benchmark::Config,
 }
 
 impl Config {
     pub fn with_process_id(&self, process_id: usize) -> worker::Config {
         worker::Config {
-            config_process: self.config_global.with_process_id(process_id),
-            config_allocator: self.config_allocator,
-            config_benchmark: self.config_benchmark.clone(),
-            allocator: self.allocator,
-            index: self.index,
+            process: self.global.with_process_id(process_id),
+            allocator: self.allocator.clone(),
+            benchmark: self.benchmark.clone(),
         }
     }
-}
-
-#[derive(Serialize)]
-pub struct Observation {
-    #[serde(flatten)]
-    pub config: Config,
-
-    pub output: allocator_bench::Output,
 }

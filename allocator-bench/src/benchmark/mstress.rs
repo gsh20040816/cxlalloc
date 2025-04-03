@@ -43,14 +43,14 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
     fn setup_global(
         &self,
         _config: &config::Process,
-        _allocator: &allocator::Config,
+        _allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
     }
 
     fn setup_process(
         &self,
         _config: &config::Process,
-        _allocator: &allocator::Config,
+        _allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
     }
 

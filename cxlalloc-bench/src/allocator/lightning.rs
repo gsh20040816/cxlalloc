@@ -39,8 +39,9 @@ unsafe impl Sync for sys::LightningAllocator {}
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Lightning;
+    type Config = ();
 
-    fn new(create: bool, config: &Config, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
         let shm = shm::Raw::builder()
             .numa(config.numa)
             .name(CString::new(name).unwrap())
