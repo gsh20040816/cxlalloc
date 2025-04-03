@@ -105,7 +105,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     type StateWorker = Worker;
 
     type OutputWorker = OutputWorker;
-    type OutputCoordinator = u64;
+    type OutputCoordinator = ();
 
     fn setup_global(
         &self,
@@ -201,7 +201,6 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         (): &Self::StateProcess,
         (): &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
-        self.operation_count
     }
 
     fn run_worker(
