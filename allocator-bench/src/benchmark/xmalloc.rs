@@ -349,9 +349,8 @@ impl Global {
                 NonZeroU64::new(root.head.load(Ordering::Relaxed)),
                 root.operation_count.load(Ordering::Relaxed),
             ) {
-                (head, 0) => {
-                    assert_eq!(head, None);
-
+                (Some(head), _) => break head,
+                (None, 0) => {
                     // TODO: RAII
                     unsafe {
                         libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
@@ -359,7 +358,6 @@ impl Global {
 
                     return None;
                 }
-                (Some(head), _) => break head,
                 (None, _) => unsafe {
                     libc::pthread_cond_wait(
                         &root.empty as *const _ as *mut _,
