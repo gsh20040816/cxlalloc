@@ -6,7 +6,6 @@ use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
 use core::ptr;
 use core::ptr::addr_of_mut;
-use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::time::Instant;
@@ -74,7 +73,6 @@ struct Root {
 
 pub struct Global {
     root: Shm<Root>,
-    stop: AtomicBool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -165,10 +163,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
             }
         }
 
-        Global {
-            root,
-            stop: AtomicBool::new(false),
-        }
+        Global { root }
     }
 
     fn setup_process(
@@ -253,9 +248,9 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         // Releaser
         } else {
             let mut operation_count = 0;
-            while !global.stop.load(Ordering::Relaxed) {
-                let Some(handle) = global.pop(allocator, &global.stop) else {
-                    continue;
+            loop {
+                let Some(handle) = global.pop(allocator) else {
+                    break;
                 };
 
                 let batch = unsafe { handle.as_ptr().cast::<Batch>().as_mut().unwrap() };
@@ -311,8 +306,7 @@ impl Global {
             libc::pthread_mutex_lock(&root.lock as *const _ as *mut _);
         }
 
-        while root.len.load(Ordering::Relaxed) >= config.limit && !self.stop.load(Ordering::Relaxed)
-        {
+        while root.len.load(Ordering::Relaxed) >= config.limit {
             unsafe {
                 libc::pthread_cond_wait(
                     &root.full as *const _ as *mut _,
@@ -343,27 +337,36 @@ impl Global {
         }
     }
 
-    fn pop<A: Allocator>(&self, allocator: &mut A, stop: &AtomicBool) -> Option<A::Handle> {
+    fn pop<A: Allocator>(&self, allocator: &mut A) -> Option<A::Handle> {
         let root = unsafe { &*self.root.address() };
 
         unsafe {
             libc::pthread_mutex_lock(&root.lock as *const _ as *mut _);
         }
 
-        while root.head.load(Ordering::Relaxed) == 0 && !self.stop.load(Ordering::Relaxed) {
-            unsafe {
-                libc::pthread_cond_wait(
-                    &root.empty as *const _ as *mut _,
-                    &root.lock as *const _ as *mut _,
-                );
-            }
-        }
+        let head = loop {
+            match (
+                NonZeroU64::new(root.head.load(Ordering::Relaxed)),
+                root.operation_count.load(Ordering::Relaxed),
+            ) {
+                (head, 0) => {
+                    assert_eq!(head, None);
 
-        let Some(head) = NonZeroU64::new(root.head.load(Ordering::Relaxed)) else {
-            unsafe {
-                libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
+                    // TODO: RAII
+                    unsafe {
+                        libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
+                    }
+
+                    return None;
+                }
+                (Some(head), _) => break head,
+                (None, _) => unsafe {
+                    libc::pthread_cond_wait(
+                        &root.empty as *const _ as *mut _,
+                        &root.lock as *const _ as *mut _,
+                    );
+                },
             }
-            return None;
         };
 
         let handle = allocator.offset_to_handle(head);
@@ -384,7 +387,6 @@ impl Global {
         match root.operation_count.load(Ordering::Relaxed) {
             // Wake up all readers
             0 => unsafe {
-                stop.store(true, Ordering::Relaxed);
                 libc::pthread_cond_broadcast(&root.empty as *const _ as *mut _);
             },
             // Wake up one writer
