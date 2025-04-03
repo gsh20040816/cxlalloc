@@ -120,7 +120,13 @@ enum Experiment {
         trace: Vec<PathBuf>,
     },
     Mstress,
-    Xmalloc,
+    Xmalloc {
+        #[arg(long, value_delimiter = ',', default_value = "100")]
+        limit: Vec<u64>,
+
+        #[arg(long, value_delimiter = ',', default_value = "10000000")]
+        operation_count: Vec<u64>,
+    },
     ThreadTest {
         #[arg(long, value_delimiter = ',', default_value = "100")]
         iteration_count: Vec<u64>,
@@ -329,11 +335,14 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Experiment::Xmalloc => {
-            let total = config.len();
+        Experiment::Xmalloc {
+            limit,
+            operation_count,
+        } => {
+            let total = config.len() * limit.len() * operation_count.len();
 
-            for (index, (config_global, allocator, config_allocator)) in
-                config.into_iter().enumerate()
+            for (index, ((config_global, allocator, config_allocator), &limit, &operation_count)) in
+                cartesian!(config.into_iter(), &limit, &operation_count).enumerate()
             {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
@@ -342,7 +351,10 @@ fn main() -> anyhow::Result<()> {
                         .config_global(config_global)
                         .config_allocator(config_allocator)
                         .config_benchmark(allocator_bench::benchmark::Config::Xmalloc(
-                            allocator_bench::benchmark::Xmalloc::builder().build(),
+                            allocator_bench::benchmark::Xmalloc::builder()
+                                .limit(limit)
+                                .operation_count(operation_count)
+                                .build(),
                         ))
                         .build(),
                     index,

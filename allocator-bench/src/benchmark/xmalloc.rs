@@ -4,11 +4,13 @@ use core::cmp;
 use core::mem;
 use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
+use core::ptr;
 use core::ptr::addr_of_mut;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
+use std::time::Instant;
 
 use bon::Builder;
 use rand::RngCore as _;
@@ -30,8 +32,8 @@ pub struct Xmalloc {
     #[builder(default = 100)]
     limit: u64,
 
-    #[builder(default = 5)]
-    time: u64,
+    #[builder(default = 10_000_000)]
+    operation_count: u64,
 }
 
 const OBJECTS_PER_BATCH: usize = 120;
@@ -66,6 +68,7 @@ struct Root {
     empty: libc::pthread_cond_t,
     full: libc::pthread_cond_t,
 
+    operation_count: AtomicU64,
     len: AtomicU64,
     head: AtomicU64,
 }
@@ -77,12 +80,19 @@ pub struct Global {
 
 #[derive(Serialize)]
 pub struct OutputWorker {
-    operations: u64,
+    time: Duration,
+    operation_count: u64,
 }
 
 #[derive(Serialize)]
-pub struct Output {
+pub struct OutputProcess {
+    time: u128,
     throughput: u64,
+}
+
+pub struct Worker {
+    rng: SmallRng,
+    operation_count: u64,
 }
 
 unsafe impl Sync for Global {}
@@ -92,11 +102,11 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     type StateGlobal = Global;
     type StateProcess = ();
     type StateCoordinator = ();
-    type StateWorker = SmallRng;
+    type StateWorker = Worker;
 
     type OutputWorker = OutputWorker;
-    type OutputCoordinator = u64;
-    type OutputProcess = Output;
+    type OutputCoordinator = ();
+    type OutputProcess = OutputProcess;
 
     fn setup_global(
         &self,
@@ -119,18 +129,25 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 libc::pthread_mutexattr_init(attr.as_mut_ptr());
                 libc::pthread_mutexattr_setpshared(attr.as_mut_ptr(), libc::PTHREAD_PROCESS_SHARED);
 
-                let lock = core::ptr::addr_of_mut!((*root.address_mut()).lock);
+                let lock = ptr::addr_of_mut!((*root.address_mut()).lock);
                 libc::pthread_mutex_init(lock, attr.as_ptr());
 
                 let mut attr = MaybeUninit::<libc::pthread_condattr_t>::zeroed();
                 libc::pthread_condattr_init(attr.as_mut_ptr());
                 libc::pthread_condattr_setpshared(attr.as_mut_ptr(), libc::PTHREAD_PROCESS_SHARED);
 
-                let empty = core::ptr::addr_of_mut!((*root.address_mut()).empty);
+                let empty = ptr::addr_of_mut!((*root.address_mut()).empty);
                 libc::pthread_cond_init(empty, attr.as_ptr());
 
-                let full = core::ptr::addr_of_mut!((*root.address_mut()).full);
+                let full = ptr::addr_of_mut!((*root.address_mut()).full);
                 libc::pthread_cond_init(full, attr.as_ptr());
+
+                ptr::addr_of_mut!((*root.address_mut()).operation_count)
+                    .write(AtomicU64::new(self.operation_count));
+
+                ptr::addr_of_mut!((*root.address_mut()).len).write(AtomicU64::new(0));
+
+                ptr::addr_of_mut!((*root.address_mut()).head).write(AtomicU64::new(0));
             }
         }
 
@@ -162,26 +179,32 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        SmallRng::seed_from_u64(config.thread_id as u64)
+        assert!(
+            config.thread_count & 1 == 0,
+            "Thread count ({}) must be evenly divisible by 2",
+            config.thread_count
+        );
+
+        assert!(
+            self.operation_count % (config.thread_count >> 1) as u64 == 0,
+            "Operation count ({}) must be evenly divisible by thread count ({}) / 2",
+            self.operation_count,
+            config.thread_count
+        );
+
+        Worker {
+            rng: SmallRng::seed_from_u64(config.thread_id as u64),
+            operation_count: self.operation_count / (config.thread_count >> 1) as u64,
+        }
     }
 
     fn run_coordinator(
         &self,
         _: &config::Process,
-        global: &Self::StateGlobal,
+        _global: &Self::StateGlobal,
         (): &Self::StateProcess,
         (): &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
-        std::thread::sleep(Duration::from_secs(self.time));
-        global.stop.store(true, Ordering::Relaxed);
-
-        unsafe {
-            let root = global.root.address_mut();
-            libc::pthread_cond_broadcast(addr_of_mut!((*root).empty));
-            libc::pthread_cond_broadcast(addr_of_mut!((*root).full));
-        }
-
-        self.time
     }
 
     fn run_worker(
@@ -189,18 +212,19 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         config: &config::Thread,
         global: &Self::StateGlobal,
         (): &Self::StateProcess,
-        rng: &mut Self::StateWorker,
+        worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
-        // Allocator
-        let mut operations = 0;
+        let start = Instant::now();
 
-        if config.thread_id & 1 == 0 {
-            while !global.stop.load(Ordering::Relaxed) {
+        // Allocator
+        let operation_count = if config.thread_id & 1 == 0 {
+            for _ in 0..worker.operation_count {
                 let batch = allocator.allocate(mem::size_of::<Batch>()).unwrap();
 
                 for i in 0..OBJECTS_PER_BATCH {
-                    let size = POSSIBLE_SIZES[rng.next_u32() as usize % POSSIBLE_SIZES.len()];
+                    let size =
+                        POSSIBLE_SIZES[worker.rng.next_u32() as usize % POSSIBLE_SIZES.len()];
                     let object = allocator.allocate(size).unwrap();
 
                     unsafe {
@@ -215,13 +239,16 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                     }
                 }
 
-                operations += OBJECTS_PER_BATCH + 1;
                 global.push(self, allocator, batch);
             }
+
+            worker.operation_count
+
         // Releaser
         } else {
+            let mut operation_count = 0;
             while !global.stop.load(Ordering::Relaxed) {
-                let Some(handle) = global.pop(allocator) else {
+                let Some(handle) = global.pop(allocator, &global.stop) else {
                     continue;
                 };
 
@@ -236,13 +263,16 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 unsafe {
                     allocator.deallocate(handle);
                 }
-
-                operations += OBJECTS_PER_BATCH + 1;
+                operation_count += 1;
             }
-        }
+            operation_count
+        };
+
+        let time = start.elapsed();
 
         OutputWorker {
-            operations: operations as u64,
+            time,
+            operation_count,
         }
     }
 
@@ -255,16 +285,20 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     }
 
     fn aggregate(
-        time: Self::OutputCoordinator,
+        (): Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
     ) -> Self::OutputProcess {
-        let operations = workers
-            .iter()
-            .map(|OutputWorker { operations }| *operations)
-            .sum::<u64>();
+        let mut operation_count = 0;
+        let mut time = 0;
 
-        Output {
-            throughput: operations / time,
+        for worker in workers {
+            operation_count += worker.operation_count;
+            time = time.max(worker.time.as_nanos());
+        }
+
+        OutputProcess {
+            throughput: ((operation_count as f64) / (time as f64) * 1e9) as u64,
+            time,
         }
     }
 }
@@ -295,8 +329,7 @@ impl Global {
             }
         }
 
-        let next =
-            unsafe { AtomicU64::from_ptr(core::ptr::addr_of_mut!((*batch.as_mut_ptr()).next)) };
+        let next = unsafe { AtomicU64::from_ptr(ptr::addr_of_mut!((*batch.as_mut_ptr()).next)) };
 
         next.store(root.head.load(Ordering::Relaxed), Ordering::Relaxed);
 
@@ -307,13 +340,18 @@ impl Global {
         root.len
             .store(root.len.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
 
+        root.operation_count.store(
+            root.operation_count.load(Ordering::Relaxed) - 1,
+            Ordering::Relaxed,
+        );
+
         unsafe {
             libc::pthread_cond_signal(&root.empty as *const _ as *mut _);
             libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
         }
     }
 
-    fn pop<A: Allocator>(&self, allocator: &mut A) -> Option<A::Handle> {
+    fn pop<A: Allocator>(&self, allocator: &mut A, stop: &AtomicBool) -> Option<A::Handle> {
         let root = unsafe { &*self.root.address() };
 
         unsafe {
@@ -351,8 +389,19 @@ impl Global {
         root.len
             .store(root.len.load(Ordering::Relaxed) - 1, Ordering::Relaxed);
 
+        match root.operation_count.load(Ordering::Relaxed) {
+            // Wake up all readers
+            0 => unsafe {
+                stop.store(true, Ordering::Relaxed);
+                libc::pthread_cond_broadcast(&root.empty as *const _ as *mut _);
+            },
+            // Wake up one writer
+            _ => unsafe {
+                libc::pthread_cond_signal(&root.full as *const _ as *mut _);
+            },
+        }
+
         unsafe {
-            libc::pthread_cond_signal(&root.full as *const _ as *mut _);
             libc::pthread_mutex_unlock(&root.lock as *const _ as *mut _);
         }
 
