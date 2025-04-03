@@ -336,17 +336,16 @@ pub(crate) fn record<B: size::Bracket>(id: thread::Id, event: Event<B>) {
             .update(id, size as i64);
         }
         Event::Bump => {
-            let size = slab * crate::BATCH_BUMP_POP as i64;
+            let batch = crate::BATCH_BUMP_POP.load(Ordering::Relaxed) as i64;
+            let size = slab * batch;
             recorder.local_unsized().update(id, size);
             recorder.data().update(id, size);
-            recorder.slab_local().update(
-                id,
-                mem::size_of::<slab::Local<B>>() as i64 * crate::BATCH_BUMP_POP as i64,
-            );
-            recorder.slab_remote().update(
-                id,
-                mem::size_of::<slab::Remote<B>>() as i64 * crate::BATCH_BUMP_POP as i64,
-            );
+            recorder
+                .slab_local()
+                .update(id, mem::size_of::<slab::Local<B>>() as i64 * batch);
+            recorder
+                .slab_remote()
+                .update(id, mem::size_of::<slab::Remote<B>>() as i64 * batch);
         }
         Event::GlobalToUnsized => {
             recorder.global_unsized().update(id, -slab);
@@ -369,12 +368,9 @@ pub(crate) fn record<B: size::Bracket>(id: thread::Id, event: Event<B>) {
             recorder.local_unsized().update(id, slab);
         }
         Event::UnsizedToGlobal => {
-            recorder
-                .local_unsized()
-                .update(id, -slab * crate::BATCH_GLOBAL_PUSH as i64);
-            recorder
-                .global_unsized()
-                .update(id, slab * crate::BATCH_GLOBAL_PUSH as i64);
+            let batch = crate::BATCH_GLOBAL_PUSH.load(Ordering::Relaxed) as i64;
+            recorder.local_unsized().update(id, -slab * batch);
+            recorder.global_unsized().update(id, slab * batch);
         }
 
         Event::Detach { class } => {

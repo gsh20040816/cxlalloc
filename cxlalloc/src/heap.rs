@@ -4,6 +4,7 @@ use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
 
 use crate::allocator;
 use crate::cache;
@@ -251,19 +252,15 @@ where
             let range = self.shared.bump(context);
 
             stat::record(context.id, stat::Event::<B>::Bump);
-            self.slabs.transfer_all(
-                context,
-                range.start,
-                BATCH_BUMP_POP as usize,
-                None,
-                Some(context.id),
-            );
+
+            let batch = BATCH_BUMP_POP.load(Ordering::Relaxed);
+
+            self.slabs
+                .transfer_all(context, range.start, batch, None, Some(context.id));
 
             unsafe {
                 self.slabs.link(range.clone(), None);
-                self.owned
-                    .r#unsized
-                    .set(Some(range.start), BATCH_BUMP_POP as usize);
+                self.owned.r#unsized.set(Some(range.start), batch);
             }
         }
 
@@ -394,26 +391,27 @@ where
 
     fn unsized_to_global(&mut self, context: &mut allocator::Context) {
         let count = self.owned.r#unsized.len();
-        if count < COUNT_CACHE_SLAB {
+        if count <= COUNT_CACHE_SLAB.load(Ordering::Relaxed) {
             return;
         }
 
         stat::record(context.id, stat::Event::<B>::UnsizedToGlobal);
 
+        let batch = BATCH_GLOBAL_PUSH.load(Ordering::Relaxed);
         let mut iter = self
             .owned
             .r#unsized
             .trace(&self.slabs)
             .inspect(|index| self.slabs.transfer(context, *index, Some(context.id), None))
-            .take(BATCH_GLOBAL_PUSH);
+            .take(batch);
 
         let head = iter.next().unwrap();
-        let tail = iter.last().unwrap();
+        let tail = iter.last().unwrap_or(head);
         let next = self.slabs.local(tail).next.load();
 
         context.log(HeapState::from(LocalToGlobalSave::new(head)));
 
-        self.owned.r#unsized.set(next, count - BATCH_GLOBAL_PUSH);
+        self.owned.r#unsized.set(next, count - batch);
         self.shared.push(context, &self.slabs, head, tail);
     }
 }
@@ -434,16 +432,17 @@ where
     }
 
     fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
+        let batch = BATCH_BUMP_POP.load(Ordering::Relaxed) as u32;
         let start = self
             .bump
             .update(context, |old, version| {
-                let new = unsafe { old.unwrap_or(slab::Index::MIN).add(BATCH_BUMP_POP) };
+                let new = unsafe { old.unwrap_or(slab::Index::MIN).add(batch) };
                 Some((Some(new), BumpToLocal::new(old, version).into()))
             })
             .unwrap();
 
         let start = start.unwrap_or(slab::Index::MIN);
-        let end = unsafe { start.add(BATCH_BUMP_POP) };
+        let end = unsafe { start.add(batch) };
         start..end
     }
 

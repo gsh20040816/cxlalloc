@@ -30,6 +30,7 @@ mod crash {
 
 use core::ops::Deref;
 use core::ops::DerefMut;
+use core::sync::atomic::AtomicUsize;
 
 pub use atomic::Atomic;
 pub(crate) use data::Data;
@@ -50,9 +51,9 @@ pub(crate) const SIZE_BIT_SET: usize = (SIZE_CACHE_LINE * 8) / 8 - SIZE_METADATA
 
 pub(crate) const COUNT_THREAD: usize = 96;
 
-pub(crate) const COUNT_CACHE_SLAB: usize = 8;
-pub(crate) const BATCH_GLOBAL_PUSH: usize = 4;
-pub(crate) const BATCH_BUMP_POP: u32 = 16;
+pub(crate) static COUNT_CACHE_SLAB: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static BATCH_GLOBAL_PUSH: AtomicUsize = AtomicUsize::new(1);
+pub(crate) static BATCH_BUMP_POP: AtomicUsize = AtomicUsize::new(1);
 
 pub struct Allocator<'raw, S: 'raw = (), O: 'raw = ()>(
     allocator::Allocator<'raw, view::Focus, S, O>,

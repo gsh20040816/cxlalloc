@@ -14,6 +14,7 @@ use core::cell::UnsafeCell;
 use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
 
 use bon::bon;
 
@@ -30,6 +31,9 @@ use crate::Data;
 use crate::Heap;
 use crate::Huge;
 use crate::Slab;
+use crate::BATCH_BUMP_POP;
+use crate::BATCH_GLOBAL_PUSH;
+use crate::COUNT_CACHE_SLAB;
 
 /// This type represents sole ownership of an initialized backing store
 /// for the heap.
@@ -108,6 +112,9 @@ impl Raw {
         #[builder(default)] size_large: usize,
         #[builder(default = 1)] thread_count: usize,
         #[builder(default)] free: bool,
+        cache_local: Option<usize>,
+        batch_global: Option<usize>,
+        batch_bump: Option<usize>,
     ) -> crate::Result<Raw> {
         log::info!(
             "Requesting heap with \
@@ -120,6 +127,18 @@ impl Raw {
             size_large,
             thread_count,
         );
+
+        if let Some(cache_local) = cache_local {
+            COUNT_CACHE_SLAB.store(cache_local, Ordering::Relaxed);
+        }
+
+        if let Some(batch_global) = batch_global {
+            BATCH_GLOBAL_PUSH.store(batch_global, Ordering::Relaxed);
+        }
+
+        if let Some(batch_bump) = batch_bump {
+            BATCH_BUMP_POP.store(batch_bump, Ordering::Relaxed);
+        }
 
         let id = region::Id::new(id);
 
