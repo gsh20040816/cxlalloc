@@ -82,12 +82,14 @@ pub struct Global {
 pub struct OutputWorker {
     time: Duration,
     operation_count: u64,
+    size_total: u64,
 }
 
 #[derive(Serialize)]
 pub struct OutputProcess {
     time: u128,
     throughput: u64,
+    size: u64,
 }
 
 pub struct Worker {
@@ -105,7 +107,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     type StateWorker = Worker;
 
     type OutputWorker = OutputWorker;
-    type OutputCoordinator = ();
+    type OutputCoordinator = u64;
     type OutputProcess = OutputProcess;
 
     fn setup_global(
@@ -200,11 +202,12 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
 
     fn run_coordinator(
         &self,
-        _: &config::Process,
+        _config: &config::Process,
         _global: &Self::StateGlobal,
         (): &Self::StateProcess,
         (): &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
+        self.operation_count
     }
 
     fn run_worker(
@@ -218,13 +221,17 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         let start = Instant::now();
 
         // Allocator
-        let operation_count = if config.thread_id & 1 == 0 {
+        let (operation_count, size_total) = if config.thread_id & 1 == 0 {
+            let mut size_total = 0;
+
             for _ in 0..worker.operation_count {
                 let batch = allocator.allocate(mem::size_of::<Batch>()).unwrap();
 
                 for i in 0..OBJECTS_PER_BATCH {
                     let size =
                         POSSIBLE_SIZES[worker.rng.next_u32() as usize % POSSIBLE_SIZES.len()];
+
+                    size_total += size as u64;
                     let object = allocator.allocate(size).unwrap();
 
                     unsafe {
@@ -242,7 +249,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 global.push(self, allocator, batch);
             }
 
-            worker.operation_count
+            (worker.operation_count, size_total)
 
         // Releaser
         } else {
@@ -265,7 +272,8 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 }
                 operation_count += 1;
             }
-            operation_count
+
+            (operation_count, 0)
         };
 
         let time = start.elapsed();
@@ -273,6 +281,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         OutputWorker {
             time,
             operation_count,
+            size_total,
         }
     }
 
@@ -285,20 +294,30 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
     }
 
     fn aggregate(
-        (): Self::OutputCoordinator,
+        total: Self::OutputCoordinator,
         workers: Vec<Self::OutputWorker>,
     ) -> Self::OutputProcess {
-        let mut operation_count = 0;
         let mut time = 0;
+        let mut operation_count = 0;
+        let mut size = 0;
 
         for worker in workers {
-            operation_count += worker.operation_count;
             time = time.max(worker.time.as_nanos());
+            size += worker.size_total;
+            // Note: not necessary for overall throughput, but could
+            // use per-worker operation count to examine scheduler fairness
+            operation_count += worker.operation_count;
         }
+
+        assert_eq!(operation_count, total * 2);
+
+        // One operation per object, plus one for the batch container itself
+        let operation_count = operation_count * (OBJECTS_PER_BATCH as u64 + 1);
 
         OutputProcess {
             throughput: ((operation_count as f64) / (time as f64) * 1e9) as u64,
             time,
+            size,
         }
     }
 }
