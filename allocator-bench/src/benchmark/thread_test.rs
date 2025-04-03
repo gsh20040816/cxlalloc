@@ -18,16 +18,17 @@ pub struct ThreadTest {
     pub(crate) iteration_count: u64,
 
     #[builder(default = 100_000)]
-    pub(crate) object_count: u64,
+    pub(crate) operation_count: u64,
 
     #[builder(default = 8)]
     pub(crate) object_size: usize,
 }
 
-#[derive(Serialize)]
-pub struct Output {
+#[derive(Deserialize, Serialize)]
+pub struct OutputWorker {
     time: u128,
-    throughput: u64,
+    operation_count: u64,
+    size: u64,
 }
 
 impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
@@ -37,9 +38,8 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
     type StateCoordinator = ();
     type StateWorker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
 
-    type OutputWorker = u128;
-    type OutputCoordinator = u64;
-    type OutputProcess = Output;
+    type OutputWorker = OutputWorker;
+    type OutputCoordinator = ();
 
     fn setup_global(
         &self,
@@ -47,12 +47,12 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         _allocator: &allocator::Config,
     ) -> Self::StateGlobal {
         assert_eq!(
-            self.object_count as usize % config.thread_count,
+            self.operation_count as usize % config.thread_count,
             0,
             "Object count should be multiple of total thread count"
         );
 
-        self.object_count as usize / config.thread_count
+        self.operation_count as usize / config.thread_count
     }
 
     fn setup_process(
@@ -87,7 +87,6 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         (): &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
-        self.object_count * self.iteration_count * 2
     }
 
     fn run_worker(
@@ -113,19 +112,12 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
             }
         }
 
-        start.elapsed().as_nanos()
-    }
-
-    fn aggregate(
-        count: Self::OutputCoordinator,
-        workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputProcess {
-        let total = workers.iter().copied().sum::<u128>();
-        let time = total / workers.len() as u128;
-        let throughput = (count as f64 / time as f64) * 1e9;
-        Output {
+        let time = start.elapsed().as_nanos();
+        let operation_count = handles.len() as u64 * self.iteration_count;
+        OutputWorker {
             time,
-            throughput: throughput as u64,
+            operation_count,
+            size: operation_count * self.object_size as u64,
         }
     }
 }

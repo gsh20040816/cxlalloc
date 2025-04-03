@@ -132,7 +132,7 @@ enum Experiment {
         iteration_count: Vec<u64>,
 
         #[arg(long, value_delimiter = ',', default_value = "100000")]
-        object_count: Vec<u64>,
+        operation_count: Vec<u64>,
 
         #[arg(long, value_delimiter = ',', default_value = "8")]
         object_size: Vec<usize>,
@@ -365,21 +365,22 @@ fn main() -> anyhow::Result<()> {
         }
         Experiment::ThreadTest {
             iteration_count,
-            object_count,
+            operation_count,
             object_size,
         } => {
             let total =
-                config.len() * iteration_count.len() * object_count.len() * object_size.len();
+                config.len() * iteration_count.len() * operation_count.len() * object_size.len();
 
             for (
                 index,
                 (
                     (config_global, allocator, config_allocator),
                     iteration_count,
-                    object_count,
+                    operation_count,
                     object_size,
                 ),
-            ) in cartesian!(config, &iteration_count, &object_count, &object_size).enumerate()
+            ) in
+                cartesian!(config, &iteration_count, &operation_count, &object_size).enumerate()
             {
                 cli.run(
                     &cxlalloc_bench::Config::builder()
@@ -390,7 +391,7 @@ fn main() -> anyhow::Result<()> {
                         .config_benchmark(allocator_bench::benchmark::Config::ThreadTest(
                             allocator_bench::benchmark::ThreadTest::builder()
                                 .iteration_count(*iteration_count)
-                                .object_count(*object_count)
+                                .operation_count(*operation_count)
                                 .object_size(*object_size)
                                 .build(),
                         ))

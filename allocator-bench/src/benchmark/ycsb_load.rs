@@ -58,10 +58,10 @@ pub(super) struct Field {
 
 unsafe impl<I> Sync for Global<I> {}
 
-#[derive(Serialize)]
-pub struct Output {
+#[derive(Deserialize, Serialize)]
+pub struct OutputWorker {
     time: u128,
-    throughput: u64,
+    operation_count: u64,
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B::Allocator, I> {
@@ -71,15 +71,22 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
     type StateCoordinator = ();
     type StateWorker = ();
 
-    type OutputWorker = u128;
-    type OutputCoordinator = u64;
-    type OutputProcess = Output;
+    type OutputWorker = OutputWorker;
+    type OutputCoordinator = ();
 
     fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
+        assert_eq!(
+            self.workload.operation_count % config.thread_count,
+            0,
+            "Operation count {} must be evenly divisible by thread count {}",
+            self.workload.operation_count,
+            config.thread_count,
+        );
+
         Global {
             index: I::new(
                 Some(allocator.numa),
@@ -123,7 +130,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         (): &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
-        self.workload.record_count as u64
     }
 
     fn run_worker(
@@ -136,7 +142,11 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
     ) -> Self::OutputWorker {
         let start = Instant::now();
         load(&self.workload, config, allocator, &global.index);
-        start.elapsed().as_nanos()
+        let time = start.elapsed().as_nanos();
+        OutputWorker {
+            time,
+            operation_count: (self.workload.operation_count / config.thread_count) as u64,
+        }
     }
 
     fn teardown_global(&self, config: &config::Process, mut global: Self::StateGlobal) {
@@ -145,16 +155,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for YcsbLoad<B:
         }
 
         global.index.unlink().unwrap();
-    }
-
-    fn aggregate(
-        record_count: Self::OutputCoordinator,
-        workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputProcess {
-        let total = workers.iter().sum::<u128>();
-        let time = total / workers.len() as u128;
-        let throughput = (record_count as f64 / time as f64 * 1e9) as u64;
-        Output { time, throughput }
     }
 }
 

@@ -33,12 +33,26 @@ thread_local! {
 #[derive(Deserialize, Serialize)]
 pub struct Output {
     date: u64,
-    process_id: usize,
+    process: OutputProcess,
+    thread: Vec<OutputThread>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct OutputProcess {
+    id: usize,
 
     resource_usage: ResourceUsage,
 
     #[serde(flatten)]
-    data: serde_json::Value,
+    output: serde_json::Value,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct OutputThread {
+    id: usize,
+
+    #[serde(flatten)]
+    output: serde_json::Value,
 }
 
 pub(crate) struct Perf {

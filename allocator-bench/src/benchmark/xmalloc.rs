@@ -9,7 +9,6 @@ use core::ptr::addr_of_mut;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use core::time::Duration;
 use std::time::Instant;
 
 use bon::Builder;
@@ -78,18 +77,19 @@ pub struct Global {
     stop: AtomicBool,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct OutputWorker {
-    time: Duration,
+    operation: Operation,
+    time: u128,
     operation_count: u64,
-    size_total: u64,
+    size: u64,
 }
 
-#[derive(Serialize)]
-pub struct OutputProcess {
-    time: u128,
-    throughput: u64,
-    size: u64,
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Operation {
+    Push,
+    Pop,
 }
 
 pub struct Worker {
@@ -108,13 +108,25 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
 
     type OutputWorker = OutputWorker;
     type OutputCoordinator = u64;
-    type OutputProcess = OutputProcess;
 
     fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
+        assert!(
+            config.thread_count & 1 == 0,
+            "Thread count ({}) must be evenly divisible by 2",
+            config.thread_count
+        );
+
+        assert!(
+            self.operation_count % (config.thread_count >> 1) as u64 == 0,
+            "Operation count ({}) must be evenly divisible by thread count ({}) / 2",
+            self.operation_count,
+            config.thread_count
+        );
+
         let create = config.is_leader();
 
         let root = Shm::<Root>::builder()
@@ -181,19 +193,6 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        assert!(
-            config.thread_count & 1 == 0,
-            "Thread count ({}) must be evenly divisible by 2",
-            config.thread_count
-        );
-
-        assert!(
-            self.operation_count % (config.thread_count >> 1) as u64 == 0,
-            "Operation count ({}) must be evenly divisible by thread count ({}) / 2",
-            self.operation_count,
-            config.thread_count
-        );
-
         Worker {
             rng: SmallRng::seed_from_u64(config.thread_id as u64),
             operation_count: self.operation_count / (config.thread_count >> 1) as u64,
@@ -221,7 +220,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         let start = Instant::now();
 
         // Allocator
-        let (operation_count, size_total) = if config.thread_id & 1 == 0 {
+        let (operation, operation_count, size_total) = if config.thread_id & 1 == 0 {
             let mut size_total = 0;
 
             for _ in 0..worker.operation_count {
@@ -249,7 +248,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 global.push(self, allocator, batch);
             }
 
-            (worker.operation_count, size_total)
+            (Operation::Push, worker.operation_count, size_total)
 
         // Releaser
         } else {
@@ -273,15 +272,17 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 operation_count += 1;
             }
 
-            (operation_count, 0)
+            (Operation::Pop, operation_count, 0)
         };
 
         let time = start.elapsed();
 
         OutputWorker {
-            time,
-            operation_count,
-            size_total,
+            operation,
+            time: time.as_nanos(),
+            // One operation per object, plus one for the batch container itself
+            operation_count: operation_count * (OBJECTS_PER_BATCH as u64 + 1),
+            size: size_total,
         }
     }
 
@@ -291,34 +292,6 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
         }
 
         global.root.unlink().unwrap();
-    }
-
-    fn aggregate(
-        total: Self::OutputCoordinator,
-        workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputProcess {
-        let mut time = 0;
-        let mut operation_count = 0;
-        let mut size = 0;
-
-        for worker in workers {
-            time = time.max(worker.time.as_nanos());
-            size += worker.size_total;
-            // Note: not necessary for overall throughput, but could
-            // use per-worker operation count to examine scheduler fairness
-            operation_count += worker.operation_count;
-        }
-
-        assert_eq!(operation_count, total * 2);
-
-        // One operation per object, plus one for the batch container itself
-        let operation_count = operation_count * (OBJECTS_PER_BATCH as u64 + 1);
-
-        OutputProcess {
-            throughput: ((operation_count as f64) / (time as f64) * 1e9) as u64,
-            time,
-            size,
-        }
     }
 }
 

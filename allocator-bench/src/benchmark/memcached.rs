@@ -74,13 +74,14 @@ pub struct Global<I> {
 unsafe impl<I> Sync for Global<I> {}
 
 pub struct Worker {
+    operation_count: u64,
     reader: ParquetRecordBatchReader,
 }
 
-#[derive(Serialize)]
-pub struct Output {
+#[derive(Deserialize, Serialize)]
+pub struct OutputWorker {
     time: u128,
-    throughput: u64,
+    operation_count: u64,
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B::Allocator, I> {
@@ -90,15 +91,22 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
     type StateCoordinator = ();
     type StateWorker = Worker;
 
-    type OutputWorker = u128;
-    type OutputCoordinator = u64;
-    type OutputProcess = Output;
+    type OutputWorker = OutputWorker;
+    type OutputCoordinator = ();
 
     fn setup_global(
         &self,
         config: &config::Process,
         allocator: &allocator::Config,
     ) -> Self::StateGlobal {
+        assert_eq!(
+            self.operation_count % config.thread_count as u64,
+            0,
+            "Operation count ({}) must be evenly divisible by thread count ({})",
+            self.operation_count,
+            config.thread_count
+        );
+
         let file = File::open(&self.trace).unwrap();
         let schema = SchemaDescriptor::new(Arc::new(
             Type::group_type_builder("trace_schema")
@@ -201,7 +209,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
                 .with_projection(global.mask.clone())
                 .build()
                 .unwrap();
-        Worker { reader }
+        Worker {
+            operation_count: limit as u64,
+            reader,
+        }
     }
 
     fn run_coordinator(
@@ -211,7 +222,6 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         (): &Self::StateProcess,
         _coordinator: &mut Self::StateCoordinator,
     ) -> Self::OutputCoordinator {
-        self.operation_count
     }
 
     fn run_worker(
@@ -285,7 +295,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
             }
         }
 
-        start.elapsed().as_nanos()
+        OutputWorker {
+            time: start.elapsed().as_nanos(),
+            operation_count: worker.operation_count,
+        }
     }
 
     fn teardown_global(&self, config: &config::Process, mut global: Self::StateGlobal) {
@@ -294,15 +307,5 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for Memcached<B
         }
 
         global.index.unlink().unwrap();
-    }
-
-    fn aggregate(
-        operation_count: Self::OutputCoordinator,
-        workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputProcess {
-        let total = workers.iter().sum::<u128>();
-        let time = total / workers.len() as u128;
-        let throughput = (operation_count as f64 / time as f64 * 1e9) as u64;
-        Output { time, throughput }
     }
 }

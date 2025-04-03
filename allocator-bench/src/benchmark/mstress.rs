@@ -25,8 +25,8 @@ const COOKIE: usize = 0xbf58476d1ce4e5b9;
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Mstress {}
 
-#[derive(Serialize)]
-pub struct Output {
+#[derive(Deserialize, Serialize)]
+pub struct OutputWorker {
     time: u128,
 }
 
@@ -37,9 +37,8 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
     type StateCoordinator = ();
     type StateWorker = ();
 
-    type OutputWorker = u128;
+    type OutputWorker = OutputWorker;
     type OutputCoordinator = ();
-    type OutputProcess = Output;
 
     fn setup_global(
         &self,
@@ -136,16 +135,8 @@ impl<B: Backend> benchmark::Benchmark<B> for Mstress {
             free(allocator, handle);
         }
 
-        start.elapsed().as_nanos()
-    }
-
-    fn aggregate(
-        (): Self::OutputCoordinator,
-        workers: Vec<Self::OutputWorker>,
-    ) -> Self::OutputProcess {
-        let len = workers.len() as u128;
-        Output {
-            time: workers.into_iter().sum::<u128>() / len,
+        OutputWorker {
+            time: start.elapsed().as_nanos(),
         }
     }
 }
