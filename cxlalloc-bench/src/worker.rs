@@ -100,19 +100,21 @@ impl Config {
             }
             benchmark::Config::Mstress(mstress) => self.run_benchmark::<B, _>(mstress),
             benchmark::Config::ThreadTest(thread_test) => self.run_benchmark::<B, _>(thread_test),
-            benchmark::Config::Ycsb(ycsb) => {
+            benchmark::Config::YcsbRun(ycsb) => {
                 assert_eq!(ycsb.index.name, "linked");
                 self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
                     _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(ycsb))
             }
-            benchmark::Config::YcsbLoad(ycsb_load) => {
-                assert_eq!(ycsb_load.index.name, "linked");
+            benchmark::Config::YcsbLoad(ycsb) => {
+                assert_eq!(ycsb.index.name, "linked");
                 self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
                     _,
                     index::LinkedHashMap<B::Allocator>,
-                >::new(ycsb_load))
+                >::new(
+                    allocator_bench::benchmark::ycsb_load::Config(ycsb)
+                ))
             }
             benchmark::Config::Xmalloc(xmalloc) => self.run_benchmark::<B, _>(xmalloc),
         }

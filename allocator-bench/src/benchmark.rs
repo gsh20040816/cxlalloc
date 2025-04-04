@@ -21,8 +21,8 @@ pub mod memcached;
 mod mstress;
 mod thread_test;
 mod xmalloc;
-pub mod ycsb;
 pub mod ycsb_load;
+pub mod ycsb_run;
 
 pub use mstress::Mstress;
 pub use thread_test::ThreadTest;
@@ -245,7 +245,7 @@ pub enum Config {
     Mstress(Mstress),
     Memcached(memcached::Config),
     ThreadTest(thread_test::ThreadTest),
-    Ycsb(ycsb::Config),
-    YcsbLoad(ycsb_load::Config),
+    YcsbRun(ycsb_run::Config),
+    YcsbLoad(ycsb_run::Config),
     Xmalloc(xmalloc::Xmalloc),
 }

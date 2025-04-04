@@ -1,3 +1,5 @@
+use core::mem;
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -8,6 +10,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use shm::Shm;
 
+use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
@@ -15,17 +18,12 @@ use crate::benchmark;
 use crate::config;
 use crate::index;
 
-use super::ycsb_load::Field;
-use super::ycsb_load::Record;
-use super::ycsb_load::insert;
-use super::ycsb_load::load;
-
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     pub index: index::Config,
 
     #[serde(flatten)]
-    workload: ycsb::Workload,
+    pub(super) workload: ycsb::Workload,
 }
 
 pub struct Global<I> {
@@ -47,7 +45,7 @@ pub struct Worker {
 }
 
 impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capture<Config, I> {
-    const NAME: &str = "/ycsb";
+    const NAME: &str = "/ycsb-run";
     type StateGlobal = Global<I>;
     type StateProcess = ();
     type StateCoordinator = ();
@@ -195,4 +193,42 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
         global.index.unlink().unwrap();
         global.acked.unlink().unwrap();
     }
+}
+
+pub(super) struct Record(pub(super) [Field; 10]);
+
+#[repr(C)]
+pub(super) struct Field {
+    pub(super) value: [AtomicU8; 96],
+}
+
+pub(super) fn load<A: Allocator, I: Index<A>>(
+    workload: &ycsb::Workload,
+    config: &config::Thread,
+    allocator: &mut A,
+    index: &I,
+) {
+    let mut loader = workload.loader(config.thread_count, config.thread_id);
+
+    while let Some(key) = loader.next_key() {
+        insert::<_, _>(config.thread_id, allocator, index, &key);
+    }
+}
+
+pub(super) fn insert<A: Allocator, I: Index<A>>(
+    thread_id: usize,
+    allocator: &mut A,
+    index: &I,
+    key: &ycsb::Key,
+) {
+    const SIZE: usize = mem::size_of::<Record>();
+    index.insert(
+        thread_id,
+        allocator,
+        &key.id().to_ne_bytes(),
+        SIZE,
+        |pointer| unsafe {
+            libc::memset(pointer.cast(), 0xff, SIZE);
+        },
+    );
 }

@@ -1,12 +1,9 @@
-use core::mem;
-use core::sync::atomic::AtomicU8;
+use core::ops::Deref;
 use std::time::Instant;
 
-use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::Allocator;
 use crate::Index;
 use crate::allocator;
 use crate::allocator::Backend;
@@ -14,23 +11,18 @@ use crate::benchmark;
 use crate::config;
 use crate::index;
 
-#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
-pub struct Config {
-    pub index: index::Config,
+#[derive(Serialize)]
+pub struct Config(pub super::ycsb_run::Config);
 
-    #[serde(flatten)]
-    workload: ycsb::Workload,
+impl Deref for Config {
+    type Target = super::ycsb_run::Config;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 pub struct Global<I> {
     index: I,
-}
-
-pub(super) struct Record(pub(super) [Field; 10]);
-
-#[repr(C)]
-pub(super) struct Field {
-    pub(super) value: [AtomicU8; 96],
 }
 
 unsafe impl<I> Sync for Global<I> {}
@@ -118,7 +110,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
         let start = Instant::now();
-        load(&self.workload, config, allocator, &global.index);
+        super::ycsb_run::load(&self.workload, config, allocator, &global.index);
         let time = start.elapsed().as_nanos();
         OutputWorker {
             time,
@@ -133,35 +125,4 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
 
         global.index.unlink().unwrap();
     }
-}
-
-pub(super) fn load<A: Allocator, I: Index<A>>(
-    workload: &ycsb::Workload,
-    config: &config::Thread,
-    allocator: &mut A,
-    index: &I,
-) {
-    let mut loader = workload.loader(config.thread_count, config.thread_id);
-
-    while let Some(key) = loader.next_key() {
-        insert::<_, _>(config.thread_id, allocator, index, &key);
-    }
-}
-
-pub(super) fn insert<A: Allocator, I: Index<A>>(
-    thread_id: usize,
-    allocator: &mut A,
-    index: &I,
-    key: &ycsb::Key,
-) {
-    const SIZE: usize = mem::size_of::<Record>();
-    index.insert(
-        thread_id,
-        allocator,
-        &key.id().to_ne_bytes(),
-        SIZE,
-        |pointer| unsafe {
-            libc::memset(pointer.cast(), 0xff, SIZE);
-        },
-    );
 }
