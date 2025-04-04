@@ -32,16 +32,12 @@ thread_local! {
 
 #[derive(Deserialize, Serialize)]
 pub struct Observation {
-    config: Config,
-    output: Output,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct Config {
+    date: u64,
     cargo: Cargo,
     r#global: config::Global,
     allocator: serde_json::Value,
     benchmark: serde_json::Value,
+    output: Output,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,7 +55,6 @@ impl Default for Cargo {
 
 #[derive(Deserialize, Serialize)]
 pub struct Output {
-    date: u64,
     process: OutputProcess,
     thread: Vec<OutputThread>,
 }

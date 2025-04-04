@@ -205,14 +205,12 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
 
             let mut stdout = std::io::stdout().lock();
             serde_json::ser::to_writer(&mut stdout, &Observation {
-                config: crate::Config {
-                    cargo: crate::Cargo::default(),
-                    r#global: config.global,
-                    allocator: serde_json::to_value(allocator).unwrap(),
-                    benchmark: serde_json::to_value(self).unwrap(),
-                },
+                date,
+                cargo: crate::Cargo::default(),
+                r#global: config.global,
+                allocator: serde_json::to_value(allocator).unwrap(),
+                benchmark: serde_json::to_value(self).unwrap(),
                 output: Output {
-                    date,
                     process: OutputProcess {
                         id: config.process_id,
                         resource_usage: after - before,
