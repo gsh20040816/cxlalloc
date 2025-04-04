@@ -30,10 +30,16 @@ CHOICES_INDEPENDENT = [
 CHOICES_DEPENDENT = [
     {"label": label, "value": value}
     for label, value in [
-        ("Show", "y"),
+        ("Mean", "mean"),
+        ("Sum", "sum"),
         ("Hide", "ignore"),
     ]
 ]
+
+OPS = {
+    "mean": pl.Expr.mean,
+    "sum": pl.Expr.sum,
+}
 
 
 class Col:
@@ -150,6 +156,14 @@ def flatten(df):
                     name,
                     select(col),
                 )
+            # FIXME: only supports lists of structs, which
+            # is true in our case (`output/thread`)
+            elif hasattr(dtype, "inner"):
+                yield from recurse(
+                    [field.name for field in dtype.inner.fields],
+                    name,
+                    select(col).list.explode(),
+                )
             else:
                 yield Col(name, select(col))
 
@@ -203,8 +217,8 @@ def update(
             if x is not None:
                 return {}
             x = col
-        elif value == "y":
-            ys.append(col)
+        elif value in OPS:
+            ys.append((col, OPS[value]))
         elif value == "facet_row":
             if facet_row is not None:
                 return {}
@@ -229,14 +243,13 @@ def update(
 
     children = []
 
-    for y in ys:
+    for y, op in ys:
         filtered = DF.filter(*filters) if len(filters) > 0 else DF
 
         sorts = [x.name]
         cols = [
             x.selector.first().alias(x.name),
-            y.selector.mean().alias(f"{y.name}_mean"),
-            y.selector.std().alias(f"{y.name}_std"),
+            op(y.selector).alias(f"{y.name}"),
         ]
 
         for col in [v for v in [facet_row, facet_column, facet_color] if v is not None]:
@@ -249,8 +262,7 @@ def update(
         fig = px.line(
             filtered,
             x=x.name,
-            y=f"{y.name}_mean",
-            error_y=f"{y.name}_std",
+            y=y.name,
             facet_row=facet_row.name if facet_row is not None else None,
             facet_col=facet_column.name if facet_column is not None else None,
             color=facet_color.name if facet_color is not None else None,
