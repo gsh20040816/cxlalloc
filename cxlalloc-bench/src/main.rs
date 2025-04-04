@@ -36,7 +36,7 @@ struct Cli {
     )]
     allocator: Vec<Allocator>,
 
-    #[arg(long, value_delimiter = ',', default_value = "null")]
+    #[arg(long, value_delimiter = ';', default_value = "null")]
     allocator_config: Vec<String>,
 
     #[arg(long, value_delimiter = ',', default_value = "0")]
