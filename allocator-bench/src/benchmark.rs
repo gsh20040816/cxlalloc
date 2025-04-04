@@ -1,8 +1,6 @@
 use core::sync::atomic::Ordering;
 use std::env;
 use std::thread;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -95,7 +93,12 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
 
     fn teardown_global(&self, _config: &config::Process, _global: Self::StateGlobal) {}
 
-    fn run_process(&self, config: &config::Process, allocator: &allocator::Config<B::Config>) {
+    fn run_process(
+        &self,
+        date: u64,
+        config: &config::Process,
+        allocator: &allocator::Config<B::Config>,
+    ) {
         crate::PROCESS_ID.store(config.process_id, Ordering::Relaxed);
         crate::PROCESS_COUNT.store(config.process_count, Ordering::Relaxed);
         crate::THREAD_COUNT.store(config.thread_count, Ordering::Relaxed);
@@ -127,10 +130,6 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
         let process = self.setup_process(config, allocator);
 
         let cores = &core_affinity::get_core_ids().unwrap_or_default();
-        let date = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
 
         let mut perf = match (
             config.is_leader(),

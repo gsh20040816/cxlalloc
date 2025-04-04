@@ -16,6 +16,7 @@ use crate::allocator::ralloc;
 
 #[derive(Builder, Clone, Deserialize, Serialize)]
 pub struct Config {
+    pub date: u64,
     pub process: allocator_bench::config::Process,
     pub allocator: allocator_bench::allocator::Config<serde_json::Value>,
     pub benchmark: allocator_bench::benchmark::Config,
@@ -122,6 +123,7 @@ impl Config {
         benchmark: B,
     ) {
         benchmark.run_process(
+            self.date,
             &self.process,
             &self.allocator.map(|value| {
                 serde_json::from_value(match value {
