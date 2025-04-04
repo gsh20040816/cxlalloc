@@ -1,4 +1,6 @@
 import math
+import polars as pl
+
 
 def display_count(value: int) -> str:
     suffixes = ["", "K", "M", "B", "T"]
@@ -9,7 +11,7 @@ def display_count(value: int) -> str:
     if index == 0:
         return f"{value}"
     else:
-        return f"{value / (10**(3 * index)):.01f}{suffixes[index]}"
+        return f"{value / (10 ** (3 * index)):.01f}{suffixes[index]}"
 
 
 def display_size(value: int) -> str:
@@ -21,24 +23,32 @@ def display_size(value: int) -> str:
     if index == 0:
         return f"{value}"
     else:
-        return f"{value / (2**(10 * index)):.01f}{suffixes[index]}"
+        return f"{value / (2 ** (10 * index)):.01f}{suffixes[index]}"
 
 
-def parse_mimalloc_bench(data: str):
-    rows = []
+# https://github.com/pola-rs/polars/issues/12353
+def unnest_all(df, separator="/"):
+    def _unnest_all(schema, separator):
+        def _unnest(schema, path=[]):
+            for name, dtype in schema.items():
+                base_type = dtype.base_type()
 
-    for line in data.splitlines():
-        benchmark, allocator, time, rss, user, sys, faults, reclaims = line.split()
-        rows.append(dict(
-            benchmark=benchmark,
-            allocator=allocator,
-            time=float(time),
-            rss=int(rss),
-            user=float(user),
-            sys=float(sys),
-            faults=int(faults),
-            reclaims=int(reclaims)
-        ))
+                if base_type == pl.Struct:
+                    yield from _unnest(dtype.to_schema(), path + [name])
+                else:
+                    yield path + [name], dtype
 
-    return rows
+        for (col, *fields), dtype in _unnest(schema):
+            expr = pl.col(col)
 
+            for field in fields:
+                expr = expr.struct[field]
+
+            if col == "":
+                name = separator.join(fields)
+            else:
+                name = separator.join([col] + fields)
+
+            yield expr.alias(name)
+
+    return df.select(_unnest_all(df.collect_schema(), separator))

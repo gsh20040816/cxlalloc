@@ -1,4 +1,5 @@
 from pathlib import PurePath
+import common
 import os
 import subprocess as sp
 import sys
@@ -202,7 +203,7 @@ def baseline(df):
 
 def reshape(df, workload):
     return (
-        unnest_all(df, "/")
+        common.unnest_all(df)
         .select(
             pl.col("allocator").alias(ALLOCATOR),
             pl.col("config_global/thread_count").alias(THREAD_COUNT),
@@ -251,34 +252,6 @@ def annotate(base):
     )
 
     return absolute + relative
-
-
-# https://github.com/pola-rs/polars/issues/12353
-def unnest_all(df, separator="."):
-    def _unnest_all(schema, separator):
-        def _unnest(schema, path=[]):
-            for name, dtype in schema.items():
-                base_type = dtype.base_type()
-
-                if base_type == pl.Struct:
-                    yield from _unnest(dtype.to_schema(), path + [name])
-                else:
-                    yield path + [name], dtype
-
-        for (col, *fields), dtype in _unnest(schema):
-            expr = pl.col(col)
-
-            for field in fields:
-                expr = expr.struct[field]
-
-            if col == "":
-                name = separator.join(fields)
-            else:
-                name = separator.join([col] + fields)
-
-            yield expr.alias(name)
-
-    return df.select(_unnest_all(df.collect_schema(), separator))
 
 
 if __name__ == "__main__":
