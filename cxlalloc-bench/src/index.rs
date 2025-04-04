@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_inline_default::serde_inline_default;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, ValueEnum)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "name", rename_all = "snake_case")]
 pub enum Index {
     Linear,
     Linked,

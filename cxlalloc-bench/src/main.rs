@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::BufReader;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -49,6 +48,7 @@ struct Config {
 impl Config {}
 
 #[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 enum Benchmark {
     KeyValue(KeyValue),
     Mstress,
@@ -65,11 +65,12 @@ struct KeyValue {
     #[serde(default)]
     index_config: index::Config,
 
-    benchmark: Vec<KeyValueBenchmark>,
+    workload: Vec<KeyValueWorkload>,
 }
 
 #[derive(Deserialize)]
-enum KeyValueBenchmark {
+#[serde(tag = "name", rename_all = "snake_case")]
+enum KeyValueWorkload {
     Memcached(Memcached),
     Ycsb(Box<Ycsb>),
 }
@@ -126,6 +127,7 @@ struct Ycsb {
 }
 
 #[derive(Deserialize)]
+#[serde(tag = "name", rename_all = "snake_case")]
 enum Workload {
     Load,
     D(YcsbD),
@@ -164,8 +166,8 @@ fn main() -> anyhow::Result<()> {
     config.for_each_cartesian(|global| {
         config.benchmark.iter().for_each(|benchmark| {
             benchmark.for_each_cartesian(global.clone(), |benchmark| {
-                i += 1;
                 config.run(&benchmark, i, total, &mut out).unwrap();
+                i += 1;
             })
         })
     });
@@ -238,8 +240,8 @@ impl KeyValue {
     fn for_each_cartesian<F: FnMut(cxlalloc_bench::Config)>(&self, config: Partial, mut apply: F) {
         self.index.iter().for_each(|index| {
             self.index_config.for_each_cartesian(*index, |index| {
-                self.benchmark.iter().for_each(|benchmark| match benchmark {
-                    KeyValueBenchmark::Memcached(Memcached {
+                self.workload.iter().for_each(|benchmark| match benchmark {
+                    KeyValueWorkload::Memcached(Memcached {
                         operation_count,
                         trace,
                     }) => cartesian!(&operation_count, &trace)
@@ -256,7 +258,7 @@ impl KeyValue {
                                 .build()
                         })
                         .for_each(&mut apply),
-                    KeyValueBenchmark::Ycsb(ycsb) => {
+                    KeyValueWorkload::Ycsb(ycsb) => {
                         ycsb.for_each_cartesian(config.clone(), index.clone(), &mut apply)
                     }
                 })
