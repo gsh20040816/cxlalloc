@@ -176,6 +176,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
                     runner.acknowledge(key);
                 }
                 ycsb::Operation::ReadModifyWrite => todo!(),
+                ycsb::Operation::Delete => todo!(),
             }
         }
         let time = start.elapsed();

@@ -57,6 +57,10 @@ pub struct Workload {
     #[serde(alias = "readmodifywriteproportion", default)]
     pub read_modify_write_proportion: f32,
 
+    #[builder(default)]
+    #[serde(alias = "deleteproportion", default)]
+    pub delete_proportion: f32,
+
     #[builder(default = default::request_distribution())]
     #[serde(
         alias = "requestdistribution",
@@ -124,10 +128,11 @@ impl Workload {
                 Operation::ReadModifyWrite,
                 self.read_modify_write_proportion,
             ),
+            (Operation::Delete, self.delete_proportion),
         ]);
 
-        let keys_new = self.insert_proportion * (self.operation_count as f32) * 2.0;
-        let keys_total = self.record_count as u64 + keys_new as u64;
+        let key_count_new = self.insert_proportion * (self.operation_count as f32) * 2.0;
+        let key_count_total = self.record_count as u64 + key_count_new as u64;
 
         Runner {
             acked,
@@ -136,11 +141,11 @@ impl Workload {
             field_count: self.field_count,
             insert_order: self.insert_order,
             request_distribution: self.request_distribution,
-            keys_total,
+            keys_total: key_count_total,
             key_chooser: match self.request_distribution {
-                RequestDistribution::Latest => generator::Number::zipfian(keys_total),
-                RequestDistribution::Uniform => generator::Number::uniform(keys_total),
-                RequestDistribution::Zipfian => generator::Number::zipfian(keys_total),
+                RequestDistribution::Latest => generator::Number::zipfian(key_count_total),
+                RequestDistribution::Uniform => generator::Number::uniform(key_count_total),
+                RequestDistribution::Zipfian => generator::Number::zipfian(key_count_total),
             },
             field_chooser: generator::Number::uniform(self.field_count as u64),
         }
@@ -267,6 +272,7 @@ pub enum Operation {
     Scan,
     Insert,
     ReadModifyWrite,
+    Delete,
 }
 
 #[rustfmt::skip]
