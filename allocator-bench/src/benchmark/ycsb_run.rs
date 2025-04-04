@@ -136,6 +136,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
             .runner(unsafe { global.acked.address().as_ref().unwrap() });
 
         let start = Instant::now();
+        let allow_null = self.workload.delete_proportion > 0.0;
 
         for _ in 0..worker.operation_count {
             let operation = runner.next_operation(&mut worker.rng);
@@ -147,7 +148,12 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
                         allocator,
                         &key.id().to_ne_bytes(),
                         |value| unsafe {
-                            let record = value.cast::<Record>().as_ref().unwrap();
+                            let record = match (value.cast::<Record>().as_ref(), allow_null) {
+                                (None, false) => panic!(),
+                                (None, true) => return,
+                                (Some(record), _) => record,
+                            };
+
                             for field in &record.0 {
                                 (field as *const Field).read_volatile();
                             }
@@ -162,7 +168,12 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
                         allocator,
                         &key.id().to_ne_bytes(),
                         |value| unsafe {
-                            let record = value.cast::<Record>().as_ref().unwrap();
+                            let record = match (value.cast::<Record>().as_ref(), allow_null) {
+                                (None, false) => panic!(),
+                                (None, true) => return,
+                                (Some(record), _) => record,
+                            };
+
                             record.0[field as usize].value[0].store(1, Ordering::Release);
                         },
                     ));
@@ -174,7 +185,10 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
                     runner.acknowledge(key);
                 }
                 ycsb::Operation::ReadModifyWrite => todo!(),
-                ycsb::Operation::Delete => todo!(),
+                ycsb::Operation::Delete => {
+                    let key = runner.next_key_read(&mut worker.rng);
+                    delete(config.thread_id, allocator, &global.index, &key);
+                }
             }
         }
         let time = start.elapsed();
@@ -215,7 +229,7 @@ pub(super) fn load<A: Allocator, I: Index<A>>(
     }
 }
 
-pub(super) fn insert<A: Allocator, I: Index<A>>(
+fn insert<A: Allocator, I: Index<A>>(
     thread_id: usize,
     allocator: &mut A,
     index: &I,
@@ -230,5 +244,20 @@ pub(super) fn insert<A: Allocator, I: Index<A>>(
         |pointer| unsafe {
             libc::memset(pointer.cast(), 0xff, SIZE);
         },
+    );
+}
+
+fn delete<A: Allocator, I: Index<A>>(
+    thread_id: usize,
+    allocator: &mut A,
+    index: &I,
+    key: &ycsb::Key,
+) {
+    index.insert(
+        thread_id,
+        allocator,
+        &key.id().to_ne_bytes(),
+        0,
+        |_| unreachable!(),
     );
 }
