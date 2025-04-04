@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+#[builder(state_mod(name = "config", vis = "pub"), derive(Clone, Debug))]
 pub struct Config {
     #[builder(default = date())]
     date: u64,

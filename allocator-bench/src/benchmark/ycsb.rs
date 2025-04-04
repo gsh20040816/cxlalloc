@@ -24,10 +24,6 @@ use super::ycsb_load::load;
 pub struct Config {
     pub index: index::Config,
 
-    throughput: Option<u64>,
-
-    time: u64,
-
     #[serde(flatten)]
     workload: ycsb::Workload,
 }

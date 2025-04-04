@@ -1,5 +1,3 @@
-use core::cmp;
-use core::iter;
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -21,7 +19,7 @@ const CONSISTENCY: Consistency = if cfg!(feature = "consistency-sfence") {
 };
 
 #[derive(Parser)]
-struct Cli {
+struct Config {
     #[arg(short, long, value_delimiter = ',', default_value = "1")]
     process_count: Vec<usize>,
 
@@ -67,44 +65,7 @@ struct Cli {
     experiment: Experiment,
 }
 
-impl Cli {
-    fn collect(
-        &self,
-    ) -> Vec<(
-        allocator_bench::config::Global,
-        allocator_bench::allocator::Config<serde_json::Value>,
-    )> {
-        cartesian!(
-            &self.process_count,
-            &self.thread_count,
-            &self.allocator,
-            &self.allocator_config,
-            &self.allocator_numa,
-            &self.allocator_size,
-            &self.allocator_populate,
-        )
-        .filter_map(
-            |(process_count, thread_count, allocator, config, numa, size, populate)| {
-                if thread_count % process_count != 0 {
-                    return None;
-                }
-
-                Some((
-                    allocator_bench::config::Global::new(*process_count, *thread_count),
-                    allocator_bench::allocator::Config::builder()
-                        .name(allocator.to_string())
-                        .numa(*numa)
-                        .size(*size)
-                        .populate(*populate)
-                        .consistency(CONSISTENCY)
-                        .inner(serde_json::from_str(config).unwrap())
-                        .build(),
-                ))
-            },
-        )
-        .collect()
-    }
-}
+impl Config {}
 
 #[derive(Parser)]
 enum Experiment {
@@ -165,211 +126,158 @@ struct Ycsb {
     workload: Workload,
 }
 
-impl Ycsb {
-    fn collect(&self) -> Vec<(allocator_bench::index::Config, usize, usize)> {
-        cartesian!(
-            &self.index,
-            &self.index_len,
-            &self.index_populate,
-            &self.record_count,
-            &self.operation_count,
-        )
-        .map(|(index, len, populate, record_count, operation_count)| {
-            (
-                allocator_bench::index::Config::builder()
-                    .name(index.to_string())
-                    .populate(*populate)
-                    .len(*len)
-                    .build(),
-                *record_count,
-                *operation_count,
-            )
-        })
-        .collect()
-    }
-}
-
 #[derive(Parser)]
 enum Workload {
     Load,
     D {
-        #[arg(long, default_value_t = 10)]
-        time: u64,
-
-        #[arg(long, value_delimiter = ',')]
-        throughput: Vec<u64>,
-
         #[arg(short, long, value_delimiter = ',', default_value = "0.05")]
         insert_proportion: Vec<f32>,
     },
 }
 
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    let cli = Config::parse();
+
     let mut out = File::options()
         .create(true)
         .append(true)
         .open(&cli.output)?;
 
-    let config = cli.collect();
+    // Inefficient but easy to maintain
+    let mut total = 0;
+    cli.for_each(|config| cli.experiment.for_each(&config, |_| total += 1));
 
-    match &cli.experiment {
-        Experiment::Memcached {
-            operation_count,
-            trace,
-        } => {
-            let total = config.len() * trace.len();
-            for (i, ((global, allocator), operation_count, trace)) in
-                cartesian!(&config, &operation_count, &trace).enumerate()
-            {
+    let mut i = 0;
+    cli.for_each(|config| {
+        cli.experiment.for_each(&config, |config| {
+            i += 1;
+            cli.run(&config, i, total, &mut out).unwrap();
+        })
+    });
+
+    Ok(())
+}
+
+impl Experiment {
+    fn for_each<F: FnMut(cxlalloc_bench::Config)>(
+        &self,
+        config: &cxlalloc_bench::ConfigBuilder<
+            cxlalloc_bench::config::SetAllocator<cxlalloc_bench::config::SetGlobal>,
+        >,
+        mut apply: F,
+    ) {
+        match self {
+            Experiment::Memcached {
+                operation_count,
+                trace,
+            } => {
                 let index = Index::Linked;
-                let config = cxlalloc_bench::Config::builder()
-                    .global(*global)
-                    .allocator(allocator.clone())
-                    .benchmark(allocator_bench::benchmark::Config::Memcached(
-                        allocator_bench::benchmark::memcached::Config::builder()
-                            .index(
-                                allocator_bench::index::Config::builder()
-                                    .name(index.to_string())
-                                    .populate(false)
-                                    .len(1 << 25)
-                                    .build(),
-                            )
-                            .operation_count(*operation_count)
-                            .trace(trace.clone())
-                            .build(),
-                    ))
-                    .build();
+                let populate = false;
+                let len = 1 << 25;
 
-                cli.run(&config, i, total, &mut out)?;
+                cartesian!(&operation_count, &trace)
+                    .map(|(operation_count, trace)| {
+                        config
+                            .clone()
+                            .benchmark(allocator_bench::benchmark::Config::Memcached(
+                                allocator_bench::benchmark::memcached::Config::builder()
+                                    .index(
+                                        allocator_bench::index::Config::builder()
+                                            .name(index.to_string())
+                                            .populate(populate)
+                                            .len(len)
+                                            .build(),
+                                    )
+                                    .operation_count(*operation_count)
+                                    .trace(trace.clone())
+                                    .build(),
+                            ))
+                            .build()
+                    })
+                    .for_each(apply)
             }
-        }
-        Experiment::Mstress => {
-            let total = config.len();
-            for (i, (global, allocator)) in config.into_iter().enumerate() {
-                let config = cxlalloc_bench::Config::builder()
-                    .global(global)
-                    .allocator(allocator)
+            Experiment::Mstress => apply(
+                config
+                    .clone()
                     .benchmark(allocator_bench::benchmark::Config::Mstress(
                         allocator_bench::benchmark::Mstress::builder().build(),
                     ))
-                    .build();
-
-                cli.run(&config, i, total, &mut out)?;
-            }
-        }
-        Experiment::Ycsb(ycsb) => {
-            let config_ycsb = ycsb.collect();
-            let total = config.len() * config_ycsb.len();
-
-            for (i, ((global, allocator), (index, record_count, operation_count))) in
-                cartesian!(&config, &config_ycsb).enumerate()
-            {
-                let config = || {
-                    cxlalloc_bench::Config::builder()
-                        .allocator(allocator.clone())
-                        .global(*global)
-                };
-
-                match &ycsb.workload {
-                    Workload::Load => {
-                        let config = config()
+                    .build(),
+            ),
+            Experiment::Ycsb(ycsb) => match &ycsb.workload {
+                Workload::Load => ycsb.for_each(|(index, record_count, operation_count)| {
+                    apply(
+                        config
+                            .clone()
                             .benchmark(allocator_bench::benchmark::Config::YcsbLoad(
                                 allocator_bench::benchmark::ycsb_load::Config::builder()
                                     .index(index.clone())
                                     .workload(
                                         ycsb::Workload::builder()
-                                            .record_count(*record_count)
-                                            .operation_count(*operation_count)
+                                            .record_count(record_count)
+                                            .operation_count(operation_count)
                                             .build(),
                                     )
                                     .build(),
                             ))
-                            .build();
-
-                        cli.run(&config, i, total, &mut out)?;
-                    }
-                    Workload::D {
-                        time,
-                        throughput,
-                        insert_proportion,
-                    } => {
-                        let partial = cmp::max(throughput.len(), 1) * insert_proportion.len();
-                        let total = total * partial;
-                        let throughput = match throughput.is_empty() {
-                            true => {
-                                Box::new(iter::once(None)) as Box<dyn Iterator<Item = Option<_>>>
-                            }
-                            false => Box::new(throughput.iter().map(Some)),
-                        };
-
-                        for (j, (throughput, insert_proportion)) in
-                            cartesian!(throughput, &insert_proportion).enumerate()
-                        {
-                            let config = config()
-                                .benchmark(allocator_bench::benchmark::Config::Ycsb(
-                                    allocator_bench::benchmark::ycsb::Config::builder()
-                                        .index(index.clone())
-                                        .workload(ycsb::Workload {
-                                            record_count: *record_count,
-                                            operation_count: *operation_count,
-                                            insert_proportion: *insert_proportion,
-                                            read_proportion: 1.0 - insert_proportion,
-                                            ..ycsb::workload::D.clone()
-                                        })
-                                        .maybe_throughput(throughput.copied())
-                                        .time(*time)
-                                        .build(),
-                                ))
-                                .build();
-
-                            cli.run(&config, i * partial + j, total, &mut out)?;
-                        }
-                    }
+                            .build(),
+                    )
+                }),
+                Workload::D { insert_proportion } => {
+                    ycsb.for_each(|(index, record_count, operation_count)| {
+                        insert_proportion
+                            .iter()
+                            .map(|insert_proportion| {
+                                config
+                                    .clone()
+                                    .benchmark(allocator_bench::benchmark::Config::Ycsb(
+                                        allocator_bench::benchmark::ycsb::Config::builder()
+                                            .index(index.clone())
+                                            .workload(ycsb::Workload {
+                                                record_count,
+                                                operation_count,
+                                                insert_proportion: *insert_proportion,
+                                                read_proportion: 1.0 - insert_proportion,
+                                                ..ycsb::workload::D.clone()
+                                            })
+                                            .build(),
+                                    ))
+                                    .build()
+                            })
+                            .for_each(&mut apply)
+                    })
                 }
-            }
-        }
-        Experiment::Xmalloc {
-            limit,
-            operation_count,
-        } => {
-            let total = config.len() * limit.len() * operation_count.len();
-
-            for (index, ((global, allocator), &limit, &operation_count)) in
-                cartesian!(&config, &limit, &operation_count).enumerate()
-            {
-                cli.run(
-                    &cxlalloc_bench::Config::builder()
-                        .global(*global)
-                        .allocator(allocator.clone())
+            },
+            Experiment::Xmalloc {
+                limit,
+                operation_count,
+            } => cartesian!(&limit, &operation_count)
+                .filter_map(|(&limit, &operation_count)| {
+                    let config = config
+                        .clone()
                         .benchmark(allocator_bench::benchmark::Config::Xmalloc(
                             allocator_bench::benchmark::Xmalloc::builder()
                                 .limit(limit)
                                 .operation_count(operation_count)
                                 .build(),
                         ))
-                        .build(),
-                    index,
-                    total,
-                    &mut out,
-                )?;
-            }
-        }
-        Experiment::ThreadTest {
-            iteration_count,
-            operation_count,
-            object_size,
-        } => {
-            let total =
-                config.len() * iteration_count.len() * operation_count.len() * object_size.len();
+                        .build();
 
-            for (index, ((global, allocator), iteration_count, operation_count, object_size)) in
-                cartesian!(&config, &iteration_count, &operation_count, &object_size).enumerate()
-            {
-                cli.run(
-                    &cxlalloc_bench::Config::builder()
-                        .global(*global)
-                        .allocator(allocator.clone())
+                    // Only allow even process counts
+                    match config.global.process_count & 1 {
+                        0 => Some(config),
+                        _ => None,
+                    }
+                })
+                .for_each(apply),
+            Experiment::ThreadTest {
+                iteration_count,
+                operation_count,
+                object_size,
+            } => cartesian!(&iteration_count, &operation_count, &object_size)
+                .map(|(iteration_count, operation_count, object_size)| {
+                    config
+                        .clone()
                         .benchmark(allocator_bench::benchmark::Config::ThreadTest(
                             allocator_bench::benchmark::ThreadTest::builder()
                                 .iteration_count(*iteration_count)
@@ -377,19 +285,61 @@ fn main() -> anyhow::Result<()> {
                                 .object_size(*object_size)
                                 .build(),
                         ))
-                        .build(),
-                    index,
-                    total,
-                    &mut out,
-                )?;
-            }
+                        .build()
+                })
+                .for_each(apply),
         }
     }
-
-    Ok(())
 }
 
-impl Cli {
+impl Config {
+    fn for_each<
+        F: FnMut(
+            cxlalloc_bench::ConfigBuilder<
+                cxlalloc_bench::config::SetAllocator<cxlalloc_bench::config::SetGlobal>,
+            >,
+        ),
+    >(
+        &self,
+        apply: F,
+    ) {
+        cartesian!(
+            &self.process_count,
+            &self.thread_count,
+            &self.allocator,
+            &self.allocator_config,
+            &self.allocator_numa,
+            &self.allocator_size,
+            &self.allocator_populate,
+        )
+        .filter_map(
+            |(process_count, thread_count, allocator, config, numa, size, populate)| {
+                if thread_count % process_count != 0 {
+                    return None;
+                }
+
+                Some(
+                    cxlalloc_bench::Config::builder()
+                        .global(allocator_bench::config::Global::new(
+                            *process_count,
+                            *thread_count,
+                        ))
+                        .allocator(
+                            allocator_bench::allocator::Config::builder()
+                                .name(allocator.to_string())
+                                .numa(*numa)
+                                .size(*size)
+                                .populate(*populate)
+                                .consistency(CONSISTENCY)
+                                .inner(serde_json::from_str(config).unwrap())
+                                .build(),
+                        ),
+                )
+            },
+        )
+        .for_each(apply)
+    }
+
     fn run(
         &self,
         config: &cxlalloc_bench::Config,
@@ -416,5 +366,29 @@ impl Cli {
         }
 
         Ok(())
+    }
+}
+
+impl Ycsb {
+    fn for_each<F: FnMut((allocator_bench::index::Config, usize, usize))>(&self, apply: F) {
+        cartesian!(
+            &self.index,
+            &self.index_len,
+            &self.index_populate,
+            &self.record_count,
+            &self.operation_count,
+        )
+        .map(|(index, len, populate, record_count, operation_count)| {
+            (
+                allocator_bench::index::Config::builder()
+                    .name(index.to_string())
+                    .populate(*populate)
+                    .len(*len)
+                    .build(),
+                *record_count,
+                *operation_count,
+            )
+        })
+        .for_each(apply)
     }
 }
