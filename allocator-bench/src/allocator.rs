@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+#[builder(state_mod(vis = "pub", name = "config"), derive(Clone, Debug))]
 pub struct Config<T> {
     pub name: String,
 

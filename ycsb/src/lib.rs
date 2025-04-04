@@ -15,6 +15,7 @@ use serde::Serialize;
 pub mod workload;
 
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+#[builder(state_mod(vis = "pub"), derive(Clone, Debug))]
 pub struct Workload {
     #[builder(default = default::insert_order())]
     #[serde(alias = "insertorder", default = "default::insert_order")]

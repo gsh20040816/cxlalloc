@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::io;
 
 use allocator_bench::allocator;
+use bon::Builder;
 use clap::Parser;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,28 +14,11 @@ pub struct Backend(String);
 
 pub struct Cxlalloc;
 
-#[derive(Clone, Debug, Deserialize, Serialize, Parser)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize, Parser)]
 pub struct Config {
-    #[serde(default = "default::cache_local")]
     cache_local: usize,
-
-    #[serde(default = "default::batch_global")]
     batch_global: usize,
-
-    #[serde(default = "default::batch_bump")]
     batch_bump: usize,
-}
-
-mod default {
-    pub(super) fn cache_local() -> usize {
-        1
-    }
-    pub(super) fn batch_global() -> usize {
-        1
-    }
-    pub(super) fn batch_bump() -> usize {
-        1
-    }
 }
 
 impl allocator_bench::allocator::Backend for Backend {
