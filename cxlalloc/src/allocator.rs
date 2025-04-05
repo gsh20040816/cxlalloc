@@ -12,6 +12,8 @@ use crate::huge;
 use crate::recover;
 use crate::recover::State;
 use crate::size;
+use crate::size::Bracket as _;
+use crate::stat;
 use crate::thread;
 use crate::view;
 use crate::Atomic;
@@ -115,6 +117,13 @@ where
     S: 'raw,
     O: 'raw,
 {
+    pub fn report(&self) -> impl Iterator<Item = stat::EventReport> + '_ {
+        self.small
+            .report(self.id)
+            .chain(self.large.report(self.id))
+            .chain(self.huge.report(self.id))
+    }
+
     pub fn root_shared(&self) -> Option<&'raw S> {
         let offset = self.shared.root.load()?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }

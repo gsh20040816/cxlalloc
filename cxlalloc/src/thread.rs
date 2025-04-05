@@ -43,3 +43,9 @@ impl<T> Index<Id> for Array<T> {
         &self.0[index._0().get() as usize]
     }
 }
+
+impl<T: Default> Default for Array<T> {
+    fn default() -> Self {
+        Self(core::array::from_fn(|_| T::default()))
+    }
+}

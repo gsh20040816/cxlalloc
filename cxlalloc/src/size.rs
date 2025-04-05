@@ -9,15 +9,17 @@ use ribbit::private::u6;
 use crate::SIZE_BIT_SET;
 
 pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug {
+    const NAME: &'static str;
     const SIZE_SLAB: usize = (crate::SIZE_BIT_SET + crate::SIZE_METADATA) * 64 * Self::SIZE_MIN;
     const SIZE_MIN: usize;
     const SIZE_MAX: usize;
     const COUNT: usize;
-    const INDEX: usize;
 
     type Array<T>: AsRef<[T]> + AsMut<[T]>;
 
     fn new(size: usize) -> Option<Self>;
+
+    fn from_index(index: usize) -> Option<Self>;
 
     fn array<T: Default>() -> Self::Array<T>;
 
@@ -41,20 +43,27 @@ impl Debug for Huge {
 }
 
 impl Bracket for Huge {
+    const NAME: &'static str = "huge";
     const SIZE_SLAB: usize = 1 << 30;
     const SIZE_MIN: usize = 4096;
     const SIZE_MAX: usize = 4096;
     const COUNT: usize = 1;
-    const INDEX: usize = 2;
 
-    type Array<T> = [T; 0];
+    type Array<T> = [T; 1];
 
     fn new(_: usize) -> Option<Self> {
-        None
+        Some(Huge::default())
+    }
+
+    fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => None,
+            _ => Some(Huge::default()),
+        }
     }
 
     fn array<T: Default>() -> Self::Array<T> {
-        []
+        [T::default()]
     }
 
     fn pack(self) -> u8 {
@@ -68,7 +77,8 @@ impl Bracket for Huge {
 
     #[inline]
     fn size(&self) -> u64 {
-        unreachable!()
+        // HACK: used to detect huge allocation in stat module
+        u64::MAX
     }
 
     #[inline]
@@ -85,13 +95,12 @@ pub(crate) struct Array<B: Bracket, T> {
 }
 
 impl<B: Bracket, T> Array<B, T> {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Small, &T)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (B, &T)> {
         self.inner
             .as_ref()
             .iter()
             .enumerate()
-            .map(|(index, element)| (Small::new_internal(u6::new(index as u8)), element))
-            .skip(1)
+            .map(|(index, element)| (B::from_index(index).unwrap(), element))
     }
 }
 
@@ -144,16 +153,6 @@ impl Small {
         }
     }
 
-    #[inline]
-    pub(crate) const fn from_index(index: usize) -> Self {
-        Small::new_internal(u6::new(index as u8))
-    }
-
-    #[inline]
-    pub(crate) const fn size(&self) -> u64 {
-        self._0().value() as u64 * 8
-    }
-
     const fn counts() -> Array<Small, u16> {
         let mut counts = [0u16; Small::COUNT + 1];
 
@@ -178,16 +177,24 @@ impl Small {
 }
 
 impl Bracket for Small {
+    const NAME: &'static str = "small";
     const SIZE_MIN: usize = 8;
     const SIZE_MAX: usize = 504;
     const COUNT: usize = 63;
-    const INDEX: usize = 0;
 
     type Array<T> = [T; 1 + Self::COUNT];
 
     #[inline]
     fn new(size: usize) -> Option<Self> {
         Self::new(size)
+    }
+
+    #[inline]
+    fn from_index(index: usize) -> Option<Self> {
+        u8::try_from(index)
+            .ok()
+            .and_then(|index| u6::try_new(index).ok())
+            .map(Self::new_internal)
     }
 
     #[inline]
@@ -207,7 +214,7 @@ impl Bracket for Small {
 
     #[inline]
     fn size(&self) -> u64 {
-        self.size()
+        self._0().value() as u64 * 8
     }
 
     #[inline]
@@ -237,27 +244,27 @@ impl Large {
             false => None,
         }
     }
-
-    pub(crate) const fn from_index(index: usize) -> Self {
-        Self::new_internal(u4::new(index as u8))
-    }
-
-    pub(crate) const fn size(&self) -> u64 {
-        512 << self._0().value()
-    }
 }
 
 impl Bracket for Large {
+    const NAME: &'static str = "large";
     const SIZE_MIN: usize = 1 << 9;
     const SIZE_MAX: usize = 1 << 19;
     const COUNT: usize = 11;
-    const INDEX: usize = 1;
 
     type Array<T> = [T; Self::COUNT];
 
     #[inline]
     fn new(size: usize) -> Option<Self> {
         Self::new(size)
+    }
+
+    #[inline]
+    fn from_index(index: usize) -> Option<Self> {
+        u8::try_from(index)
+            .ok()
+            .and_then(|index| u4::try_new(index).ok())
+            .map(Self::new_internal)
     }
 
     #[inline]
@@ -277,7 +284,7 @@ impl Bracket for Large {
 
     #[inline]
     fn size(&self) -> u64 {
-        self.size()
+        512 << self._0().value()
     }
 
     #[inline]

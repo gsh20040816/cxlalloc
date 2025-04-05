@@ -33,6 +33,7 @@ pub(crate) struct Huge<'raw> {
     shared: &'raw Shared,
     owned: &'raw thread::Array<Owned>,
     data: Data<'raw, size::Huge>,
+    stat: stat::Recorder<size::Huge>,
 }
 
 impl<'raw> Huge<'raw> {
@@ -50,7 +51,12 @@ impl<'raw> Huge<'raw> {
             shared,
             owned,
             data,
+            stat: stat::Recorder::default(),
         }
+    }
+
+    pub(crate) fn report(&self, id: thread::Id) -> impl Iterator<Item = stat::EventReport> + '_ {
+        self.stat.report(id, size::Huge::NAME)
     }
 
     // Recover huge allocator DRAM state
@@ -103,10 +109,9 @@ impl<'raw> Huge<'raw> {
                     // - need to log what
                     // - secondary link record
                     // - hard-code dedicated spot for huge
-
-                    stat::record(
+                    self.stat.record(
                         id,
-                        stat::Event::<size::Huge>::Allocate {
+                        stat::Event::Allocate {
                             size: size.get() as u64,
                         },
                     );
@@ -143,9 +148,9 @@ impl<'raw> Huge<'raw> {
         offset: data::Offset<size::Huge>,
     ) {
         let descriptor = self.find(data, offset).unwrap();
-        stat::record(
+        self.stat.record(
             context.id,
-            stat::Event::<size::Huge>::Free {
+            stat::Event::Free {
                 size: descriptor.size.get() as u64,
             },
         );

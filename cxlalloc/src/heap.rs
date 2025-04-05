@@ -44,6 +44,8 @@ pub struct Heap<'raw, L: view::Lens, B: size::Bracket> {
 
     pub(crate) slabs: Slab<'raw, B>,
     pub(crate) data: Data<'raw, B>,
+
+    stat: stat::Recorder<B>,
 }
 
 pub(crate) struct Layout<B> {
@@ -103,6 +105,7 @@ where
             owned,
             slabs,
             data,
+            stat: stat::Recorder::default(),
         }
     }
 
@@ -112,7 +115,12 @@ where
             owned: L::focus(self.owned, id),
             slabs: self.slabs,
             data: self.data,
+            stat: self.stat,
         }
+    }
+
+    pub(crate) fn report(&self, id: thread::Id) -> impl Iterator<Item = stat::EventReport> + '_ {
+        self.stat.report(id, B::NAME)
     }
 
     pub(crate) fn checked_pointer_to_offset(
@@ -203,10 +211,8 @@ where
         let free = unsafe { &mut *self.slabs.local(index).free.get() };
         let block = free.peek();
 
-        stat::record(
-            context.id,
-            stat::Event::<B>::Allocate { size: class.size() },
-        );
+        self.stat
+            .record(context.id, stat::Event::Allocate { size: class.size() });
         context.log(HeapState::from(SizedToApplication::new(index, block)));
 
         free.unset(block);
@@ -240,18 +246,21 @@ where
 
         // Fast path: local unsized
         if self.owned.unsized_to_sized(context, &self.slabs, class) {
+            self.stat
+                .record(context.id, stat::Event::UnsizedToSized { class });
+
             return self.owned.r#sized[class].peek();
         }
 
         if let Some(index) = self.shared.pop(context, &self.slabs) {
-            stat::record(context.id, stat::Event::<B>::GlobalToUnsized);
+            self.stat.record(context.id, stat::Event::GlobalToUnsized);
             self.slabs.transfer(context, index, None, Some(context.id));
 
             self.owned.r#unsized.push(&self.slabs, index);
         } else {
             let range = self.shared.bump(context);
 
-            stat::record(context.id, stat::Event::<B>::Bump);
+            self.stat.record(context.id, stat::Event::Bump);
 
             let batch = BATCH_BUMP_POP.load(Ordering::Relaxed);
 
@@ -265,6 +274,9 @@ where
         }
 
         self.owned.unsized_to_sized(context, &self.slabs, class);
+        self.stat
+            .record(context.id, stat::Event::UnsizedToSized { class });
+
         self.owned.r#sized[class].peek()
     }
 
@@ -290,7 +302,7 @@ where
             }
         }
 
-        stat::record(context.id, stat::Event::Detach { class });
+        self.stat.record(context.id, stat::Event::Detach { class });
 
         if cfg!(feature = "validate") {
             assert!(self.owned.r#sized[class]
@@ -307,7 +319,7 @@ where
                 .all(|other| other != index));
         }
 
-        stat::record(context.id, stat::Event::Attach { class });
+        self.stat.record(context.id, stat::Event::Attach { class });
 
         self.owned.r#sized[class].push(&self.slabs, index);
     }
@@ -326,7 +338,8 @@ where
         let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
 
-        stat::record(context.id, stat::Event::<B>::Free { size: class.size() });
+        self.stat
+            .record(context.id, stat::Event::Free { size: class.size() });
         context.log(HeapState::from(ApplicationToSized::new(index, block)));
 
         free.set(block);
@@ -334,8 +347,11 @@ where
 
         match count {
             count if count == class.count() => {
-                self.owned
-                    .sized_to_unsized(context, &self.slabs, class, index);
+                self.owned.sized_to_unsized(&self.slabs, class, index);
+
+                self.stat
+                    .record(context.id, stat::Event::SizedToUnsized { class });
+
                 self.unsized_to_global(context);
             }
             1 => self.attach(context, class, index),
@@ -347,7 +363,9 @@ where
     fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
         // FIXME: not correct to load in production, only for metrics
         let class = self.slabs.local(index).class.load();
-        stat::record(context.id, stat::Event::<B>::Free { size: class.size() });
+
+        self.stat
+            .record(context.id, stat::Event::Free { size: class.size() });
 
         let remote = self.slabs.remote(index);
         let meta = remote
@@ -382,7 +400,8 @@ where
             );
         }
 
-        stat::record(context.id, stat::Event::<B>::Claim { class });
+        self.stat.record(context.id, stat::Event::Claim { class });
+
         self.slabs
             .transfer(context, index, victim, Some(context.id));
         self.owned.r#unsized.push(&self.slabs, index);
@@ -395,7 +414,7 @@ where
             return;
         }
 
-        stat::record(context.id, stat::Event::<B>::UnsizedToGlobal);
+        self.stat.record(context.id, stat::Event::UnsizedToGlobal);
 
         let batch = BATCH_GLOBAL_PUSH.load(Ordering::Relaxed);
         let mut iter = self
@@ -485,8 +504,6 @@ where
             return false;
         };
 
-        stat::record(context.id, stat::Event::UnsizedToSized { class });
-
         crash::define!(unsized_to_sized_pre_log);
 
         let local = slabs.local(index);
@@ -513,13 +530,7 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(
-        &mut self,
-        context: &mut allocator::Context,
-        slabs: &Slab<B>,
-        class: B,
-        index: slab::Index<B>,
-    ) {
+    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
         let next = slabs.local(index).next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
@@ -539,8 +550,6 @@ where
             slabs.local(prev).next.store(next);
             cache::flush(slabs.local(prev), cache::Invalidate::No);
         };
-
-        stat::record(context.id, stat::Event::SizedToUnsized { class });
 
         self.r#unsized.push(slabs, index);
     }

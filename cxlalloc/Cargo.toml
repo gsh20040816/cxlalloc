@@ -21,7 +21,7 @@ recover-cas = []
 # Enable state transition logging
 recover-log = []
 
-stat-count = []
+stat-event = []
 stat-memory = []
 stat-size = ["dep:hdrhistogram"]
 
