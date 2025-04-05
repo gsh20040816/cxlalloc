@@ -67,6 +67,9 @@ pub struct OutputProcess {
 
     #[serde(flatten)]
     output: serde_json::Value,
+
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    allocator: serde_json::Value,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -75,6 +78,9 @@ pub struct OutputThread {
 
     #[serde(flatten)]
     output: serde_json::Value,
+
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    allocator: serde_json::Value,
 }
 
 pub(crate) struct Perf {

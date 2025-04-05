@@ -67,6 +67,10 @@ pub trait Backend: Sync + Sized {
 
     fn unlink(self) -> io::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
+
+    fn report(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 pub trait Allocator: Sized {
@@ -94,6 +98,10 @@ pub trait Allocator: Sized {
     unsafe fn handle_to_offset(&mut self, handle: &Self::Handle) -> NonZeroU64;
     fn offset_to_handle(&mut self, offset: NonZeroU64) -> Self::Handle;
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64;
+
+    fn report(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 pub trait Handle {

@@ -21,7 +21,7 @@ recover-cas = []
 # Enable state transition logging
 recover-log = []
 
-stat-event = []
+stat-event = ["dep:serde"]
 stat-memory = []
 stat-size = ["dep:hdrhistogram"]
 
@@ -36,6 +36,7 @@ intervallum.workspace = true
 libc.workspace = true
 log.workspace = true
 ribbit.workspace = true
+serde = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]

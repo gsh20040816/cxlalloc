@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use crate::Allocator as _;
 use crate::Barrier;
 use crate::Observation;
 use crate::Output;
@@ -163,13 +164,13 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                             self.setup_worker(&config, global, process, &mut allocator);
 
                         barrier.wait(1);
-                        let data =
+                        let output =
                             self.run_worker(&config, global, process, &mut worker, &mut allocator);
                         barrier.wait(1);
 
-                        drop(allocator);
-                        drop(worker);
-                        (thread_id, data)
+                        let allocator = allocator.report();
+
+                        (thread_id, output, allocator)
                     });
                     handle
                 })
@@ -215,12 +216,14 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                         id: config.process_id,
                         resource_usage: after - before,
                         output: serde_json::to_value(output_coordinator).unwrap(),
+                        allocator: backend.report(),
                     },
                     thread: output_workers
                         .into_iter()
-                        .map(|(id, output)| OutputThread {
+                        .map(|(id, output, allocator)| OutputThread {
                             id,
                             output: serde_json::to_value(output).unwrap(),
+                            allocator,
                         })
                         .collect(),
                 },

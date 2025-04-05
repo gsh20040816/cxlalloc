@@ -55,8 +55,11 @@ impl<'raw> Huge<'raw> {
         }
     }
 
-    pub(crate) fn report(&self, id: thread::Id) -> impl Iterator<Item = stat::EventReport> + '_ {
-        self.stat.report(id, size::Huge::NAME)
+    pub(crate) fn report(
+        &self,
+        id: Option<thread::Id>,
+    ) -> impl Iterator<Item = stat::EventReport> + '_ {
+        self.stat.report(id)
     }
 
     // Recover huge allocator DRAM state
@@ -186,6 +189,8 @@ impl<'raw> Huge<'raw> {
             .ok_or(crate::Error::OutOfBounds)?;
 
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
+
+        self.stat.record_process(stat::ProcessEvent::Fault);
 
         self.map_descriptor(descriptor).map_err(crate::Error::from)
     }

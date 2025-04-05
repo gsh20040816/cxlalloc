@@ -252,12 +252,6 @@ impl Raw {
 
         let allocator = self.unfocused::<(), ()>();
 
-        match allocator.huge.try_map(&allocator.small.data, address) {
-            Ok(()) => return true,
-            Err(crate::Error::OutOfBounds) => (),
-            Err(error) => panic!("Failed to map huge allocation at {:x?}: {}", address, error),
-        }
-
         match allocator.small.try_map(
             &self.backend,
             &self.local_small,
@@ -282,6 +276,12 @@ impl Raw {
             Ok(()) => return true,
             Err(crate::Error::OutOfBounds) => (),
             Err(error) => panic!("Failed to extend large heap at {:x?}: {}", address, error),
+        }
+
+        match allocator.huge.try_map(&allocator.small.data, address) {
+            Ok(()) => return true,
+            Err(crate::Error::OutOfBounds) => (),
+            Err(error) => panic!("Failed to map huge allocation at {:x?}: {}", address, error),
         }
 
         false

@@ -22,6 +22,11 @@ pub fn dump(_id: usize) {}
 //     LazyLock::new(|| Raw::owned().0.get().next_multiple_of(crate::SIZE_PAGE));
 
 #[derive(Copy, Clone)]
+pub(crate) enum ProcessEvent {
+    Fault,
+}
+
+#[derive(Copy, Clone)]
 pub(crate) enum Event<B: size::Bracket> {
     Bump,
 
@@ -43,12 +48,49 @@ pub(crate) enum Event<B: size::Bracket> {
 #[derive(Default)]
 pub(crate) struct Recorder<B: size::Bracket> {
     #[cfg(feature = "stat-event")]
+    fault: Counter,
+
+    #[cfg(feature = "stat-event")]
     event: thread::Array<EventRecorder<B>>,
 
     #[cfg(feature = "stat-memory")]
     memory: thread::Array<MemoryRecorder<B>>,
 
     _bracket: PhantomData<B>,
+}
+
+#[cfg(not(feature = "stat-event"))]
+impl<B: size::Bracket> Recorder<B> {
+    pub(crate) fn report(&self, _id: Option<thread::Id>) -> impl Iterator<Item = EventReport> + '_ {
+        core::iter::empty()
+    }
+
+    #[inline]
+    pub(crate) fn record_process(&self, _event: ProcessEvent) {}
+}
+
+#[cfg(feature = "stat-event")]
+impl<B: size::Bracket> Recorder<B> {
+    pub(crate) fn report(&self, id: Option<thread::Id>) -> impl Iterator<Item = EventReport> + '_ {
+        match id {
+            None => Or::L(core::iter::once(EventReport {
+                heap: B::NAME,
+                name: "fault",
+                class: None,
+                count: self.fault.load(),
+            })),
+            Some(id) => Or::R(self.event[id].report()),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn record_process(&self, event: ProcessEvent) {
+        let counter = match event {
+            ProcessEvent::Fault => &self.fault,
+        };
+
+        counter.increment();
+    }
 }
 
 impl<B: size::Bracket> Recorder<B> {
@@ -78,22 +120,6 @@ impl<B: size::Bracket> Recorder<B> {
             );
         });
     }
-
-    pub(crate) fn report(
-        &self,
-        _id: thread::Id,
-        _heap: &'static str,
-    ) -> impl Iterator<Item = EventReport> + '_ {
-        #[cfg(not(feature = "stat-event"))]
-        {
-            core::iter::empty()
-        }
-
-        #[cfg(feature = "stat-event")]
-        {
-            self.event[_id].report(_heap)
-        }
-    }
 }
 
 #[derive(Default)]
@@ -110,11 +136,13 @@ struct EventRecorder<B: size::Bracket> {
     claim: size::Array<B, Counter>,
 }
 
+#[derive(Clone)]
+#[cfg_attr(feature = "stat-event", derive(serde::Deserialize, serde::Serialize))]
 pub struct EventReport {
-    pub heap: &'static str,
-    pub name: &'static str,
-    pub class: Option<u64>,
-    pub count: u64,
+    heap: &'static str,
+    name: &'static str,
+    class: Option<u64>,
+    count: u64,
 }
 
 impl<B: size::Bracket> EventRecorder<B> {
@@ -135,7 +163,7 @@ impl<B: size::Bracket> EventRecorder<B> {
         counter.increment();
     }
 
-    fn report(&self, heap: &'static str) -> impl Iterator<Item = EventReport> + '_ {
+    fn report(&self) -> impl Iterator<Item = EventReport> + '_ {
         [
             ("allocate", &self.allocate),
             ("unsized_to_sized", &self.unsized_to_sized),
@@ -146,7 +174,7 @@ impl<B: size::Bracket> EventRecorder<B> {
             ("claim", &self.claim),
         ]
         .into_iter()
-        .flat_map(move |(name, array)| Self::report_array(heap, name, array))
+        .flat_map(Self::report_array)
         .chain(
             [
                 ("bump", &self.bump),
@@ -154,13 +182,13 @@ impl<B: size::Bracket> EventRecorder<B> {
                 ("unsized_to_global", &self.unsized_to_global),
             ]
             .into_iter()
-            .map(move |(name, counter)| Self::report_counter(heap, name, counter)),
+            .map(Self::report_counter),
         )
     }
 
-    fn report_counter(heap: &'static str, name: &'static str, counter: &Counter) -> EventReport {
+    fn report_counter((name, counter): (&'static str, &Counter)) -> EventReport {
         EventReport {
-            heap,
+            heap: B::NAME,
             name,
             class: None,
             count: counter.load(),
@@ -168,15 +196,13 @@ impl<B: size::Bracket> EventRecorder<B> {
     }
 
     fn report_array<'a>(
-        heap: &'static str,
-        name: &'static str,
-        array: &'a size::Array<B, Counter>,
+        (name, array): (&'static str, &'a size::Array<B, Counter>),
     ) -> impl Iterator<Item = EventReport> + 'a {
         array
             .iter()
             .filter(|(class, _)| !class.is_zero())
             .map(move |(class, counter)| EventReport {
-                heap,
+                heap: B::NAME,
                 name,
                 class: match class.size() {
                     // HACK: special case huge allocation
@@ -351,5 +377,24 @@ impl Counter {
 
     fn load(&self) -> u64 {
         self.0.load(Ordering::Relaxed)
+    }
+}
+
+enum Or<L, R> {
+    L(L),
+    R(R),
+}
+
+impl<L, R, T> Iterator for Or<L, R>
+where
+    L: Iterator<Item = T>,
+    R: Iterator<Item = T>,
+{
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Or::L(l) => l.next(),
+            Or::R(r) => r.next(),
+        }
     }
 }

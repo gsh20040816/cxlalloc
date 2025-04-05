@@ -119,8 +119,11 @@ where
         }
     }
 
-    pub(crate) fn report(&self, id: thread::Id) -> impl Iterator<Item = stat::EventReport> + '_ {
-        self.stat.report(id, B::NAME)
+    pub(crate) fn report(
+        &self,
+        id: Option<thread::Id>,
+    ) -> impl Iterator<Item = stat::EventReport> + '_ {
+        self.stat.report(id)
     }
 
     pub(crate) fn checked_pointer_to_offset(
@@ -146,6 +149,8 @@ where
         let Some(len) = self.shared.len(help).map(u32::from) else {
             return Err(crate::Error::OutOfBounds);
         };
+
+        self.stat.record_process(stat::ProcessEvent::Fault);
 
         let size_local = const { mem::size_of::<slab::Local<B>>() };
         let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote<B>>>() };
