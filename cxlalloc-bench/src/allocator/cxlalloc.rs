@@ -55,6 +55,11 @@ impl allocator_bench::allocator::Backend for Backend {
     fn unlink(self) -> io::Result<()> {
         unlink(&self.0)
     }
+
+    #[cfg(feature = "stat-event")]
+    fn report(&self) -> serde_json::Value {
+        serde_json::to_value(cxlalloc_global::report_process()).unwrap()
+    }
 }
 
 impl allocator_bench::Allocator for Cxlalloc {
@@ -83,6 +88,11 @@ impl allocator_bench::Allocator for Cxlalloc {
     #[inline]
     fn pointer_to_offset(&self, pointer: NonNull<ffi::c_void>) -> NonZeroU64 {
         NonZeroU64::new(cxlalloc_global::pointer_to_offset(pointer) as u64 + 1).unwrap()
+    }
+
+    #[cfg(feature = "stat-event")]
+    fn report(&self) -> serde_json::Value {
+        serde_json::to_value(cxlalloc_global::report_thread()).unwrap()
     }
 }
 

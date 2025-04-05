@@ -51,10 +51,10 @@ pub(crate) struct Recorder<B: size::Bracket> {
     fault: Counter,
 
     #[cfg(feature = "stat-event")]
-    event: thread::Array<EventRecorder<B>>,
+    event: Box<thread::Array<Box<EventRecorder<B>>>>,
 
     #[cfg(feature = "stat-memory")]
-    memory: thread::Array<MemoryRecorder<B>>,
+    memory: Box<thread::Array<Box<MemoryRecorder<B>>>>,
 
     _bracket: PhantomData<B>,
 }
@@ -139,10 +139,10 @@ struct EventRecorder<B: size::Bracket> {
 #[derive(Clone)]
 #[cfg_attr(feature = "stat-event", derive(serde::Deserialize, serde::Serialize))]
 pub struct EventReport {
-    heap: &'static str,
-    name: &'static str,
-    class: Option<u64>,
-    count: u64,
+    pub heap: &'static str,
+    pub name: &'static str,
+    pub class: Option<u64>,
+    pub count: u64,
 }
 
 impl<B: size::Bracket> EventRecorder<B> {

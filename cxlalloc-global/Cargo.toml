@@ -17,6 +17,9 @@ recover-cas = ["cxlalloc/recover-cas"]
 recover-flush = ["cxlalloc/recover-flush"]
 recover-log = ["cxlalloc/recover-log"]
 
+stat-event = ["cxlalloc/stat-event"]
+stat-memory = ["cxlalloc/stat-memory"]
+
 validate = ["cxlalloc/validate"]
 
 [dependencies]

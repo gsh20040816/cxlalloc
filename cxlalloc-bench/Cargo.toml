@@ -19,6 +19,7 @@ consistency-clflushopt = [
     "cxlalloc-global/arch-clflushopt",
     "cxlalloc-global/arch-clwb",
 ]
+stat-event = ["cxlalloc-global/stat-event"]
 
 [dependencies]
 allocator-bench.path = "../allocator-bench"

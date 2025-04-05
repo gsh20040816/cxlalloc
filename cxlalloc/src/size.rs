@@ -57,8 +57,8 @@ impl Bracket for Huge {
 
     fn from_index(index: usize) -> Option<Self> {
         match index {
-            0 => None,
-            _ => Some(Huge::default()),
+            0 => Some(Huge::default()),
+            _ => None,
         }
     }
 

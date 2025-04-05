@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 use std::sync::OnceLock;
 
 use cxlalloc::Allocator;
+use cxlalloc::stat::EventReport;
 
 static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
 
@@ -75,6 +76,24 @@ pub fn set_root_untyped(index: usize, root: *mut ffi::c_void) {
 #[inline]
 pub fn root_untyped(index: usize) -> Option<NonNull<ffi::c_void>> {
     with(|allocator| allocator.root_untyped(index))
+}
+
+pub fn report_process() -> Vec<EventReport> {
+    with(|allocator| {
+        allocator
+            .report_process()
+            .filter(|event| event.count > 0)
+            .collect::<Vec<_>>()
+    })
+}
+
+pub fn report_thread() -> Vec<EventReport> {
+    with(|allocator| {
+        allocator
+            .report_thread()
+            .filter(|event| event.count > 0)
+            .collect::<Vec<_>>()
+    })
 }
 
 fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
