@@ -24,6 +24,7 @@ use crate::huge;
 use crate::size;
 use crate::size::Bracket;
 use crate::slab;
+use crate::stat;
 use crate::thread;
 use crate::view;
 use crate::Allocator;
@@ -68,6 +69,8 @@ pub struct Raw {
     pub(crate) data_small: region::Sequential,
     pub(crate) data_large: region::Sequential,
     pub(crate) data_huge: region::Random,
+
+    stat: stat::process::Recorder,
 
     /// Free on drop
     free: bool,
@@ -235,6 +238,7 @@ impl Raw {
             data_small,
             data_large,
             data_huge,
+            stat: stat::process::Recorder::default(),
             free,
         })
     }
@@ -243,6 +247,10 @@ impl Raw {
 impl Raw {
     pub fn allocator<S, O>(&self, id: thread::Id) -> Allocator<S, O> {
         unsafe { Allocator::new(self.unfocused().focus(id)) }
+    }
+
+    pub fn report(&self) -> impl Iterator<Item = stat::Report> + '_ {
+        self.stat.report()
     }
 
     pub fn map(&self, address: *mut ffi::c_void) -> bool {
@@ -260,7 +268,10 @@ impl Raw {
             &allocator.shared.help,
             address,
         ) {
-            Ok(()) => return true,
+            Ok(()) => {
+                self.stat.record(stat::process::Event::FaultSmall);
+                return true;
+            }
             Err(crate::Error::OutOfBounds) => (),
             Err(error) => panic!("Failed to extend small heap at {:x?}: {}", address, error),
         }
@@ -273,13 +284,19 @@ impl Raw {
             &allocator.shared.help,
             address,
         ) {
-            Ok(()) => return true,
+            Ok(()) => {
+                self.stat.record(stat::process::Event::FaultLarge);
+                return true;
+            }
             Err(crate::Error::OutOfBounds) => (),
             Err(error) => panic!("Failed to extend large heap at {:x?}: {}", address, error),
         }
 
         match allocator.huge.try_map(&allocator.small.data, address) {
-            Ok(()) => return true,
+            Ok(()) => {
+                self.stat.record(stat::process::Event::FaultHuge);
+                return true;
+            }
             Err(crate::Error::OutOfBounds) => (),
             Err(error) => panic!("Failed to map huge allocation at {:x?}: {}", address, error),
         }

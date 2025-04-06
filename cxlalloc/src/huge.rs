@@ -33,7 +33,7 @@ pub(crate) struct Huge<'raw> {
     shared: &'raw Shared,
     owned: &'raw thread::Array<Owned>,
     data: Data<'raw, size::Huge>,
-    stat: stat::Recorder<size::Huge>,
+    stat: stat::thread::Recorder<size::Huge>,
 }
 
 impl<'raw> Huge<'raw> {
@@ -51,14 +51,11 @@ impl<'raw> Huge<'raw> {
             shared,
             owned,
             data,
-            stat: stat::Recorder::default(),
+            stat: stat::thread::Recorder::default(),
         }
     }
 
-    pub(crate) fn report(
-        &self,
-        id: Option<thread::Id>,
-    ) -> impl Iterator<Item = stat::EventReport> + '_ {
+    pub(crate) fn report(&self, id: thread::Id) -> impl Iterator<Item = stat::Report> + '_ {
         self.stat.report(id)
     }
 
@@ -114,7 +111,7 @@ impl<'raw> Huge<'raw> {
                     // - hard-code dedicated spot for huge
                     self.stat.record(
                         id,
-                        stat::Event::Allocate {
+                        stat::thread::Event::Allocate {
                             size: size.get() as u64,
                         },
                     );
@@ -153,7 +150,7 @@ impl<'raw> Huge<'raw> {
         let descriptor = self.find(data, offset).unwrap();
         self.stat.record(
             context.id,
-            stat::Event::Free {
+            stat::thread::Event::Free {
                 size: descriptor.size.get() as u64,
             },
         );
@@ -189,8 +186,6 @@ impl<'raw> Huge<'raw> {
             .ok_or(crate::Error::OutOfBounds)?;
 
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
-
-        self.stat.record_process(stat::ProcessEvent::Fault);
 
         self.map_descriptor(descriptor).map_err(crate::Error::from)
     }

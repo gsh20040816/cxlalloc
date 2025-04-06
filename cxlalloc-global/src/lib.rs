@@ -7,7 +7,7 @@ use core::ptr::NonNull;
 use std::sync::OnceLock;
 
 use cxlalloc::Allocator;
-use cxlalloc::stat::EventReport;
+use cxlalloc::stat::Report;
 
 static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
 
@@ -78,19 +78,18 @@ pub fn root_untyped(index: usize) -> Option<NonNull<ffi::c_void>> {
     with(|allocator| allocator.root_untyped(index))
 }
 
-pub fn report_process() -> Vec<EventReport> {
-    with(|allocator| {
-        allocator
-            .report_process()
-            .filter(|event| event.count > 0)
-            .collect::<Vec<_>>()
-    })
+pub fn report_process() -> Vec<Report> {
+    RAW.get()
+        .unwrap()
+        .report()
+        .filter(|event| event.count > 0)
+        .collect::<Vec<_>>()
 }
 
-pub fn report_thread() -> Vec<EventReport> {
+pub fn report_thread() -> Vec<Report> {
     with(|allocator| {
         allocator
-            .report_thread()
+            .report()
             .filter(|event| event.count > 0)
             .collect::<Vec<_>>()
     })

@@ -63,13 +63,6 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
             huge: self.huge,
         }
     }
-
-    pub fn report_process(&self) -> impl Iterator<Item = stat::EventReport> + '_ {
-        self.small
-            .report(None)
-            .chain(self.large.report(None))
-            .chain(self.huge.report(None))
-    }
 }
 
 pub(crate) struct Context<'raw> {
@@ -125,12 +118,11 @@ where
     S: 'raw,
     O: 'raw,
 {
-    pub fn report_thread(&self) -> impl Iterator<Item = stat::EventReport> + '_ {
-        let id = Some(self.id);
+    pub fn report(&self) -> impl Iterator<Item = stat::Report> + '_ {
         self.small
-            .report(id)
-            .chain(self.large.report(id))
-            .chain(self.huge.report(id))
+            .report(self.id)
+            .chain(self.large.report(self.id))
+            .chain(self.huge.report(self.id))
     }
 
     pub fn root_shared(&self) -> Option<&'raw S> {
