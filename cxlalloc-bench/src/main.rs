@@ -212,8 +212,8 @@ impl Benchmark {
                         ))
                         .build();
 
-                    // Only allow even process counts
-                    match config.global.process_count & 1 {
+                    // Only allow even thread counts
+                    match config.global.thread_count & 1 {
                         0 => Some(config),
                         _ => None,
                     }
