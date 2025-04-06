@@ -24,12 +24,12 @@ use crate::data;
 use crate::size;
 use crate::thread;
 
-pub(crate) struct Slab<'raw, B> {
+pub(crate) struct Slab<'raw, B: size::Bracket> {
     locals: Slice<'raw, B, Local<B>>,
     remotes: Slice<'raw, B, Detectable<Remote<B>>>,
 }
 
-impl<'raw, B> Slab<'raw, B> {
+impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn new(
         locals: Slice<'raw, B, Local<B>>,
         remotes: Slice<'raw, B, Detectable<Remote<B>>>,

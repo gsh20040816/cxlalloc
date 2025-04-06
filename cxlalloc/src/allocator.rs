@@ -5,6 +5,7 @@ use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
 
+use crate::bitset::Interface as _;
 use crate::cache;
 use crate::cas;
 use crate::data;

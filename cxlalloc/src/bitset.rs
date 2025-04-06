@@ -1,8 +1,25 @@
 use core::fmt::Debug;
+use core::mem;
 
 use ribbit::private::u6;
 
 use crate::cache;
+
+pub(crate) const SIZE_METADATA: usize = mem::size_of::<u64>() * 2;
+
+pub(crate) trait Interface: Debug + Sized {
+    const SIZE: usize = Self::SIZE_DATA + SIZE_METADATA;
+    const SIZE_DATA: usize;
+
+    fn fill(&mut self, count: u64);
+    fn peek(&self) -> Bit;
+    fn set(&mut self, bit: Bit);
+    fn unset(&mut self, bit: Bit);
+    fn len(&self) -> u64;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
 
 #[repr(C, align(8))]
 pub(crate) struct BitSet<const SIZE: usize> {
@@ -12,9 +29,42 @@ pub(crate) struct BitSet<const SIZE: usize> {
 }
 
 impl<const SIZE: usize> BitSet<SIZE> {
-    const INVARIANT: () = assert!(SIZE <= 64);
+    #[track_caller]
+    fn validate(&self) {
+        const { assert!(SIZE <= 64) }
 
-    pub(crate) fn fill(&mut self, count: u64) {
+        if !cfg!(feature = "validate") {
+            return;
+        }
+
+        let total = self.dense.iter().copied().map(u64::count_ones).sum::<u32>();
+        assert_eq!(
+            total as u64, self.count,
+            "Count is consistent with dense bitset"
+        );
+
+        for bit in 0..SIZE {
+            assert_eq!(
+                (self.sparse & (1 << bit)) > 0,
+                self.dense[bit] > 0,
+                "Sparse bitset is consistent with dense bitset",
+            );
+        }
+
+        for bit in SIZE..64 {
+            assert_eq!(
+                self.sparse & (1 << bit),
+                0,
+                "Sparse bitset does not overflow",
+            );
+        }
+    }
+}
+
+impl<const SIZE: usize> Interface for BitSet<SIZE> {
+    const SIZE_DATA: usize = mem::size_of::<u64>() * SIZE;
+
+    fn fill(&mut self, count: u64) {
         let rows = count as usize / 64;
 
         // Full rows of 1s
@@ -47,13 +97,13 @@ impl<const SIZE: usize> BitSet<SIZE> {
         self.validate();
     }
 
-    pub(crate) fn peek(&self) -> Bit {
+    fn peek(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;
         let col = unsafe { self.dense.get_unchecked(row as usize) }.trailing_zeros() as u8;
         Bit::new(u6::new(row), u6::new(col))
     }
 
-    pub(crate) fn set(&mut self, bit: Bit) {
+    fn set(&mut self, bit: Bit) {
         let row = bit.row().value() as usize;
         let col = bit.col().value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
@@ -70,7 +120,7 @@ impl<const SIZE: usize> BitSet<SIZE> {
         self.validate();
     }
 
-    pub(crate) fn unset(&mut self, bit: Bit) {
+    fn unset(&mut self, bit: Bit) {
         let row = bit.row().value() as usize;
         let col = bit.col().value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
@@ -87,43 +137,8 @@ impl<const SIZE: usize> BitSet<SIZE> {
         self.validate();
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.count == 0
-    }
-
-    pub(crate) fn len(&self) -> u64 {
+    fn len(&self) -> u64 {
         self.count
-    }
-
-    #[track_caller]
-    fn validate(&self) {
-        const { Self::INVARIANT }
-
-        if !cfg!(feature = "validate") {
-            return;
-        }
-
-        let total = self.dense.iter().copied().map(u64::count_ones).sum::<u32>();
-        assert_eq!(
-            total as u64, self.count,
-            "Count is consistent with dense bitset"
-        );
-
-        for bit in 0..SIZE {
-            assert_eq!(
-                (self.sparse & (1 << bit)) > 0,
-                self.dense[bit] > 0,
-                "Sparse bitset is consistent with dense bitset",
-            );
-        }
-
-        for bit in SIZE..64 {
-            assert_eq!(
-                self.sparse & (1 << bit),
-                0,
-                "Sparse bitset does not overflow",
-            );
-        }
     }
 }
 

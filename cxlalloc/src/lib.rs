@@ -44,11 +44,6 @@ pub(crate) use slab::Slab;
 pub(crate) const SIZE_CACHE_LINE: usize = 64;
 pub(crate) const SIZE_PAGE: usize = 4096;
 
-const SIZE_METADATA: usize = if cfg!(feature = "validate") { 3 } else { 2 };
-
-// Number of 64-bit chunks in free bitset, minus three for metadata
-pub(crate) const SIZE_BIT_SET: usize = (SIZE_CACHE_LINE * 8) / 8 - SIZE_METADATA;
-
 pub(crate) const COUNT_THREAD: usize = 96;
 
 pub(crate) static COUNT_CACHE_SLAB: AtomicUsize = AtomicUsize::new(0);

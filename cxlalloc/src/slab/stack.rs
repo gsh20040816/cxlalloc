@@ -19,7 +19,7 @@ pub(crate) struct Local<B> {
     _bracket: PhantomData<B>,
 }
 
-impl<B> Local<B> {
+impl<B: size::Bracket> Local<B> {
     pub(crate) fn peek(&self) -> Option<Index<B>> {
         self.head
     }

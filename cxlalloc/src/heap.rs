@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 
 use crate::allocator;
+use crate::bitset::Interface as _;
 use crate::cache;
 use crate::cas;
 use crate::cas::help;
@@ -150,8 +151,6 @@ where
             return Err(crate::Error::OutOfBounds);
         };
 
-        self.stat.record_process(stat::ProcessEvent::Fault);
-
         let size_local = const { mem::size_of::<slab::Local<B>>() };
         let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote<B>>>() };
         let size_slab = const { B::SIZE_SLAB };
@@ -188,6 +187,8 @@ where
         } else {
             return Err(crate::Error::OutOfBounds);
         };
+
+        self.stat.record_process(stat::ProcessEvent::Fault);
 
         local.map(backend, local_offset)?;
         remote.map(backend, remote_offset)?;

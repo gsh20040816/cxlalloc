@@ -1,16 +1,18 @@
 use core::cell::UnsafeCell;
+use core::mem;
 
-use crate::bitset::BitSet;
+use crate::size;
 use crate::slab;
 use crate::Atomic;
-use crate::SIZE_BIT_SET;
+
+pub(crate) const SIZE_METADATA: usize = 2 + mem::size_of::<Owner>();
 
 #[repr(C, align(64))]
-pub(crate) struct Local<B> {
+pub(crate) struct Local<B: size::Bracket> {
     pub(crate) next: Atomic<Option<slab::Index<B>>>,
     pub(crate) class: Atomic<B>,
     pub(crate) owner: Owner,
-    pub(crate) free: UnsafeCell<BitSet<SIZE_BIT_SET>>,
+    pub(crate) free: UnsafeCell<B::BitSet>,
 }
 
 #[cfg(feature = "validate")]
