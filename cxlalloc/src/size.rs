@@ -250,7 +250,7 @@ impl Debug for Large {
 
 impl Large {
     const SIZE_MIN_LOG2: usize = 10;
-    const SIZE_MAX_LOG2: usize = 20;
+    const SIZE_MAX_LOG2: usize = 19;
 
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size <= Self::SIZE_MAX {
@@ -308,11 +308,61 @@ impl Bracket for Large {
 
     #[inline]
     fn size(&self) -> u64 {
-        (Self::SIZE_MIN_LOG2 as u64) << self._0().value()
+        (Self::SIZE_MIN as u64) << self._0().value()
     }
 
     #[inline]
     fn count(&self) -> u64 {
         Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self._0().value()
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::Bracket;
+    use super::Large;
+    use super::Small;
+
+    #[test]
+    fn small_consistent() {
+        // Skip special size classes
+        for i in 2..Small::COUNT {
+            let class = Small::from_index(i).unwrap();
+
+            if Small::SIZE_SLAB as u64 % class.size() == 0 {
+                assert_eq!(
+                    class.size() * class.count(),
+                    Small::SIZE_SLAB as u64,
+                    "Class {:?}, size {}, count {}",
+                    class,
+                    class.size(),
+                    class.count()
+                );
+            } else {
+                assert!(
+                    class.size() * class.count() <= Small::SIZE_SLAB as u64,
+                    "Class {:?}, size {}, count {}",
+                    class,
+                    class.size(),
+                    class.count()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn large_consistent() {
+        for i in 0..Large::COUNT {
+            let class = Large::from_index(i).unwrap();
+            assert_eq!(
+                class.size() * class.count(),
+                Large::SIZE_SLAB as u64,
+                "Class {:?}, size {}, count {}",
+                class,
+                class.size(),
+                class.count()
+            );
+        }
     }
 }
