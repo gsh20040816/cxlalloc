@@ -21,6 +21,9 @@ recover-cas = []
 # Enable state transition logging
 recover-log = []
 
+cxl-limited = []
+cxl-mcas = []
+
 stat-event = ["dep:serde"]
 stat-memory = []
 stat-size = ["dep:hdrhistogram"]

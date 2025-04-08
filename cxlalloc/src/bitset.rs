@@ -93,7 +93,8 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
             .for_each(|row| *row = 0);
 
         self.count = count;
-        cache::flush(self, cache::Invalidate::No);
+
+        cache::flush(&self.dense, cache::Invalidate::No);
         self.validate();
     }
 
@@ -114,9 +115,9 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
 
         *cols |= 1 << col;
         cache::flush(cols, cache::Invalidate::No);
+
         self.count += 1;
         self.sparse |= 1 << row;
-        cache::flush(&self.count, cache::Invalidate::No);
         self.validate();
     }
 
@@ -131,9 +132,9 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
 
         *cols &= !(1 << col);
         cache::flush(cols, cache::Invalidate::No);
+
         self.count -= 1;
         self.sparse &= !((*cols == 0) as u64) << row;
-        cache::flush(&self.count, cache::Invalidate::No);
         self.validate();
     }
 

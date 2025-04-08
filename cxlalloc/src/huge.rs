@@ -232,9 +232,9 @@ impl<'raw> Huge<'raw> {
 
     fn trace(mut walk: Option<&'raw Descriptor>) -> impl Iterator<Item = &'raw Descriptor> {
         std::iter::from_fn(move || {
-            let next = walk?;
-            walk = next.next.as_deref();
-            Some(next)
+            let here = walk?;
+            walk = here.next.as_deref();
+            Some(here)
         })
     }
 

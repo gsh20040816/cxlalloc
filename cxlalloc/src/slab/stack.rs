@@ -29,17 +29,19 @@ impl<B: size::Bracket> Local<B> {
     }
 
     pub(crate) fn set(&mut self, head: Option<Index<B>>, count: usize) {
-        self.count = count;
         self.head = head;
-        cache::flush(&self, cache::Invalidate::No);
+        cache::flush(&self.head, cache::Invalidate::No);
+
+        self.count = count;
     }
 
     pub(crate) fn pop(&mut self, slabs: &Slab<B>) -> Option<Index<B>> {
-        let index = self.head?;
+        let head = self.head?;
+        self.head = slabs.locals[head].next.load();
+        cache::flush(&self.head, cache::Invalidate::No);
+
         self.count -= 1;
-        self.head = slabs.locals[index].next.load();
-        cache::flush(self, cache::Invalidate::No);
-        Some(index)
+        Some(head)
     }
 
     pub(crate) fn push(&mut self, slabs: &Slab<B>, index: Index<B>) {
@@ -47,13 +49,14 @@ impl<B: size::Bracket> Local<B> {
             return;
         }
 
-        let slab = &slabs.locals[index];
-        slab.next.store(self.head);
-        cache::flush(&slab.next, cache::Invalidate::No);
+        let head = &slabs.locals[index];
+        head.next.store(self.head);
+        cache::flush(&head.next, cache::Invalidate::No);
 
-        self.count += 1;
         self.head = Some(index);
         cache::flush(&self.head, cache::Invalidate::No);
+
+        self.count += 1;
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slab<B>) -> impl Iterator<Item = Index<B>> + 'a {

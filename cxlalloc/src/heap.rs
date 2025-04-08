@@ -439,6 +439,13 @@ where
         context.log(HeapState::from(LocalToGlobalSave::new(head)));
 
         self.owned.r#unsized.set(next, count - batch);
+
+        // Maintain software cache coherence
+        self.slabs
+            .trace(Some(head))
+            .for_each(|index| cache::flush_cxl(self.slabs.local(index)));
+        cache::fence_cxl();
+
         self.shared.push(context, &self.slabs, head, tail);
     }
 }
@@ -550,13 +557,13 @@ where
             let prev = loop {
                 match slabs.local(walk).next.load() {
                     None => panic!("removing non-existent slab {} {:?}", index, class),
-                    Some(next) if next == index => break walk,
+                    Some(next) if next == index => break slabs.local(walk),
                     Some(next) => walk = next,
                 }
             };
 
-            slabs.local(prev).next.store(next);
-            cache::flush(slabs.local(prev), cache::Invalidate::No);
+            prev.next.store(next);
+            cache::flush(prev, cache::Invalidate::No);
         };
 
         self.r#unsized.push(slabs, index);
