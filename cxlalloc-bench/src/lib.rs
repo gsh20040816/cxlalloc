@@ -2,6 +2,7 @@ pub mod allocator;
 pub mod index;
 pub mod worker;
 
+use core::marker::PhantomData;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -44,6 +45,7 @@ fn date() -> u64 {
 
 // TOML doesn't have a native null value
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[serde(transparent)]
 pub struct TomlOption<T: DeserializeOwned>(
     #[serde(deserialize_with = "empty_string_as_none")] pub Option<T>,
 );
@@ -54,10 +56,32 @@ where
     D: serde::Deserializer<'de>,
     T: serde::Deserialize<'de>,
 {
-    let opt = Option::<String>::deserialize(de)?;
-    let opt = opt.as_deref();
-    match opt {
-        None | Some("") => Ok(None),
-        Some(s) => T::deserialize(s.into_deserializer()).map(Some),
+    de.deserialize_any(Visitor::<T>(PhantomData))
+}
+
+struct Visitor<T>(PhantomData<T>);
+
+impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for Visitor<T> {
+    type Value = Option<T>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "empty string or {}", std::any::type_name::<T>())
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match v {
+            "" => Ok(None),
+            _ => T::deserialize(v.into_deserializer()).map(Some),
+        }
+    }
+
+    fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        T::deserialize(serde::de::value::MapAccessDeserializer::new(map)).map(Some)
     }
 }
