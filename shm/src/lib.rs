@@ -23,7 +23,7 @@ pub enum Numa {
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(tag = "policy", rename_all = "snake_case"))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum Populate {
     PageTable,
     Physical,
