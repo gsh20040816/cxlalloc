@@ -49,9 +49,9 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
         allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
         assert_eq!(
-            self.workload.operation_count % config.thread_count,
+            self.workload.record_count % config.thread_count,
             0,
-            "Operation count {} must be evenly divisible by thread count {}",
+            "Record count {} must be evenly divisible by thread count {}",
             self.workload.operation_count,
             config.thread_count,
         );
