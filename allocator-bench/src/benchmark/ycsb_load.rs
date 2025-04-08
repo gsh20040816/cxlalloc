@@ -52,7 +52,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
             self.workload.record_count % config.thread_count,
             0,
             "Record count {} must be evenly divisible by thread count {}",
-            self.workload.operation_count,
+            self.workload.record_count,
             config.thread_count,
         );
 
@@ -114,7 +114,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
         let time = start.elapsed().as_nanos();
         OutputWorker {
             time,
-            operation_count: (self.workload.operation_count / config.thread_count) as u64,
+            operation_count: (self.workload.record_count / config.thread_count) as u64,
         }
     }
 
