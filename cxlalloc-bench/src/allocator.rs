@@ -153,10 +153,12 @@ const COHERENCE: Coherence = if cfg!(feature = "cxl-limited") {
 
 type Partial = allocator_bench::allocator::ConfigBuilder<
     serde_json::Value,
-    allocator_bench::allocator::config::SetConsistency<
-        allocator_bench::allocator::config::SetPopulate<
-            allocator_bench::allocator::config::SetSize<
-                allocator_bench::allocator::config::SetNuma,
+    allocator_bench::allocator::config::SetCoherence<
+        allocator_bench::allocator::config::SetConsistency<
+            allocator_bench::allocator::config::SetPopulate<
+                allocator_bench::allocator::config::SetSize<
+                    allocator_bench::allocator::config::SetNuma,
+                >,
             >,
         >,
     >,
@@ -169,7 +171,8 @@ impl Config {
                 .maybe_numa(numa.0.clone())
                 .size(*size)
                 .maybe_populate(populate.0)
-                .consistency(CONSISTENCY);
+                .consistency(CONSISTENCY)
+                .coherence(COHERENCE);
 
             apply(config)
         })
