@@ -18,7 +18,7 @@ use crate::allocator::Handle as _;
 pub struct Global<A> {
     thread_count: usize,
 
-    local: [Pad<UnsafeCell<Local<A>>>; 64],
+    local: [Pad<UnsafeCell<Local<A>>>; 128],
 
     // FIXME: replace with cache-line padded boolean array if highly contended
     token: AtomicUsize,
