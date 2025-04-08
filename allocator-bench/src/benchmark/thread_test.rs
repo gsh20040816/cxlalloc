@@ -1,5 +1,6 @@
 // https://github.com/emeryberger/Hoard/blob/f021bdb810332c9c9f5a11ae5404aaa38fe129c0/benchmarks/threadtest/threadtest.cpp
 
+use core::cmp;
 use std::time::Instant;
 
 use bon::Builder;
@@ -9,6 +10,7 @@ use serde::Serialize;
 use crate::Allocator;
 use crate::allocator;
 use crate::allocator::Backend;
+use crate::allocator::Handle as _;
 use crate::benchmark;
 use crate::config;
 
@@ -31,12 +33,17 @@ pub struct OutputWorker {
     size: u64,
 }
 
+pub struct Worker<A: Allocator> {
+    iteration_count: usize,
+    handles: Vec<Option<A::Handle>>,
+}
+
 impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
     const NAME: &str = "/tt";
-    type StateGlobal = usize;
+    type StateGlobal = ();
     type StateProcess = ();
     type StateCoordinator = ();
-    type StateWorker = Vec<Option<<B::Allocator as Allocator>::Handle>>;
+    type StateWorker = Worker<B::Allocator>;
 
     type OutputWorker = OutputWorker;
     type OutputCoordinator = ();
@@ -47,12 +54,10 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         _allocator: &allocator::Config<B::Config>,
     ) -> Self::StateGlobal {
         assert_eq!(
-            self.operation_count as usize % config.thread_count,
+            self.iteration_count as usize % config.thread_count,
             0,
             "Object count should be multiple of total thread count"
         );
-
-        self.operation_count as usize / config.thread_count
     }
 
     fn setup_process(
@@ -72,12 +77,15 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
 
     fn setup_worker(
         &self,
-        _config: &config::Thread,
-        object_count: &Self::StateGlobal,
+        config: &config::Thread,
+        (): &Self::StateGlobal,
         (): &Self::StateProcess,
         _allocator: &mut B::Allocator,
     ) -> Self::StateWorker {
-        (0..*object_count).map(|_| None).collect()
+        Worker {
+            iteration_count: self.iteration_count as usize / config.thread_count,
+            handles: (0..self.operation_count).map(|_| None).collect(),
+        }
     }
 
     fn run_coordinator(
@@ -94,17 +102,25 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         _config: &config::Thread,
         _: &Self::StateGlobal,
         (): &Self::StateProcess,
-        handles: &mut Self::StateWorker,
+        worker: &mut Self::StateWorker,
         allocator: &mut B::Allocator,
     ) -> Self::OutputWorker {
         let start = Instant::now();
 
-        for _ in 0..self.iteration_count {
-            for handle in &mut *handles {
+        for _ in 0..worker.iteration_count {
+            for handle in &mut worker.handles {
                 *handle = allocator.allocate(self.object_size);
+
+                unsafe {
+                    libc::memset(
+                        handle.as_mut().unwrap().as_ptr(),
+                        0xff,
+                        cmp::min(self.object_size, 64),
+                    );
+                }
             }
 
-            for handle in &mut *handles {
+            for handle in &mut worker.handles {
                 let handle = handle.take().unwrap();
                 unsafe {
                     allocator.deallocate(handle);
@@ -113,7 +129,7 @@ impl<B: Backend> benchmark::Benchmark<B> for ThreadTest {
         }
 
         let time = start.elapsed().as_nanos();
-        let operation_count = handles.len() as u64 * self.iteration_count;
+        let operation_count = (worker.handles.len() * worker.iteration_count) as u64;
         OutputWorker {
             time,
             operation_count,
