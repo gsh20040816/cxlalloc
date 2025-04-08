@@ -129,9 +129,9 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
 
         let root = Shm::<Root>::builder()
             .create(create)
-            .numa(allocator.numa)
+            .maybe_numa(allocator.numa.clone())
             .name(c"/xmalloc".to_owned())
-            .populate(true)
+            .populate(shm::Populate::Physical)
             .build()
             .unwrap();
 

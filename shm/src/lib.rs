@@ -13,6 +13,22 @@ use bon::bon;
 
 const PAGE: usize = 4096;
 
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "policy", rename_all = "snake_case"))]
+pub enum Numa {
+    Bind { node: usize },
+    Interleave { nodes: Vec<usize> },
+}
+
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "policy", rename_all = "snake_case"))]
+pub enum Populate {
+    PageTable,
+    Physical,
+}
+
 pub struct Shm<T> {
     inner: Raw,
     r#type: PhantomData<T>,
@@ -28,17 +44,17 @@ pub struct Raw {
 impl<T> Shm<T> {
     #[builder]
     pub fn new(
-        numa: Option<usize>,
+        numa: Option<Numa>,
         name: CString,
         #[builder(default)] create: bool,
-        populate: bool,
+        populate: Option<Populate>,
     ) -> io::Result<Self> {
         let inner = Raw::builder()
             .maybe_numa(numa)
             .name(name)
             .size(Self::SIZE)
             .create(create)
-            .populate(populate)
+            .maybe_populate(populate)
             .build()?;
 
         Ok(Self {
@@ -76,11 +92,11 @@ impl<T> Shm<T> {
 impl Raw {
     #[builder]
     pub fn new(
-        numa: Option<usize>,
+        numa: Option<Numa>,
         name: CString,
         size: usize,
         #[builder(default)] create: bool,
-        #[builder(default)] populate: bool,
+        populate: Option<Populate>,
     ) -> io::Result<Raw> {
         assert!(
             name.as_bytes()[0] == b'/',
@@ -128,7 +144,12 @@ impl Raw {
                 ptr::null_mut(),
                 size,
                 libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED_VALIDATE,
+                libc::MAP_SHARED_VALIDATE
+                    | if matches!(populate, Some(Populate::PageTable)) {
+                        libc::MAP_POPULATE
+                    } else {
+                        0
+                    },
                 fd.as_raw_fd(),
                 0,
             )
@@ -138,11 +159,15 @@ impl Raw {
         };
 
         if let (true, Some(numa)) = (create, numa) {
-            Self::mbind(numa, address, size)?;
+            unsafe {
+                Self::mbind(numa, address, size)?;
+            }
         }
 
-        if populate {
-            Self::madvise(address, size)?;
+        if matches!(populate, Some(Populate::Physical)) {
+            unsafe {
+                Self::madvise(address, size)?;
+            }
         }
 
         Ok(Self {
@@ -187,14 +212,24 @@ impl Raw {
     }
 
     // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-    fn mbind(numa: usize, address: *mut ffi::c_void, size: usize) -> io::Result<()> {
-        let mask = 1u64 << numa;
+    pub unsafe fn mbind(numa: Numa, address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+        let (policy, mask) = match numa {
+            Numa::Bind { node } => (libc::MPOL_BIND, 1u64 << node),
+            Numa::Interleave { nodes } => (
+                libc::MPOL_INTERLEAVE,
+                nodes
+                    .into_iter()
+                    .map(|node| 1u64 << node)
+                    .fold(0, |l, r| l | r),
+            ),
+        };
+
         match unsafe {
             libc::syscall(
                 libc::SYS_mbind,
                 address,
                 size,
-                libc::MPOL_BIND | libc::MPOL_F_STATIC_NODES,
+                libc::MPOL_F_STATIC_NODES | policy,
                 &mask,
                 64,
                 // MPOL_MF_STRICT
@@ -207,7 +242,7 @@ impl Raw {
         }
     }
 
-    fn madvise(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+    pub unsafe fn madvise(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
         match unsafe { libc::madvise(address, size, libc::MADV_POPULATE_WRITE) } {
             -1 => Err(io::Error::last_os_error()),
             _ => Ok(()),

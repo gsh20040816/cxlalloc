@@ -10,7 +10,7 @@ use std::io;
 use arrayvec::ArrayString;
 
 use crate::raw::backend;
-use crate::raw::Backend;
+use crate::raw::backend::Backend;
 
 #[repr(C, align(4096))]
 pub(crate) struct Page([u8; 4096]);
@@ -121,7 +121,15 @@ impl Fixed {
     pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
         let file = backend.allocate(id.clone(), size)?;
-        let address = unsafe { mmap(None, size, backend.numa(), backend.populate(), &file)? };
+        let address = unsafe {
+            mmap(
+                None,
+                size,
+                backend.numa().cloned(),
+                backend.populate(),
+                &file,
+            )?
+        };
         Ok(Self {
             id,
             address,
@@ -167,7 +175,7 @@ impl Sequential {
                     mmap(
                         Some(reservation.0),
                         size,
-                        backend.numa(),
+                        backend.numa().cloned(),
                         backend.populate(),
                         &file,
                     )
@@ -192,7 +200,7 @@ impl Sequential {
             mmap(
                 Some(self.reservation.0.byte_add(self.size.get() * index)),
                 self.size,
-                backend.numa(),
+                backend.numa().cloned(),
                 backend.populate(),
                 &file,
             )
@@ -241,7 +249,7 @@ impl Random {
             mmap(
                 Some(self.address().byte_add(offset)),
                 size,
-                backend.numa(),
+                backend.numa().cloned(),
                 backend.populate(),
                 &file,
             )
@@ -279,8 +287,8 @@ unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> crate::Result<()
 unsafe fn mmap(
     address: Option<NonNull<Page>>,
     size: NonZeroUsize,
-    numa: Option<usize>,
-    populate: bool,
+    numa: Option<::shm::Numa>,
+    populate: Option<::shm::Populate>,
     file: &backend::File,
 ) -> crate::Result<NonNull<Page>> {
     let actual = match libc::mmap64(
@@ -290,7 +298,13 @@ unsafe fn mmap(
             .cast(),
         size.get(),
         libc::PROT_READ | libc::PROT_WRITE,
-        file.flags() | address.map(|_| libc::MAP_FIXED).unwrap_or(0),
+        file.flags()
+            | address.map(|_| libc::MAP_FIXED).unwrap_or(0)
+            | if matches!(populate, Some(::shm::Populate::PageTable)) {
+                libc::MAP_POPULATE
+            } else {
+                0
+            },
         file.fd(),
         file.offset,
     ) {
@@ -303,43 +317,16 @@ unsafe fn mmap(
     }
 
     if let Some(numa) = numa {
-        mbind(actual, size, numa)?;
+        unsafe {
+            ::shm::Raw::mbind(numa, actual.as_ptr().cast(), size.get())?;
+        }
     }
 
-    if populate {
-        madvise(actual, size)?;
+    if matches!(populate, Some(::shm::Populate::Physical)) {
+        unsafe {
+            ::shm::Raw::madvise(actual.as_ptr().cast(), size.get())?;
+        }
     }
 
     Ok(actual)
-}
-
-unsafe fn madvise(address: NonNull<Page>, size: NonZeroUsize) -> crate::Result<()> {
-    match libc::madvise(
-        address.as_ptr().cast(),
-        size.get(),
-        libc::MADV_POPULATE_WRITE,
-    ) {
-        -1 => Err(crate::Error::Madvise(io::Error::last_os_error())),
-        _ => Ok(()),
-    }
-}
-
-// https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-unsafe fn mbind(address: NonNull<Page>, size: NonZeroUsize, numa: usize) -> crate::Result<()> {
-    let mask = 1u64 << numa;
-    match libc::syscall(
-        libc::SYS_mbind,
-        address,
-        size.get(),
-        libc::MPOL_BIND | libc::MPOL_F_STATIC_NODES,
-        &mask,
-        64,
-        // MPOL_MF_STRICT sometimes raises EIO when called concurrently for the same address range.
-        // https://github.com/torvalds/linux/blob/0c559323bbaabee7346c12e74b497e283aaafef5/include/uapi/linux/mempolicy.h#L48
-        //
-        0,
-    ) {
-        0 => Ok(()),
-        _ => Err(crate::Error::Mbind(io::Error::last_os_error())),
-    }
 }

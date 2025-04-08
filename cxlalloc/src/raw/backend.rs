@@ -9,6 +9,8 @@ mod ivshmem;
 #[path = "shm.rs"]
 mod shm;
 
+pub use ::shm::Numa;
+pub use ::shm::Populate;
 pub use mmap::Mmap;
 
 #[cfg(feature = "backend-ivshmem")]
@@ -18,18 +20,46 @@ pub use ivshmem::Ivshmem;
 pub use shm::Shm;
 
 use core::num::NonZeroUsize;
+use core::ops::Deref;
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::fd::OwnedFd;
 
+use bon::Builder;
+
 use crate::raw::region;
+
+#[derive(Builder, Debug, Default)]
+pub struct Backend {
+    numa: Option<::shm::Numa>,
+    populate: Option<::shm::Populate>,
+    #[builder(into)]
+    kind: Kind,
+}
+
+impl Backend {
+    pub(super) fn numa(&self) -> Option<&::shm::Numa> {
+        self.numa.as_ref()
+    }
+
+    pub(super) fn populate(&self) -> Option<::shm::Populate> {
+        self.populate
+    }
+}
+
+impl Deref for Backend {
+    type Target = Kind;
+    fn deref(&self) -> &Self::Target {
+        &self.kind
+    }
+}
 
 // Note: we use an enum here to avoid dynamic allocation
 // of a `Box<dyn Backend>` trait object. This is fine
 // because the set of backends should not be extensible
 // by downstream consumers.
 #[derive(Debug)]
-pub enum Backend {
+pub enum Kind {
     Mmap(Mmap),
     #[cfg(feature = "backend-ivshmem")]
     Ivshmem(Ivshmem),
@@ -37,41 +67,29 @@ pub enum Backend {
     Shm(Shm),
 }
 
-impl Backend {
+impl Kind {
     pub(super) fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File> {
-        let backend = self.as_backend();
-        backend.allocate(id, size)
+        self.as_backend().allocate(id, size)
     }
 
     pub(super) fn name(&self) -> &str {
         self.as_backend().name()
     }
 
-    pub(super) fn numa(&self) -> Option<usize> {
-        self.as_backend().numa()
-    }
-
-    pub(super) fn populate(&self) -> bool {
-        self.as_backend().populate()
-    }
-
     fn as_backend(&self) -> &dyn Impl {
         match self {
-            Backend::Mmap(mmap) => mmap,
+            Kind::Mmap(mmap) => mmap,
             #[cfg(feature = "backend-ivshmem")]
-            Backend::Ivshmem(ivshmem) => ivshmem,
+            Kind::Ivshmem(ivshmem) => ivshmem,
             #[cfg(feature = "backend-shm")]
-            Backend::Shm(shm) => shm,
+            Kind::Shm(shm) => shm,
         }
     }
 }
 
-impl Default for Backend {
+impl Default for Kind {
     fn default() -> Self {
-        Backend::Mmap(Mmap {
-            numa: None,
-            populate: false,
-        })
+        Kind::Mmap(Mmap)
     }
 }
 
@@ -83,10 +101,6 @@ pub(super) trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
     fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File>;
-
-    fn numa(&self) -> Option<usize>;
-
-    fn populate(&self) -> bool;
 }
 
 pub(super) struct File {

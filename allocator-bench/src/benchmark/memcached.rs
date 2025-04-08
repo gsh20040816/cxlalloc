@@ -141,7 +141,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
                 .unwrap();
         Global {
             index: I::new(
-                Some(allocator.numa),
+                allocator.numa.clone(),
                 self.index.len,
                 config.is_leader(),
                 self.index.populate,

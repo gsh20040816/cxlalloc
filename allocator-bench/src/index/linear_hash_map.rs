@@ -16,10 +16,10 @@ pub struct LinearHashMap {
 
 impl<A: Allocator> Index<A> for LinearHashMap {
     fn new(
-        _numa: Option<usize>,
+        _numa: Option<shm::Numa>,
         _len: usize,
         _create: bool,
-        _populate: bool,
+        _populate: Option<shm::Populate>,
         _thread_count: usize,
     ) -> io::Result<Self> {
         todo!()

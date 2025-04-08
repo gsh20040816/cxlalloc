@@ -29,11 +29,11 @@ impl allocator_bench::allocator::Backend for Backend {
 
     fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
         shm::Raw::builder()
-            .numa(config.numa)
+            .maybe_numa(config.numa.clone())
             .name(CString::new(name).unwrap())
             .size(config.size)
             .create(create)
-            .populate(config.populate)
+            .maybe_populate(config.populate)
             .build()
             .map(Self)
     }

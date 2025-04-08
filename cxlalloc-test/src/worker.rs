@@ -145,10 +145,11 @@ impl Worker {
 
         let raw = RAW.get_or_init(|| {
             cxlalloc::raw::Raw::builder()
-                .backend(cxlalloc::raw::backend::Shm {
-                    numa: None,
-                    populate: false,
-                })
+                .backend(
+                    cxlalloc::raw::Backend::builder()
+                        .kind(cxlalloc::raw::backend::Shm)
+                        .build(),
+                )
                 .free(false)
                 .thread_count(cli.count)
                 .size_small(cli.size)

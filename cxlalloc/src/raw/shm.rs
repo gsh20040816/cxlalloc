@@ -12,10 +12,7 @@ use crate::raw::backend;
 use crate::raw::region;
 
 #[derive(Debug)]
-pub struct Shm {
-    pub numa: Option<usize>,
-    pub populate: bool,
-}
+pub struct Shm;
 
 impl backend::Impl for Shm {
     fn name(&self) -> &'static str {
@@ -58,14 +55,6 @@ impl backend::Impl for Shm {
             Ok(backend::File::new(fd, 0, clean))
         }
     }
-
-    fn numa(&self) -> Option<usize> {
-        self.numa
-    }
-
-    fn populate(&self) -> bool {
-        self.populate
-    }
 }
 
 fn id_to_path(id: region::Id) -> ArrayVec<u8, { region::Id::SIZE }> {
@@ -76,8 +65,8 @@ fn id_to_path(id: region::Id) -> ArrayVec<u8, { region::Id::SIZE }> {
     path
 }
 
-impl From<Shm> for raw::Backend {
+impl From<Shm> for raw::backend::Kind {
     fn from(shm: Shm) -> Self {
-        raw::Backend::Shm(shm)
+        raw::backend::Kind::Shm(shm)
     }
 }

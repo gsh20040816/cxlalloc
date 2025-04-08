@@ -56,10 +56,10 @@ impl allocator_bench::allocator::Backend for Backend {
     fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
         unsafe {
             let shm = shm::Raw::builder()
-                .numa(config.numa)
+                .maybe_numa(config.numa.clone())
                 .name(CString::new(name).unwrap())
                 .size(config.size)
-                .populate(config.populate)
+                .maybe_populate(config.populate)
                 .build()?;
 
             let open = match create {

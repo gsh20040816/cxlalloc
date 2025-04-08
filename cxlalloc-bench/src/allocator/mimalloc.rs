@@ -29,11 +29,11 @@ impl allocator_bench::allocator::Backend for Backend {
 
     fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
         let raw = shm::Raw::builder()
-            .numa(config.numa)
+            .maybe_numa(config.numa.clone())
             .name(CString::new(name).unwrap())
             .size(config.size)
             .create(create)
-            .populate(config.populate)
+            .maybe_populate(config.populate)
             .build()?;
 
         let arena = unsafe {
@@ -44,7 +44,8 @@ impl allocator_bench::allocator::Backend for Backend {
                 false,
                 false,
                 true,
-                config.numa as i32,
+                // https://github.com/microsoft/mimalloc/blob/af21001f7a65eafb8fb16460b018ebf9d75e2ad8/src/arena.c#L853
+                -1,
                 true,
                 arena.as_mut_ptr(),
             );

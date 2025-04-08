@@ -6,7 +6,6 @@ use core::ptr;
 use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::ffi::CString;
 use std::io;
 
 use rapidhash::RapidHasher;
@@ -29,17 +28,17 @@ pub struct LinkedHashMap<A> {
 
 impl<A: Allocator> Index<A> for LinkedHashMap<A> {
     fn new(
-        numa: Option<usize>,
+        numa: Option<shm::Numa>,
         len: usize,
         create: bool,
-        populate: bool,
+        populate: Option<shm::Populate>,
         thread_count: usize,
     ) -> io::Result<Self> {
         let ebr = shm::Shm::builder()
-            .maybe_numa(numa)
+            .maybe_numa(numa.clone())
             .name(c"/ebr".to_owned())
             .create(create)
-            .populate(populate)
+            .maybe_populate(populate)
             .build()?;
 
         if create {
@@ -53,10 +52,10 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             ebr,
             raw: shm::Raw::builder()
                 .maybe_numa(numa)
-                .name(CString::new("/index").unwrap())
+                .name(c"/index".to_owned())
                 .size(len * 8)
                 .create(create)
-                .populate(populate)
+                .maybe_populate(populate)
                 .build()?,
         })
     }

@@ -37,6 +37,7 @@ libc.workspace = true
 log.workspace = true
 ribbit.workspace = true
 serde = { workspace = true, optional = true }
+shm.path = "../shm"
 thiserror.workspace = true
 
 [dev-dependencies]

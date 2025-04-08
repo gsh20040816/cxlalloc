@@ -32,10 +32,13 @@ impl allocator_bench::allocator::Backend for Backend {
 
         cxlalloc_global::initialize_process(
             cxlalloc_global::Raw::builder()
-                .backend(cxlalloc_global::backend::Shm {
-                    numa: Some(config.numa),
-                    populate: config.populate,
-                })
+                .backend(
+                    cxlalloc_global::backend::Backend::builder()
+                        .kind(cxlalloc_global::backend::Shm)
+                        .maybe_numa(config.numa.clone())
+                        .maybe_populate(config.populate)
+                        .build(),
+                )
                 .size_small(config.size / 2)
                 .size_large(config.size / 2)
                 .cache_local(config.inner.cache_local)

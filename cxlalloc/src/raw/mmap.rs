@@ -3,13 +3,9 @@ use std::io;
 
 use crate::raw::backend;
 use crate::raw::region;
-use crate::raw::Backend;
 
 #[derive(Clone, Debug, Default)]
-pub struct Mmap {
-    pub numa: Option<usize>,
-    pub populate: bool,
-}
+pub struct Mmap;
 
 impl backend::Impl for Mmap {
     fn name(&self) -> &'static str {
@@ -19,18 +15,10 @@ impl backend::Impl for Mmap {
     fn allocate(&self, _: region::Id, _: NonZeroUsize) -> io::Result<backend::File> {
         Ok(backend::File::default())
     }
-
-    fn numa(&self) -> Option<usize> {
-        self.numa
-    }
-
-    fn populate(&self) -> bool {
-        self.populate
-    }
 }
 
-impl From<Mmap> for Backend {
+impl From<Mmap> for backend::Kind {
     fn from(mmap: Mmap) -> Self {
-        Backend::Mmap(mmap)
+        backend::Kind::Mmap(mmap)
     }
 }

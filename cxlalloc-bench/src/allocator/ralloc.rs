@@ -24,8 +24,14 @@ impl allocator_bench::allocator::Backend for Backend {
         unsafe {
             // FIXME: hacky workaround for now, since ralloc
             // maps several different files
-            assert!(!config.populate);
-            std::env::set_var("CXL_NUMA_NODE", config.numa.to_string());
+            assert!(config.populate.is_none());
+            match &config.numa {
+                None => (),
+                Some(shm::Numa::Bind { node }) => {
+                    std::env::set_var("CXL_NUMA_NODE", node.to_string())
+                }
+                Some(shm::Numa::Interleave { nodes: _ }) => todo!(),
+            }
 
             if create {
                 unlink(name)?;

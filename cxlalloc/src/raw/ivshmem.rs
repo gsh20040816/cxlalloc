@@ -3,24 +3,22 @@ use std::fs;
 use std::io;
 use std::os::fd::OwnedFd;
 
-use crate::raw;
 use crate::raw::backend;
 use crate::raw::region;
 
 #[derive(Debug)]
 pub struct Ivshmem {
     device: fs::File,
-    populate: bool,
 }
 
 impl Ivshmem {
     #[allow(clippy::new_without_default)]
-    pub fn new(populate: bool) -> Self {
+    pub fn new() -> Self {
         fs::File::options()
             .read(true)
             .write(true)
             .open("/dev/cxl_ivpci0")
-            .map(|device| Self { device, populate })
+            .map(|device| Self { device })
             .expect("Failed to open `/dev/cxl_ivpci0`: is CXL driver module loaded?")
     }
 }
@@ -39,20 +37,11 @@ impl backend::Impl for Ivshmem {
             allocation.existing == 0,
         ))
     }
-
-    // Assumes memory is bound to NUMA node by host (outside of VM)
-    fn numa(&self) -> Option<usize> {
-        None
-    }
-
-    fn populate(&self) -> bool {
-        self.populate
-    }
 }
 
-impl From<Ivshmem> for raw::Backend {
+impl From<Ivshmem> for backend::Kind {
     fn from(ivshmem: Ivshmem) -> Self {
-        raw::Backend::Ivshmem(ivshmem)
+        backend::Kind::Ivshmem(ivshmem)
     }
 }
 

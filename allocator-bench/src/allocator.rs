@@ -15,14 +15,16 @@ use serde::de::DeserializeOwned;
 pub struct Config<T> {
     pub name: String,
 
-    /// NUMA node for remote memory
-    pub numa: usize,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numa: Option<shm::Numa>,
 
     /// Initial heap size
     pub size: usize,
 
-    /// Eagerly populate page tables
-    pub populate: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub populate: Option<shm::Populate>,
 
     pub consistency: Consistency,
 
@@ -35,7 +37,7 @@ impl<T> Config<T> {
     pub fn map<F: FnOnce(&T) -> U, U>(&self, apply: F) -> Config<U> {
         Config {
             name: self.name.clone(),
-            numa: self.numa,
+            numa: self.numa.clone(),
             size: self.size,
             populate: self.populate,
             consistency: self.consistency,

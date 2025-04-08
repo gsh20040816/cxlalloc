@@ -19,8 +19,8 @@ pub struct Config {
     #[serde_inline_default(vec![1 << 25])]
     len: Vec<usize>,
 
-    #[serde_inline_default(vec![false])]
-    populate: Vec<bool>,
+    #[serde_inline_default(vec![None])]
+    populate: Vec<Option<shm::Populate>>,
 }
 
 impl Default for Config {
@@ -42,7 +42,7 @@ impl Config {
             let config = allocator_bench::index::Config::builder()
                 .name(index.to_string())
                 .len(*len)
-                .populate(*populate)
+                .maybe_populate(populate.clone())
                 .build();
 
             apply(config)

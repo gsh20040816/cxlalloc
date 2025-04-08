@@ -722,6 +722,7 @@ dependencies = [
  "proptest-state-machine",
  "ribbit",
  "serde",
+ "shm",
  "thiserror",
 ]
 
@@ -2007,6 +2008,7 @@ dependencies = [
  "bon",
  "libc",
  "log",
+ "serde",
 ]
 
 [[package]]

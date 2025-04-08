@@ -101,15 +101,15 @@ impl Allocator {
 #[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    #[serde_inline_default(vec![0])]
-    numa: Vec<usize>,
+    #[serde_inline_default(vec![None])]
+    numa: Vec<Option<shm::Numa>>,
 
     // 2^36 = 64 GiB
     #[serde_inline_default(vec![1 << 36])]
     size: Vec<usize>,
 
-    #[serde_inline_default(vec![false])]
-    populate: Vec<bool>,
+    #[serde_inline_default(vec![None])]
+    populate: Vec<Option<shm::Populate>>,
 }
 
 impl Default for Config {
@@ -147,9 +147,9 @@ impl Config {
     pub fn for_each_cartesian<F: FnMut(Partial)>(&self, mut apply: F) {
         cartesian!(&self.numa, &self.size, &self.populate).for_each(|(numa, size, populate)| {
             let config = allocator_bench::allocator::Config::builder()
-                .numa(*numa)
+                .maybe_numa(numa.clone())
                 .size(*size)
-                .populate(*populate)
+                .maybe_populate(*populate)
                 .consistency(CONSISTENCY);
 
             apply(config)

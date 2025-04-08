@@ -20,7 +20,7 @@ impl Barrier {
         Shm::builder()
             .create(create)
             .name(Self::PATH.to_owned())
-            .populate(true)
+            .populate(shm::Populate::Physical)
             .build()
             .map(|shm| Self { total, shm })
     }

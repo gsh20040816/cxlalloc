@@ -47,7 +47,8 @@ pub struct Config {
     pub(crate) len: usize,
 
     /// Whether to map populate the index
-    pub(crate) populate: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) populate: Option<shm::Populate>,
 }
 
 pub trait Index<A>
@@ -56,10 +57,10 @@ where
     A: Allocator,
 {
     fn new(
-        numa: Option<usize>,
+        numa: Option<shm::Numa>,
         len: usize,
         create: bool,
-        populate: bool,
+        populate: Option<shm::Populate>,
         thread_count: usize,
     ) -> io::Result<Self>;
 

@@ -55,24 +55,23 @@ impl Backend {
     fn instantiate(&self) -> raw::Backend {
         let numa = env::var("CXL_NUMA_NODE")
             .ok()
-            .and_then(|numa| numa.parse::<usize>().ok());
-        let populate = env::var("CXLALLOC_MAP_POPULATE")
-            .ok()
-            .and_then(|populate| populate.parse::<bool>().ok())
-            .unwrap_or_default();
+            .and_then(|node| node.parse::<usize>().ok())
+            .map(|node| cxlalloc::raw::backend::Numa::Bind { node });
+
+        let builder = raw::Backend::builder().maybe_numa(numa);
 
         match self {
-            Backend::Mmap => raw::Backend::Mmap(backend::Mmap { numa, populate }),
+            Backend::Mmap => builder.kind(raw::backend::Mmap).build(),
 
             #[cfg(feature = "backend-shm")]
-            Backend::Shm => raw::Backend::Shm(backend::Shm { numa, populate }),
+            Backend::Shm => builder.kind(raw::backend::Shm).build(),
             #[cfg(not(feature = "backend-shm"))]
             Backend::Shm => {
                 panic!("cxlalloc-static crate was compiled without `backend-shm` feature")
             }
 
             #[cfg(feature = "backend-ivshmem")]
-            Backend::Ivshmem => raw::Backend::Ivshmem(backend::Ivshmem::new(populate)),
+            Backend::Ivshmem => builder.kind(raw::backend::Ivshmem::new()).build(),
             #[cfg(not(feature = "backend-ivshmem"))]
             Backend::Ivshmem => {
                 panic!("cxlalloc-static crate was compiled without `backend-ivshmem` feature")

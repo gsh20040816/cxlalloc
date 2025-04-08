@@ -23,6 +23,7 @@ use core::sync::atomic::Ordering;
 use std::env;
 use std::sync::LazyLock;
 
+use cxlalloc::raw::backend;
 use cxlalloc::raw::backend::Mmap;
 use cxlalloc::raw::Backend;
 
@@ -77,13 +78,16 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
 
     let numa = env::var("CXL_NUMA_NODE")
         .ok()
-        .and_then(|numa| numa.parse::<usize>().ok());
+        .and_then(|node| node.parse::<usize>().ok())
+        .map(|node| cxlalloc::raw::backend::Numa::Bind { node });
 
     cxlalloc::raw::Raw::builder()
-        .backend(Backend::Mmap(Mmap {
-            numa,
-            populate: false,
-        }))
+        .backend(
+            Backend::builder()
+                .maybe_numa(numa)
+                .kind(backend::Kind::Mmap(Mmap))
+                .build(),
+        )
         .size_small(1usize << 34)
         .thread_count(64)
         .build("cxl")
