@@ -9,6 +9,8 @@ pub use allocator::Allocator;
 pub use index::Index;
 
 use bon::Builder;
+use serde::de::DeserializeOwned;
+use serde::de::IntoDeserializer as _;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -38,4 +40,24 @@ fn date() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
+}
+
+// TOML doesn't have a native null value
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub struct TomlOption<T: DeserializeOwned>(
+    #[serde(deserialize_with = "empty_string_as_none")] pub Option<T>,
+);
+
+// https://github.com/serde-rs/serde/issues/1425#issuecomment-462282398
+fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    let opt = Option::<String>::deserialize(de)?;
+    let opt = opt.as_deref();
+    match opt {
+        None | Some("") => Ok(None),
+        Some(s) => T::deserialize(s.into_deserializer()).map(Some),
+    }
 }

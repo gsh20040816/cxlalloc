@@ -20,6 +20,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_inline_default::serde_inline_default;
 
+use crate::TomlOption;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "name", rename_all = "snake_case")]
 pub enum Allocator {
@@ -101,15 +103,15 @@ impl Allocator {
 #[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
-    #[serde_inline_default(vec![None])]
-    numa: Vec<Option<shm::Numa>>,
+    #[serde_inline_default(vec![TomlOption(None)])]
+    numa: Vec<TomlOption<shm::Numa>>,
 
     // 2^36 = 64 GiB
     #[serde_inline_default(vec![1 << 36])]
     size: Vec<usize>,
 
-    #[serde_inline_default(vec![None])]
-    populate: Vec<Option<shm::Populate>>,
+    #[serde_inline_default(vec![TomlOption(None)])]
+    populate: Vec<TomlOption<shm::Populate>>,
 }
 
 impl Default for Config {
@@ -147,9 +149,9 @@ impl Config {
     pub fn for_each_cartesian<F: FnMut(Partial)>(&self, mut apply: F) {
         cartesian!(&self.numa, &self.size, &self.populate).for_each(|(numa, size, populate)| {
             let config = allocator_bench::allocator::Config::builder()
-                .maybe_numa(numa.clone())
+                .maybe_numa(numa.0.clone())
                 .size(*size)
-                .maybe_populate(*populate)
+                .maybe_populate(populate.0)
                 .consistency(CONSISTENCY);
 
             apply(config)

@@ -6,6 +6,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_inline_default::serde_inline_default;
 
+use crate::TomlOption;
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(tag = "name", rename_all = "snake_case")]
 pub enum Index {
@@ -19,8 +21,8 @@ pub struct Config {
     #[serde_inline_default(vec![1 << 25])]
     len: Vec<usize>,
 
-    #[serde_inline_default(vec![None])]
-    populate: Vec<Option<shm::Populate>>,
+    #[serde_inline_default(vec![TomlOption(None)])]
+    populate: Vec<TomlOption<shm::Populate>>,
 }
 
 impl Default for Config {
@@ -42,7 +44,7 @@ impl Config {
             let config = allocator_bench::index::Config::builder()
                 .name(index.to_string())
                 .len(*len)
-                .maybe_populate(populate.clone())
+                .maybe_populate(populate.0)
                 .build();
 
             apply(config)
