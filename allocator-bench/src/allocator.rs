@@ -27,6 +27,7 @@ pub struct Config<T> {
     pub populate: Option<shm::Populate>,
 
     pub consistency: Consistency,
+    pub coherence: Coherence,
 
     #[serde(default)]
     #[serde(flatten)]
@@ -41,6 +42,7 @@ impl<T> Config<T> {
             size: self.size,
             populate: self.populate,
             consistency: self.consistency,
+            coherence: self.coherence,
             inner: apply(&self.inner),
         }
     }
@@ -59,6 +61,18 @@ pub enum Consistency {
 
     /// (clflush or clwb) and sfence
     Clflushopt,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Coherence {
+    None,
+
+    /// Limited region of hardware cache coherence
+    Limited,
+
+    /// No hardware cache coherence, MCAS only
+    Mcas,
 }
 
 pub trait Backend: Sync + Sized {

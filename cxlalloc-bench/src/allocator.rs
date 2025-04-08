@@ -7,6 +7,7 @@ pub mod lightning;
 pub mod mimalloc;
 pub mod ralloc;
 
+use allocator_bench::allocator::Coherence;
 pub use boost::Boost;
 pub use cxl_shm::CxlShm;
 pub use cxlalloc::Cxlalloc;
@@ -130,8 +131,24 @@ const CONSISTENCY: Consistency = if cfg!(feature = "consistency-sfence") {
     Consistency::Clflush
 } else if cfg!(feature = "consistency-clflushopt") {
     Consistency::Clflushopt
+} else if cfg!(feature = "consistency-sfence") as u64
+    + cfg!(feature = "consistency-clflush") as u64
+    + cfg!(feature = "consistency-clflushopt") as u64
+    > 1
+{
+    panic!("Only one consistency flag can be set")
 } else {
     Consistency::None
+};
+
+const COHERENCE: Coherence = if cfg!(feature = "cxl-limited") {
+    Coherence::Limited
+} else if cfg!(feature = "cxl-mcas") {
+    Coherence::Mcas
+} else if cfg!(feature = "cxl-limited") as u64 + cfg!(feature = "cxl-mcas") as u64 > 1 {
+    panic!("Only one of cxl flag can be set")
+} else {
+    Coherence::None
 };
 
 type Partial = allocator_bench::allocator::ConfigBuilder<

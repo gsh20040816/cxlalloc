@@ -17,6 +17,9 @@ recover-cas = ["cxlalloc/recover-cas"]
 recover-flush = ["cxlalloc/recover-flush"]
 recover-log = ["cxlalloc/recover-log"]
 
+cxl-limited = ["cxlalloc/cxl-limited"]
+cxl-mcas = ["cxlalloc/cxl-mcas"]
+
 stat-event = ["cxlalloc/stat-event"]
 stat-memory = ["cxlalloc/stat-memory"]
 
