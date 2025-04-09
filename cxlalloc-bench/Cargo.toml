@@ -21,15 +21,29 @@ default = [
     "allocator-lightning",
     "allocator-ralloc",
 ]
-consistency-sfence = ["cxlalloc-global/arch-gpf"]
-consistency-clflush = []
+consistency-sfence = [
+    "cxlalloc-global/recover",
+    "cxlalloc-global/arch-gpf",
+    "cxlalloc-global/arch-clflushopt",
+    "cxlalloc-global/arch-clwb",
+]
+consistency-clflush = ["cxlalloc-global/recover"]
 consistency-clflushopt = [
+    "cxlalloc-global/recover",
     "cxlalloc-global/arch-clflushopt",
     "cxlalloc-global/arch-clwb",
 ]
 stat-event = ["cxlalloc-global/stat-event"]
-cxl-limited = ["cxlalloc-global/cxl-limited"]
-cxl-mcas = ["cxlalloc-global/cxl-mcas"]
+cxl-limited = [
+    "cxlalloc-global/cxl-limited",
+    "cxlalloc-global/arch-clwb",
+    "cxlalloc-global/arch-clflushopt",
+]
+cxl-mcas = [
+    "cxlalloc-global/cxl-mcas",
+    "cxlalloc-global/arch-clwb",
+    "cxlalloc-global/arch-clflushopt",
+]
 validate = ["cxlalloc-global/validate"]
 
 allocator-cxlalloc = ["dep:cxlalloc-global"]
