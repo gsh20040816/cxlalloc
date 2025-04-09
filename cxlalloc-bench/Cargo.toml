@@ -13,6 +13,14 @@ name = "cxlalloc-bench-coordinator"
 path = "src/bin/coordinator.rs"
 
 [features]
+default = [
+    "allocator-cxlalloc",
+    "allocator-mimalloc",
+    "allocator-cxl-shm",
+    "allocator-boost",
+    "allocator-lightning",
+    "allocator-ralloc",
+]
 consistency-sfence = ["cxlalloc-global/arch-gpf"]
 consistency-clflush = []
 consistency-clflushopt = [
@@ -24,13 +32,22 @@ cxl-limited = ["cxlalloc-global/cxl-limited"]
 cxl-mcas = ["cxlalloc-global/cxl-mcas"]
 validate = ["cxlalloc-global/validate"]
 
+allocator-cxlalloc = ["dep:cxlalloc-global"]
+allocator-mimalloc = []
+allocator-cxl-shm = []
+allocator-boost = []
+allocator-lightning = []
+allocator-ralloc = []
+
 [dependencies]
 allocator-bench.path = "../allocator-bench"
 anyhow.workspace = true
 bon.workspace = true
 cartesian.workspace = true
 clap.workspace = true
-cxlalloc-global = { path = "../cxlalloc-global", features = ["backend-shm"] }
+cxlalloc-global = { path = "../cxlalloc-global", features = [
+    "backend-shm",
+], optional = true }
 cxx.workspace = true
 duct.workspace = true
 env_logger.workspace = true

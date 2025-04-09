@@ -6,11 +6,25 @@ use std::sync::LazyLock;
 static OUT: LazyLock<PathBuf> = LazyLock::new(|| env::var("OUT_DIR").map(PathBuf::from).unwrap());
 
 fn main() {
-    cxlmalloc();
-    lightning();
-    boost();
-    mimalloc();
-    ralloc();
+    if cfg!(feature = "allocator-cxl-shm") {
+        cxlmalloc();
+    }
+
+    if cfg!(feature = "allocator-lightning") {
+        lightning();
+    }
+
+    if cfg!(feature = "allocator-boost") {
+        boost();
+    }
+
+    if cfg!(feature = "allocator-mimalloc") {
+        mimalloc();
+    }
+
+    if cfg!(feature = "allocator-ralloc") {
+        ralloc();
+    }
 }
 
 fn cxlmalloc() {

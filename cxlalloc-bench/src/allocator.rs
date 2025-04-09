@@ -1,20 +1,19 @@
 use core::fmt::Display;
 
+#[cfg(feature = "allocator-boost")]
 pub mod boost;
+#[cfg(feature = "allocator-cxl-shm")]
 pub mod cxl_shm;
+#[cfg(feature = "allocator-cxlalloc")]
 pub mod cxlalloc;
+#[cfg(feature = "allocator-lightning")]
 pub mod lightning;
+#[cfg(feature = "allocator-mimalloc")]
 pub mod mimalloc;
+#[cfg(feature = "allocator-ralloc")]
 pub mod ralloc;
 
 use allocator_bench::allocator::Coherence;
-pub use boost::Boost;
-pub use cxl_shm::CxlShm;
-pub use cxlalloc::Cxlalloc;
-pub use lightning::Lightning;
-pub use mimalloc::Mimalloc;
-pub use ralloc::Ralloc;
-
 use allocator_bench::allocator::Consistency;
 use cartesian::cartesian;
 use serde::Deserialize;
@@ -26,20 +25,28 @@ use crate::TomlOption;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "name", rename_all = "snake_case")]
 pub enum Allocator {
+    #[cfg(feature = "allocator-boost")]
     Boost,
+    #[cfg(feature = "allocator-cxlalloc")]
     Cxlalloc(CxlallocCartesian),
+    #[cfg(feature = "allocator-cxl-shm")]
     CxlShm,
+    #[cfg(feature = "allocator-lightning")]
     Lightning,
+    #[cfg(feature = "allocator-mimalloc")]
     Mimalloc,
+    #[cfg(feature = "allocator-ralloc")]
     Ralloc,
 }
 
 impl Allocator {
+    #[cfg(feature = "allocator-cxlalloc")]
     pub fn cxlalloc() -> Self {
         Self::Cxlalloc(CxlallocCartesian::default())
     }
 }
 
+#[cfg(feature = "allocator-cxlalloc")]
 #[serde_inline_default]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CxlallocCartesian {
@@ -53,6 +60,7 @@ pub struct CxlallocCartesian {
     batch_global: Vec<usize>,
 }
 
+#[cfg(feature = "allocator-cxlalloc")]
 impl Default for CxlallocCartesian {
     fn default() -> Self {
         // HACK: is there a better way to deduplicate...
@@ -71,33 +79,46 @@ impl Allocator {
         mut apply: F,
     ) {
         let partial = partial.name(self.to_string());
-        match self {
-            Allocator::Boost
-            | Allocator::CxlShm
-            | Allocator::Lightning
-            | Allocator::Mimalloc
-            | Allocator::Ralloc => apply(partial.inner(serde_json::Value::Null).build()),
+
+        #[allow(unused_variables)]
+        let config = match self {
+            #[cfg(feature = "allocator-boost")]
+            Allocator::Boost => serde_json::Value::Null,
+            #[cfg(feature = "allocator-cxl-shm")]
+            Allocator::CxlShm => serde_json::Value::Null,
+            #[cfg(feature = "allocator-lightning")]
+            Allocator::Lightning => serde_json::Value::Null,
+            #[cfg(feature = "allocator-mimalloc")]
+            Allocator::Mimalloc => serde_json::Value::Null,
+            #[cfg(feature = "allocator-ralloc")]
+            Allocator::Ralloc => serde_json::Value::Null,
+            #[cfg(feature = "allocator-cxlalloc")]
             Allocator::Cxlalloc(CxlallocCartesian {
                 cache_local,
                 batch_bump,
                 batch_global,
-            }) => cartesian!(&cache_local, &batch_bump, &batch_global).for_each(
-                |(cache_local, batch_bump, batch_global)| {
-                    let config = cxlalloc::Config::builder()
-                        .cache_local(*cache_local)
-                        .batch_bump(*batch_bump)
-                        .batch_global(*batch_global)
-                        .build();
+            }) => {
+                return cartesian!(&cache_local, &batch_bump, &batch_global).for_each(
+                    |(cache_local, batch_bump, batch_global)| {
+                        let config = cxlalloc::Config::builder()
+                            .cache_local(*cache_local)
+                            .batch_bump(*batch_bump)
+                            .batch_global(*batch_global)
+                            .build();
 
-                    apply(
-                        partial
-                            .clone()
-                            .inner(serde_json::to_value(&config).unwrap())
-                            .build(),
-                    )
-                },
-            ),
-        }
+                        apply(
+                            partial
+                                .clone()
+                                .inner(serde_json::to_value(&config).unwrap())
+                                .build(),
+                        )
+                    },
+                )
+            }
+        };
+
+        #[allow(unreachable_code)]
+        apply(partial.inner(config).build())
     }
 }
 
@@ -182,11 +203,17 @@ impl Config {
 impl Display for Allocator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
+            #[cfg(feature = "allocator-boost")]
             Allocator::Boost => "boost",
+            #[cfg(feature = "allocator-cxlalloc")]
             Allocator::Cxlalloc { .. } => "cxlalloc",
+            #[cfg(feature = "allocator-lightning")]
             Allocator::CxlShm => "cxl_shm",
+            #[cfg(feature = "allocator-lightning")]
             Allocator::Lightning => "lightning",
+            #[cfg(feature = "allocator-mimalloc")]
             Allocator::Mimalloc => "mimalloc",
+            #[cfg(feature = "allocator-ralloc")]
             Allocator::Ralloc => "ralloc",
         };
 

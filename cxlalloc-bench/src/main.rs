@@ -20,11 +20,17 @@ struct Config {
     thread_count: Vec<usize>,
 
     #[serde_inline_default(vec![
+        #[cfg(feature = "allocator-cxlalloc")]
         Allocator::cxlalloc(),
+        #[cfg(feature = "allocator-cxl-shm")]
         Allocator::CxlShm,
+        #[cfg(feature = "allocator-boost")]
         Allocator::Boost,
+        #[cfg(feature = "allocator-lightning")]
         Allocator::Lightning,
+        #[cfg(feature = "allocator-mimalloc")]
         Allocator::Mimalloc,
+        #[cfg(feature = "allocator-ralloc")]
         Allocator::Ralloc,
     ])]
     allocator: Vec<Allocator>,

@@ -7,13 +7,6 @@ use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::allocator::boost;
-use crate::allocator::cxl_shm;
-use crate::allocator::cxlalloc;
-use crate::allocator::lightning;
-use crate::allocator::mimalloc;
-use crate::allocator::ralloc;
-
 #[derive(Builder, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub date: u64,
@@ -78,12 +71,18 @@ impl Config {
 
     fn specialize_allocator(&self) {
         match self.allocator.name.as_str() {
-            "boost" => self.specialize_benchmark::<boost::Backend>(),
-            "cxlalloc" => self.specialize_benchmark::<cxlalloc::Backend>(),
-            "cxl_shm" => self.specialize_benchmark::<cxl_shm::Backend>(),
-            "lightning" => self.specialize_benchmark::<lightning::Backend>(),
-            "mimalloc" => self.specialize_benchmark::<mimalloc::Backend>(),
-            "ralloc" => self.specialize_benchmark::<ralloc::Backend>(),
+            #[cfg(feature = "allocator-boost")]
+            "boost" => self.specialize_benchmark::<crate::allocator::boost::Backend>(),
+            #[cfg(feature = "allocator-cxlalloc")]
+            "cxlalloc" => self.specialize_benchmark::<crate::allocator::cxlalloc::Backend>(),
+            #[cfg(feature = "allocator-cxl-shm")]
+            "cxl_shm" => self.specialize_benchmark::<crate::allocator::cxl_shm::Backend>(),
+            #[cfg(feature = "allocator-lightning")]
+            "lightning" => self.specialize_benchmark::<crate::allocator::lightning::Backend>(),
+            #[cfg(feature = "allocator-mimalloc")]
+            "mimalloc" => self.specialize_benchmark::<crate::allocator::mimalloc::Backend>(),
+            #[cfg(feature = "allocator-ralloc")]
+            "ralloc" => self.specialize_benchmark::<crate::allocator::ralloc::Backend>(),
             allocator => panic!("Unrecognized allocator: {}", allocator),
         }
     }
