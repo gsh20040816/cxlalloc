@@ -302,7 +302,11 @@ where
                         ))
                     })
                     .unwrap();
+
                 self.slabs.transfer(context, index, Some(context.id), None);
+
+                cache::flush_cxl(self.slabs.local(index));
+                cache::fence_cxl();
             }
         }
 
