@@ -207,7 +207,7 @@ impl Display for Allocator {
             Allocator::Boost => "boost",
             #[cfg(feature = "allocator-cxlalloc")]
             Allocator::Cxlalloc { .. } => "cxlalloc",
-            #[cfg(feature = "allocator-lightning")]
+            #[cfg(feature = "allocator-cxl-shm")]
             Allocator::CxlShm => "cxl_shm",
             #[cfg(feature = "allocator-lightning")]
             Allocator::Lightning => "lightning",
