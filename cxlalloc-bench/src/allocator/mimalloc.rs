@@ -41,7 +41,7 @@ impl allocator_bench::allocator::Backend for Backend {
             sys::mi_manage_os_memory_ex(
                 raw.address_mut(),
                 raw.size(),
-                false,
+                true,
                 false,
                 true,
                 // https://github.com/microsoft/mimalloc/blob/af21001f7a65eafb8fb16460b018ebf9d75e2ad8/src/arena.c#L853
