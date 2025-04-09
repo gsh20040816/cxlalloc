@@ -447,6 +447,7 @@ where
         // Maintain software cache coherence
         self.slabs
             .trace(Some(head))
+            .take(batch)
             .for_each(|index| cache::flush_cxl(self.slabs.local(index)));
         cache::fence_cxl();
 
