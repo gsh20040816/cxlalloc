@@ -7,7 +7,7 @@ pub enum Number {
     Constant(u64),
     Uniform(rand::distr::Uniform<u64>),
     Zipfian {
-        item_count: f64,
+        max: f64,
         cutoff_1: f64,
         alpha: f64,
         eta: f64,
@@ -38,7 +38,7 @@ impl Number {
         let eta = (1.0 - (2.0 / item_count as f64).powf(1.0 - theta)) / (1.0 - zeta_2 / zeta_n);
 
         Self::Zipfian {
-            item_count: item_count as f64,
+            max: max as f64,
             cutoff_1: 1.0 + 0.5f64.powf(theta),
             alpha,
             eta,
@@ -60,7 +60,7 @@ impl Generator for Number {
             Number::Constant(value) => *value,
             Number::Uniform(uniform) => uniform.sample(rng),
             Number::Zipfian {
-                item_count,
+                max,
                 cutoff_1,
                 alpha,
                 eta,
@@ -76,7 +76,7 @@ impl Generator for Number {
                     return 1;
                 }
 
-                (*item_count * (*eta * (u - 1.0) + 1.0).powf(*alpha)) as u64
+                (*max * (*eta * (u - 1.0) + 1.0).powf(*alpha)) as u64
             }
         }
     }
