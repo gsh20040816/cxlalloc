@@ -220,7 +220,7 @@ impl Runner<'_> {
 
     #[inline]
     fn next_key_inner<R: Rng>(&mut self, rng: &mut R, window: u64) -> Key {
-        let max = self.record_count as u64 + self.acked.max() + window;
+        let max = self.record_count as u64 - 1 + self.acked.max() + window;
         let key = loop {
             let key = match self.request_distribution {
                 RequestDistribution::Uniform => self.key_chooser.next(rng),
@@ -236,7 +236,7 @@ impl Runner<'_> {
                 }
             };
 
-            if key < max {
+            if key <= max {
                 break key;
             }
         };
