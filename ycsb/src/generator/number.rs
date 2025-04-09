@@ -1,12 +1,18 @@
-use rand_distr::Distribution as _;
-use rand_distr::Zipf;
+use rand::distr::Distribution as _;
 
 use crate::generator::Generator;
 
+#[derive(Debug)]
 pub enum Number {
     Constant(u64),
     Uniform(rand::distr::Uniform<u64>),
-    Zipfian(Zipf<f32>),
+    Zipfian {
+        item_count: f64,
+        cutoff_1: f64,
+        alpha: f64,
+        eta: f64,
+        zeta: f64,
+    },
 }
 
 impl Number {
@@ -22,8 +28,27 @@ impl Number {
 
     #[inline]
     pub fn zipfian(max: u64) -> Self {
-        Self::Zipfian(Zipf::new(max as f32, 2.0).unwrap())
+        const ZIPFIAN_CONSTANT: f64 = 0.99;
+        let item_count = max + 1;
+        let theta = ZIPFIAN_CONSTANT;
+        let alpha = 1.0 / (1.0 - theta);
+
+        let zeta_n = zeta_static(item_count, theta);
+        let zeta_2 = zeta_static(2, theta);
+        let eta = (1.0 - (2.0 / item_count as f64).powf(1.0 - theta)) / (1.0 - zeta_2 / zeta_n);
+
+        Self::Zipfian {
+            item_count: item_count as f64,
+            cutoff_1: 1.0 + 0.5f64.powf(theta),
+            alpha,
+            eta,
+            zeta: zeta_n,
+        }
     }
+}
+
+fn zeta_static(n: u64, theta: f64) -> f64 {
+    (1..=n).map(|i| i as f64).map(|i| 1.0 / i.powf(theta)).sum()
 }
 
 impl Generator for Number {
@@ -34,7 +59,25 @@ impl Generator for Number {
         match self {
             Number::Constant(value) => *value,
             Number::Uniform(uniform) => uniform.sample(rng),
-            Number::Zipfian(zipfian) => zipfian.sample(rng) as u64,
+            Number::Zipfian {
+                item_count,
+                cutoff_1,
+                alpha,
+                eta,
+                zeta,
+            } => {
+                let u = rng.random::<f64>();
+                let uz = u * *zeta;
+                if uz < 1.0 {
+                    return 0;
+                }
+
+                if uz < *cutoff_1 {
+                    return 1;
+                }
+
+                (*item_count * (*eta * (u - 1.0) + 1.0).powf(*alpha)) as u64
+            }
         }
     }
 }
