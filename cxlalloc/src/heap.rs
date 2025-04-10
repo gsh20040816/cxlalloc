@@ -286,8 +286,10 @@ where
 
     #[cold]
     fn detach(&mut self, context: &mut allocator::Context, class: B) {
-        let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
+        self.stat
+            .record(context.id, stat::thread::Event::Detach { class });
 
+        let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
         let remote = &self.slabs.remote(index);
         let meta = remote.load(context.help);
 
@@ -301,14 +303,14 @@ where
                 })
                 .unwrap();
 
+            self.stat
+                .record(context.id, stat::thread::Event::Disown { class });
+
             self.slabs.transfer(context, index, Some(context.id), None);
 
             cache::flush_cxl(self.slabs.local(index));
             cache::fence_cxl();
         }
-
-        self.stat
-            .record(context.id, stat::thread::Event::Detach { class });
 
         if cfg!(feature = "validate") {
             assert!(self.owned.r#sized[class]

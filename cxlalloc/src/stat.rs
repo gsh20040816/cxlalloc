@@ -106,6 +106,7 @@ pub(crate) mod thread {
         UnsizedToGlobal,
 
         Detach { class: B },
+        Disown { class: B },
         Attach { class: B },
         Claim { class: B },
     }
@@ -172,6 +173,7 @@ pub(crate) mod thread {
         sized_to_unsized: size::Array<B, Counter>,
         unsized_to_global: Counter,
         detach: size::Array<B, Counter>,
+        disown: size::Array<B, Counter>,
         attach: size::Array<B, Counter>,
         claim: size::Array<B, Counter>,
     }
@@ -187,6 +189,7 @@ pub(crate) mod thread {
                 Event::SizedToUnsized { class } => &self.sized_to_unsized[class],
                 Event::UnsizedToGlobal => &self.unsized_to_global,
                 Event::Detach { class } => &self.detach[class],
+                Event::Disown { class } => &self.disown[class],
                 Event::Attach { class } => &self.attach[class],
                 Event::Claim { class } => &self.claim[class],
             };
@@ -201,6 +204,7 @@ pub(crate) mod thread {
                 ("free", &self.free),
                 ("sized_to_unsized", &self.sized_to_unsized),
                 ("detach", &self.detach),
+                ("disown", &self.disown),
                 ("attach", &self.attach),
                 ("claim", &self.claim),
             ]
@@ -256,6 +260,7 @@ pub(crate) mod thread {
         local_unsized: Sloppy,
         local_sized: size::Array<B, Sloppy>,
         detached: size::Array<B, Sloppy>,
+        disowned: size::Array<B, Sloppy>,
     }
 
     impl<B: size::Bracket> MemoryRecorder<B> {
@@ -357,6 +362,16 @@ pub(crate) mod thread {
                         apply("detached", Some(class.size()), value);
                     }
                 }
+
+                Event::Disown { class } => {
+                    if let Some(value) = update(&self.detached[class], -slab) {
+                        apply("detached", Some(class.size()), value);
+                    }
+
+                    if let Some(value) = update(&self.disowned[class], slab) {
+                        apply("disowned", Some(class.size()), value);
+                    }
+                }
                 Event::Attach { class } => {
                     if let Some(value) = update(&self.detached[class], -slab) {
                         apply("detached", Some(class.size()), value);
@@ -367,8 +382,8 @@ pub(crate) mod thread {
                     }
                 }
                 Event::Claim { class } => {
-                    if let Some(value) = update(&self.detached[class], -slab) {
-                        apply("detached", Some(class.size()), value);
+                    if let Some(value) = update(&self.disowned[class], -slab) {
+                        apply("disowned", Some(class.size()), value);
                     }
 
                     if let Some(value) = update(&self.local_unsized, slab) {
