@@ -96,7 +96,7 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
 
     fn run_process(
         &self,
-        date: u64,
+        date: u128,
         config: &config::Process,
         allocator: &allocator::Config<B::Config>,
     ) {

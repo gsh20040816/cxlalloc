@@ -9,7 +9,7 @@ use serde::Serialize;
 
 #[derive(Builder, Clone, Deserialize, Serialize)]
 pub struct Config {
-    pub date: u64,
+    pub date: u128,
     pub process: allocator_bench::config::Process,
     pub allocator: allocator_bench::allocator::Config<serde_json::Value>,
     pub benchmark: allocator_bench::benchmark::Config,

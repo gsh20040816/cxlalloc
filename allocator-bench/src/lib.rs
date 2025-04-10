@@ -32,7 +32,7 @@ thread_local! {
 
 #[derive(Deserialize, Serialize)]
 pub struct Observation {
-    date: u64,
+    date: u128,
     cargo: Cargo,
     r#global: config::Global,
     allocator: serde_json::Value,
