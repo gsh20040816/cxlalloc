@@ -16,6 +16,8 @@ MAX_RSS = "Max RSS (GiB)"
 SCHEME = px.colors.qualitative.D3
 THEME = "plotly_white"
 
+ALLOCATORS = ["cxlalloc", "mimalloc", "ralloc", "cxl_shm", "boost", "lightning"]
+
 COLORS = {
     "cxlalloc": "black",
     "mimalloc": SCHEME[0],
@@ -23,6 +25,15 @@ COLORS = {
     "cxl_shm": SCHEME[2],
     "boost": SCHEME[3],
     "lightning": SCHEME[4],
+}
+
+SYMBOLS = {
+    "cxlalloc": "circle",
+    "mimalloc": "triangle-up",
+    "ralloc": "square",
+    "cxl_shm": "diamond",
+    "boost": "cross",
+    "lightning": "x",
 }
 
 
@@ -82,7 +93,6 @@ def main():
 
     workloads = ["YCSB-Load", "YCSB-A", "YCSB-D", "MC-12", "MC-15", "MC-31", "MC-37"]
     metrics = [THROUGHPUT, MAX_RSS]
-    allocators = ["cxlalloc", "mimalloc", "ralloc", "cxl_shm", "boost", "lightning"]
     thread_counts = df.select(THREAD_COUNT).unique().collect().to_series().sort()
 
     fig = sp.make_subplots(
@@ -96,7 +106,7 @@ def main():
 
     for col, workload in enumerate(workloads):
         for row, metric in enumerate(metrics):
-            for allocator in allocators:
+            for allocator in ALLOCATORS:
                 data = (
                     df.filter(pl.col(ALLOCATOR) == allocator)
                     .filter(pl.col(WORKLOAD) == workload)
@@ -109,7 +119,10 @@ def main():
                     y=data[metric],
                     name=allocator,
                     legendgroup=allocator,
-                    marker=dict(color=COLORS[allocator]),
+                    marker=dict(
+                        color=COLORS[allocator], symbol=SYMBOLS[allocator], size=8
+                    ),
+                    zorder=len(ALLOCATORS) - ALLOCATORS.index(allocator),
                 )
 
                 fig.add_trace(trace, row=row + 1, col=col + 1)
@@ -176,6 +189,7 @@ def main():
             orientation="h",
             xanchor="right",
             yanchor="top",
+            font_size=14,
             y=-0.08,
             x=1.0,
         ),
