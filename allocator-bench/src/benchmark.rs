@@ -210,7 +210,13 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                 cargo: crate::Cargo::default(),
                 r#global: config.global,
                 allocator: serde_json::to_value(allocator).unwrap(),
-                benchmark: serde_json::to_value(self).unwrap(),
+                benchmark: serde_json::to_value(Named {
+                    // HACK: shouldn't hard-code / in benchmark names,
+                    // which is an allocator/shm implementation detail
+                    name: Self::NAME.trim_start_matches("/"),
+                    inner: self,
+                })
+                .unwrap(),
                 output: Output {
                     process: OutputProcess {
                         id: config.process_id,
@@ -240,6 +246,14 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
             backend.unlink().unwrap();
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Named<T> {
+    name: &'static str,
+    #[serde(flatten)]
+    inner: T,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
