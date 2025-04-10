@@ -1,8 +1,12 @@
 import polars as pl
 import plotly
+import plotly.io as pio
 import plotly.graph_objects as go
 import plotly.subplots as sp
 import sys
+
+# https://github.com/plotly/plotly.py/issues/3469
+pio.kaleido.scope.mathjax = None
 
 ALLOCATOR = "Allocator"
 CRASH_COUNT = "Crash Count"
@@ -69,7 +73,6 @@ def main():
         x_title="Crash Count (threads)",
         column_titles=workloads.to_list(),
     )
-    gc_legend = False
     allocator_legend = False
 
     for col, workload in enumerate(workloads):
@@ -99,9 +102,7 @@ def main():
                 if gc > 0:
                     fig.add_shape(
                         name=PHASE_GC,
-                        showlegend=not gc_legend,
-                        legendgroup="Phase",
-                        legendgrouptitle_text="Phase",
+                        showlegend=False,
                         type="rect",
                         xref=f"x{col + 1}",
                         x0=row + 0.125,
@@ -117,9 +118,9 @@ def main():
                             text=f"GC {gc / total * 100.0:.0f}%",
                             textangle=-90,
                             font_color="red",
+                            font_size=16,
                         ),
                     )
-                    gc_legend = True
 
                 if leak > 0:
                     fig.add_annotation(
@@ -130,6 +131,7 @@ def main():
                         arrowsize=2,
                         xref=f"x{col + 1}",
                         text=f"Leak {leak:.1f} KiB",
+                        font_size=16,
                         textangle=-90,
                         xanchor="left",
                         font_color="red",
@@ -145,8 +147,13 @@ def main():
 
     fig.update_yaxes(title="Execution Time (secs)", col=1)
     fig.update_layout(
-        width=600, height=400, title="Memento Partial Failure Workloads", template=THEME
+        width=600,
+        height=400,
+        title="Memento Partial Failure Workloads",
+        template=THEME,
+        margin=dict(l=0, r=0, t=50, b=50),
     )
+    fig.write_image("out.pdf")
     fig.show()
 
 
