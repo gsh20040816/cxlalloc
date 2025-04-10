@@ -291,23 +291,20 @@ where
         let remote = &self.slabs.remote(index);
         let meta = remote.load(context.help);
 
-        match meta.free() {
-            0 => (),
-            _ => {
-                remote
-                    .update(context, |meta, version| {
-                        Some((
-                            meta.with_owner(None),
-                            recover::Detach::new(index, version).into(),
-                        ))
-                    })
-                    .unwrap();
+        if (meta.free() as u64) < class.count() {
+            remote
+                .update(context, |meta, version| {
+                    Some((
+                        meta.with_owner(None),
+                        recover::Detach::new(index, version).into(),
+                    ))
+                })
+                .unwrap();
 
-                self.slabs.transfer(context, index, Some(context.id), None);
+            self.slabs.transfer(context, index, Some(context.id), None);
 
-                cache::flush_cxl(self.slabs.local(index));
-                cache::fence_cxl();
-            }
+            cache::flush_cxl(self.slabs.local(index));
+            cache::fence_cxl();
         }
 
         self.stat
