@@ -1,7 +1,5 @@
 import common
-
-from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, THROUGHPUT, MAX_RSS
-
+from common import ALLOCATOR, THREAD_COUNT, WORKLOAD, THROUGHPUT, MAX_RSS
 import polars as pl
 import plotly.graph_objects as go
 import plotly.subplots as sp
@@ -16,19 +14,9 @@ def main():
         .agg(
             pl.col("allocator").struct["name"].alias(ALLOCATOR),
             pl.col("global").struct["thread_count"].alias(THREAD_COUNT),
-            pl.when(pl.col("benchmark").struct["trace"].str.contains("12"))
-            .then(pl.lit("MC-12"))
-            .when(pl.col("benchmark").struct["trace"].str.contains("15"))
-            .then(pl.lit("MC-15"))
-            .when(pl.col("benchmark").struct["trace"].str.contains("31"))
-            .then(pl.lit("MC-31"))
-            .when(pl.col("benchmark").struct["trace"].str.contains("37"))
-            .then(pl.lit("MC-37"))
-            .when(pl.col("benchmark").struct["insert_proportion"] > 0.9)
-            .then(pl.lit("YCSB-Load"))
-            .when(pl.col("benchmark").struct["insert_proportion"] < 0.06)
-            .then(pl.lit("YCSB-D"))
-            .otherwise(pl.lit("YCSB-A"))
+            pl.when(pl.col("benchmark").struct["object_size"].is_null().not_())
+            .then(pl.lit("threadtest"))
+            .otherwise(pl.lit("xmalloc"))
             .alias(WORKLOAD),
             (
                 pl.col("output")
@@ -49,21 +37,12 @@ def main():
             .alias(MAX_RSS),
         )
         .explode(ALLOCATOR, THREAD_COUNT, WORKLOAD)
-        # cxl-shm doesn't support allocations >= 1KiB
-        .filter(
-            (
-                (
-                    pl.col(WORKLOAD).str.contains("12")
-                    | pl.col(WORKLOAD).str.contains("37")
-                )
-                & (pl.col(ALLOCATOR) == "cxl_shm")
-            ).not_()
-        )
         .sort(ALLOCATOR, WORKLOAD, THREAD_COUNT)
     )
 
-    workloads = ["YCSB-Load", "YCSB-A", "YCSB-D", "MC-12", "MC-15", "MC-31", "MC-37"]
+    workloads = ["threadtest", "xmalloc"]
     metrics = [THROUGHPUT, MAX_RSS]
+    allocators = ["cxlalloc", "mimalloc", "ralloc", "cxl_shm", "boost", "lightning"]
     thread_counts = df.select(THREAD_COUNT).unique().collect().to_series().sort()
 
     fig = sp.make_subplots(
@@ -77,7 +56,7 @@ def main():
 
     for col, workload in enumerate(workloads):
         for row, metric in enumerate(metrics):
-            for allocator in ALLOCATORS:
+            for allocator in allocators:
                 data = (
                     df.filter(pl.col(ALLOCATOR) == allocator)
                     .filter(pl.col(WORKLOAD) == workload)
@@ -150,17 +129,15 @@ def main():
     )
 
     fig.update_layout(
-        title="In Memory Key Value Store Workloads",
-        width=1200,
+        width=600,
         height=400,
         legend=dict(
             title_text=ALLOCATOR,
-            orientation="h",
-            xanchor="right",
-            yanchor="top",
-            font_size=14,
-            y=-0.08,
-            x=1.0,
+            # orientation="h",
+            # xanchor="right",
+            # yanchor="top",
+            # y=-0.08,
+            # x=1.0,
         ),
         template=common.THEME,
         margin=dict(l=0, r=0, t=50, b=0),
