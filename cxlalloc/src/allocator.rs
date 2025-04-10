@@ -1,6 +1,5 @@
 use core::ffi;
 use core::marker::PhantomData;
-use core::mem;
 use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
@@ -278,27 +277,32 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let class = size::Small::new(mem::size_of::<huge::Descriptor>()).unwrap();
 
-        let index = self.small.peek(context, class).unwrap();
-        let free = unsafe { &mut *self.small.slabs.local(index).free.get() };
-        let block = free.peek();
-
-        let offset = data::Offset::from_block(index, class, block);
-        let descriptor = unsafe {
-            self.small
-                .data
-                .offset_to_pointer::<huge::Descriptor>(offset)
-                .as_mut()
+        let (offset, index) = match self.huge.reuse(self.id, &self.small.data) {
+            Some(offset) => (offset, None),
+            None => {
+                let index = self.small.peek(context, huge::Descriptor::CLASS).unwrap();
+                let free = unsafe { &mut *self.small.slabs.local(index).free.get() };
+                let block = free.peek();
+                (
+                    data::Offset::from_block(index, huge::Descriptor::CLASS, block),
+                    Some(index),
+                )
+            }
         };
 
-        let data = &self.small.data;
-        let allocation = self.huge.allocate(context.id, data, size, descriptor);
+        let descriptor = unsafe { &mut *self.small.data.offset_to_pointer(offset).as_ptr() };
+        let allocation = self
+            .huge
+            .allocate(context.id, &self.small.data, size, descriptor);
 
         // FIXME: pop before mmap in `self.huge.allocate` or check if
         // allocated on recovery
         log::trace!("allocate huge {:#x} {:#x?}", size, allocation);
-        self.small.pop(context, class, index);
+        if let Some(index) = index {
+            self.small.pop(context, huge::Descriptor::CLASS, index);
+        }
+
         allocation
     }
 

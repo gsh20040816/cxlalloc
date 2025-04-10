@@ -1,4 +1,5 @@
 use core::ffi;
+use core::mem;
 use core::num::NonZeroUsize;
 
 use core::ptr::NonNull;
@@ -74,12 +75,16 @@ impl<'raw> Huge<'raw> {
             .for_each(|(slot, slot_count)| self.allocator.claim(slot, slot_count.value() as usize));
 
         let walk = self.peek(data, id);
-        for descriptor in
-            Self::trace(walk).filter(|descriptor| !descriptor.free.load(Ordering::Relaxed))
-        {
-            self.allocator
-                .allocate(u64::from(descriptor.offset) as usize, descriptor.size.get());
-        }
+        let mut index = 0;
+
+        Self::trace(walk)
+            .inspect(|descriptor| index = index.max(descriptor.index))
+            .filter(|descriptor| !descriptor.free.load(Ordering::Relaxed))
+            .for_each(|descriptor| {
+                self.allocator
+                    .cover(u64::from(descriptor.offset) as usize, descriptor.size.get())
+            });
+        self.allocator.index = index;
     }
 
     pub(crate) fn allocate(
@@ -90,7 +95,7 @@ impl<'raw> Huge<'raw> {
         out: &mut Descriptor,
     ) -> *mut ffi::c_void {
         loop {
-            match self.next(size) {
+            match self.allocator.allocate(&self.data, size) {
                 None => self.claim(id, size),
                 Some(descriptor) => {
                     // save record somewhere
@@ -199,25 +204,17 @@ impl<'raw> Huge<'raw> {
         )
     }
 
-    fn next(&mut self, size: NonZeroUsize) -> Option<Descriptor> {
-        let descriptor = self
-            .allocator
-            .free
-            .iter()
-            .find(|interval| interval.size() >= size.get())
-            .map(|interval| interval.lower())
-            .inspect(|offset| {
-                self.allocator.allocate(*offset, size.get());
-            })
-            .map(|offset| Descriptor {
-                offset: self.data.offset_to_offset(offset),
-                size,
-                index: self.allocator.index,
-                next: None,
-                free: AtomicBool::new(false),
-            })?;
+    pub(crate) fn reuse(
+        &self,
+        _id: thread::Id,
+        _data: &Data<'raw, size::Small>,
+    ) -> Option<data::Offset<size::Small>> {
+        None
 
-        Some(descriptor)
+        // let walk = self.peek(data, id);
+        // Self::trace(walk)
+        //     .find(|descriptor| descriptor.free.load(Ordering::Relaxed))
+        //     .map(|descriptor| data.pointer_to_offset(NonNull::from(descriptor)).unwrap())
     }
 
     fn find(
@@ -323,14 +320,31 @@ impl Default for Allocator {
 
 impl Allocator {
     fn claim(&mut self, slot: slab::Index<size::Huge>, slot_count: usize) {
-        self.free(
+        self.uncover(
             u32::from(slot) as usize * size::Huge::SIZE_SLAB,
             slot_count * size::Huge::SIZE_SLAB,
         )
     }
 
-    fn allocate(&mut self, offset: usize, size: usize) {
-        self.index += 1;
+    fn allocate(&mut self, data: &Data<size::Huge>, size: NonZeroUsize) -> Option<Descriptor> {
+        self.free
+            .iter()
+            .find(|interval| interval.size() >= size.get())
+            .map(|interval| interval.lower())
+            .inspect(|offset| {
+                self.cover(*offset, size.get());
+                self.index += 1;
+            })
+            .map(|offset| Descriptor {
+                offset: data.offset_to_offset(offset),
+                size,
+                index: self.index,
+                next: None,
+                free: AtomicBool::new(false),
+            })
+    }
+
+    fn cover(&mut self, offset: usize, size: usize) {
         let allocation = (offset, offset + size - 1).to_interval_set();
         assert_eq!(
             self.free.intersection(&allocation).size(),
@@ -339,7 +353,7 @@ impl Allocator {
         self.free = self.free.difference(&allocation);
     }
 
-    fn free(&mut self, offset: usize, size: usize) {
+    fn uncover(&mut self, offset: usize, size: usize) {
         let allocation = (offset, offset + size - 1).to_interval_set();
         if self.free.intersection(&allocation).size() > 0 {
             log::info!("Skipped freed allocation {offset:#x} ({size:#x})");
@@ -355,4 +369,8 @@ pub(crate) struct Descriptor {
     size: NonZeroUsize,
     next: Option<crate::Box<Descriptor>>,
     free: AtomicBool,
+}
+
+impl Descriptor {
+    pub(crate) const CLASS: size::Small = size::Small::new(mem::size_of::<Self>()).unwrap();
 }
