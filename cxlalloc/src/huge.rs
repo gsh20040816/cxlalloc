@@ -12,6 +12,7 @@ use gcollections::ops::Empty as _;
 use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
+use ribbit::private::u48;
 
 use crate::allocator;
 use crate::cache;
@@ -66,7 +67,7 @@ impl<'raw> Huge<'raw> {
             .slots
             .iter()
             .enumerate()
-            .filter(|(_, owner)| owner.load() == Some(id))
+            .filter(|(_, owner)| owner.load().is_some_and(|claim| claim.id() == id))
             .map(|(slot, _)| slab::Index::new_huge(slot))
         {
             self.allocator.claim(slot);
@@ -90,7 +91,7 @@ impl<'raw> Huge<'raw> {
     ) -> *mut ffi::c_void {
         loop {
             match self.next(size) {
-                None => self.claim(id),
+                None => self.claim(id, size),
                 Some(descriptor) => {
                     // save record somewhere
                     // will it conflict with link record?
@@ -225,8 +226,8 @@ impl<'raw> Huge<'raw> {
         offset: data::Offset<size::Huge>,
     ) -> Option<&Descriptor> {
         let slot = offset.into_index();
-        let owner = self[slot].load().unwrap();
-        let walk = self.peek(data, owner);
+        let claim = self[slot].load().unwrap();
+        let walk = self.peek(data, claim.id());
         Self::trace(walk).find(|descriptor| descriptor.offset == offset)
     }
 
@@ -243,8 +244,8 @@ impl<'raw> Huge<'raw> {
         self.owned[id].head.store(offset)
     }
 
-    fn claim(&mut self, id: thread::Id) {
-        let slot = self.shared.claim(id);
+    fn claim(&mut self, id: thread::Id, size: NonZeroUsize) {
+        let slot = self.shared.claim(id, size);
         self.allocator.claim(slot);
     }
 
@@ -258,23 +259,42 @@ impl<'raw> Huge<'raw> {
 }
 
 pub(crate) struct Shared {
-    slots: [Atomic<Option<thread::Id>>; 1024],
-    next: Atomic<u64>,
+    slots: [Atomic<Option<Claim>>; 1024],
+    hint: Atomic<u64>,
+}
+
+#[ribbit::pack(size = 64, nonzero)]
+pub struct Claim {
+    #[ribbit(size = 16, nonzero)]
+    id: thread::Id,
+    slot_count: u48,
 }
 
 impl Shared {
-    fn claim(&self, id: thread::Id) -> slab::Index<size::Huge> {
-        let next = self.next.load() as usize;
+    fn claim(&self, id: thread::Id, size: NonZeroUsize) -> slab::Index<size::Huge> {
+        let mut i = self.hint.load() as usize;
 
-        for i in next..self.slots.len() {
-            match self.slots[i].compare_exchange(None, Some(id)) {
+        let slot_count = size.get() / size::Huge::SIZE_SLAB;
+        let claim = Claim::new(id, u48::new(slot_count as u64));
+
+        while i + slot_count <= self.slots.len() {
+            match self.slots[i].compare_exchange(None, Some(claim)) {
+                Ok(Some(_)) | Err(None) => unreachable!(),
                 Ok(None) => {
                     log::info!("{} claimed slot {}", id, i);
-                    self.next.store(i as u64 + 1);
+                    self.hint.store(i as u64 + 1);
                     return slab::Index::new_huge(i);
                 }
-                Ok(Some(_)) => unreachable!(),
-                Err(_) => (),
+                Err(Some(claim)) => {
+                    log::info!(
+                        "{} lost slot {} to {} ({})",
+                        id,
+                        i,
+                        claim.id(),
+                        claim.slot_count()
+                    );
+                    i += claim.slot_count().value() as usize;
+                }
             }
         }
 
@@ -283,7 +303,7 @@ impl Shared {
 }
 
 impl core::ops::Index<slab::Index<size::Huge>> for Huge<'_> {
-    type Output = Atomic<Option<thread::Id>>;
+    type Output = Atomic<Option<Claim>>;
     fn index(&self, index: slab::Index<size::Huge>) -> &Self::Output {
         &self.shared.slots[u32::from(index) as usize]
     }
