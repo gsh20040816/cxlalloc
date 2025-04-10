@@ -62,16 +62,16 @@ impl<'raw> Huge<'raw> {
 
     // Recover huge allocator DRAM state
     pub(crate) fn focus(&mut self, data: &Data<'raw, size::Small>, id: thread::Id) {
-        for slot in self
-            .shared
+        self.shared
             .slots
             .iter()
             .enumerate()
-            .filter(|(_, owner)| owner.load().is_some_and(|claim| claim.id() == id))
-            .map(|(slot, _)| slab::Index::new_huge(slot))
-        {
-            self.allocator.claim(slot);
-        }
+            .filter_map(|(slot, owner)| match owner.load()? {
+                claim if claim.id() == id => Some((slot, claim.slot_count())),
+                _ => None,
+            })
+            .map(|(slot, slot_count)| (slab::Index::new_huge(slot), slot_count))
+            .for_each(|(slot, slot_count)| self.allocator.claim(slot, slot_count.value() as usize));
 
         let walk = self.peek(data, id);
         for descriptor in
@@ -245,8 +245,8 @@ impl<'raw> Huge<'raw> {
     }
 
     fn claim(&mut self, id: thread::Id, size: NonZeroUsize) {
-        let slot = self.shared.claim(id, size);
-        self.allocator.claim(slot);
+        let (slot, slot_count) = self.shared.claim(id, size);
+        self.allocator.claim(slot, slot_count);
     }
 
     fn peek(&self, data: &Data<'raw, size::Small>, id: thread::Id) -> Option<&'raw Descriptor> {
@@ -271,7 +271,7 @@ pub struct Claim {
 }
 
 impl Shared {
-    fn claim(&self, id: thread::Id, size: NonZeroUsize) -> slab::Index<size::Huge> {
+    fn claim(&self, id: thread::Id, size: NonZeroUsize) -> (slab::Index<size::Huge>, usize) {
         let mut i = self.hint.load() as usize;
 
         let slot_count = size.get() / size::Huge::SIZE_SLAB;
@@ -281,18 +281,12 @@ impl Shared {
             match self.slots[i].compare_exchange(None, Some(claim)) {
                 Ok(Some(_)) | Err(None) => unreachable!(),
                 Ok(None) => {
-                    log::info!("{} claimed slot {}", id, i);
-                    self.hint.store(i as u64 + 1);
-                    return slab::Index::new_huge(i);
+                    log::info!("Claimed slot {} ({})", i, slot_count);
+                    self.hint.store((i + slot_count) as u64);
+                    return (slab::Index::new_huge(i), slot_count);
                 }
                 Err(Some(claim)) => {
-                    log::info!(
-                        "{} lost slot {} to {} ({})",
-                        id,
-                        i,
-                        claim.id(),
-                        claim.slot_count()
-                    );
+                    log::info!("Lost slot {} to {} ({})", i, claim.id(), claim.slot_count());
                     i += claim.slot_count().value() as usize;
                 }
             }
@@ -328,10 +322,10 @@ impl Default for Allocator {
 }
 
 impl Allocator {
-    fn claim(&mut self, slot: slab::Index<size::Huge>) {
+    fn claim(&mut self, slot: slab::Index<size::Huge>, slot_count: usize) {
         self.free(
             u32::from(slot) as usize * size::Huge::SIZE_SLAB,
-            size::Huge::SIZE_SLAB,
+            slot_count * size::Huge::SIZE_SLAB,
         )
     }
 

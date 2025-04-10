@@ -2,6 +2,7 @@
 name = "cxlalloc-test"
 version = "0.1.0"
 edition = "2024"
+default-run = "cxlalloc-test"
 
 [[bin]]
 name = "cxlalloc-test-worker"
