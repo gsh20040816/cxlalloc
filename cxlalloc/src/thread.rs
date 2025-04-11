@@ -37,6 +37,12 @@ impl Display for Id {
 #[repr(C, align(64))]
 pub struct Array<T>(pub(crate) [T; COUNT_THREAD + 1]);
 
+impl<T> Array<T> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.0.iter().skip(1)
+    }
+}
+
 impl<T> Index<Id> for Array<T> {
     type Output = T;
     fn index(&self, index: Id) -> &Self::Output {

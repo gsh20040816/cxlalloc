@@ -76,6 +76,10 @@ impl Kind {
         self.as_backend().name()
     }
 
+    pub(super) fn unlink(&self, id: &region::Id) -> io::Result<()> {
+        self.as_backend().unlink(id)
+    }
+
     fn as_backend(&self) -> &dyn Impl {
         match self {
             Kind::Mmap(mmap) => mmap,
@@ -101,6 +105,8 @@ pub(super) trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
     fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File>;
+
+    fn unlink(&self, id: &region::Id) -> io::Result<()>;
 }
 
 pub(super) struct File {

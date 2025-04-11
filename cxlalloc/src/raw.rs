@@ -253,7 +253,7 @@ impl Raw {
         self.stat.report()
     }
 
-    pub fn map(&self, address: *mut ffi::c_void) -> bool {
+    pub fn map(&self, id: thread::Id, address: *mut ffi::c_void) -> bool {
         let Some(address) = NonNull::new(address) else {
             return false;
         };
@@ -292,7 +292,7 @@ impl Raw {
             Err(error) => panic!("Failed to extend large heap at {:x?}: {}", address, error),
         }
 
-        match allocator.huge.try_map(&allocator.small.data, address) {
+        match allocator.huge.try_map(&allocator.small.data, id, address) {
             Ok(()) => {
                 self.stat.record(stat::process::Event::FaultHuge);
                 return true;

@@ -97,7 +97,10 @@ static RAW: LazyLock<cxlalloc::raw::Raw> = LazyLock::new(|| {
 fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
 
-    if RAW.map(address) {
+    if RAW.map(
+        unsafe { cxlalloc::thread::Id::new(THREAD_ID.get() as u16) },
+        address,
+    ) {
         return;
     }
 

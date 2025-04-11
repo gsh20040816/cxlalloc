@@ -16,7 +16,6 @@ use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 use cxlalloc::raw;
-use cxlalloc::raw::backend;
 use cxlalloc::Allocator;
 
 static RAW: OnceLock<raw::Raw> = OnceLock::new();
@@ -24,8 +23,8 @@ static BACKEND: OnceLock<Backend> = OnceLock::new();
 
 fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
-
-    if raw().map(address) {
+    let id = THREAD_ID.with_borrow(|id| id.as_ref().unwrap().id);
+    if raw().map(id, address) {
         return;
     }
 

@@ -4,7 +4,9 @@ use core::num::NonZeroUsize;
 
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
+use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
+use std::collections::HashSet;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -61,6 +63,18 @@ impl<'raw> Huge<'raw> {
         self.stat.report(id)
     }
 
+    pub(crate) fn refresh(&self, data: &Data<size::Small>, id: thread::Id) {
+        self.owned
+            .iter()
+            .filter_map(|owned| owned.head.load())
+            .map(|offset| data.offset_to_pointer::<Descriptor>(offset))
+            .map(|pointer| unsafe { pointer.as_ref() })
+            .flat_map(|head| Self::trace(Some(head)))
+            .filter(|descriptor| matches!(descriptor.state.load().unpack(), StateUnpacked::Free))
+            .filter(|descriptor| self.owned[id].swap_remove(descriptor.offset))
+            .for_each(|descriptor| self.unmap_descriptor(descriptor))
+    }
+
     // Recover huge allocator DRAM state
     pub(crate) fn focus(&mut self, data: &Data<'raw, size::Small>, id: thread::Id) {
         self.shared
@@ -79,7 +93,7 @@ impl<'raw> Huge<'raw> {
 
         Self::trace(walk)
             .inspect(|descriptor| index = index.max(descriptor.index))
-            .filter(|descriptor| !descriptor.free.load(Ordering::Relaxed))
+            .filter(|descriptor| matches!(descriptor.state.load().unpack(), StateUnpacked::Live))
             .for_each(|descriptor| {
                 self.allocator
                     .cover(u64::from(descriptor.offset) as usize, descriptor.size.get())
@@ -93,6 +107,7 @@ impl<'raw> Huge<'raw> {
         data: &Data<'raw, size::Small>,
         size: NonZeroUsize,
         out: &mut Descriptor,
+        reuse: bool,
     ) -> *mut ffi::c_void {
         loop {
             match self.allocator.allocate(&self.data, size) {
@@ -122,19 +137,24 @@ impl<'raw> Huge<'raw> {
                         },
                     );
 
-                    *out = descriptor;
+                    out.index = descriptor.index;
+                    out.offset = descriptor.offset;
+                    out.size = descriptor.size;
+                    out.state.store(State::new(StateUnpacked::Live));
 
-                    // point at previous head in data region
-                    if let Some(prev) = self.peek(data, id) {
-                        unsafe {
-                            crate::Box::link(&mut out.next, prev);
-                            cache::flush(out, cache::Invalidate::No);
-                            cache::fence();
+                    if !reuse {
+                        // point at previous head in data region
+                        if let Some(prev) = self.peek(data, id) {
+                            unsafe {
+                                crate::Box::link(&mut out.next, prev);
+                                cache::flush(out, cache::Invalidate::No);
+                                cache::fence();
+                            }
                         }
-                    }
 
-                    // update linked list of huge descriptors
-                    self.set(id, data, out);
+                        // update linked list of huge descriptors
+                        self.set(id, data, out);
+                    }
 
                     // FIXME: mark descriptor as allocated
 
@@ -160,8 +180,15 @@ impl<'raw> Huge<'raw> {
                 size: descriptor.size.get() as u64,
             },
         );
-        descriptor.free.store(true, Ordering::Relaxed);
-        cache::flush(&descriptor.free, cache::Invalidate::Yes);
+        descriptor.state.store(State::new(StateUnpacked::Free));
+
+        self.owned[context.id].swap_remove(descriptor.offset);
+        self.unmap_descriptor(descriptor);
+
+        cache::flush(&descriptor.state, cache::Invalidate::Yes);
+
+        cache::flush_cxl(descriptor);
+        cache::fence_cxl();
     }
 
     pub(crate) fn class(
@@ -185,6 +212,7 @@ impl<'raw> Huge<'raw> {
     pub(crate) fn try_map(
         &self,
         data: &Data<'raw, size::Small>,
+        id: thread::Id,
         address: NonNull<ffi::c_void>,
     ) -> crate::Result<()> {
         let offset = self
@@ -193,6 +221,7 @@ impl<'raw> Huge<'raw> {
 
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
 
+        self.owned[id].insert(descriptor.offset);
         self.map_descriptor(descriptor).map_err(crate::Error::from)
     }
 
@@ -204,17 +233,52 @@ impl<'raw> Huge<'raw> {
         )
     }
 
-    pub(crate) fn reuse(
-        &self,
-        _id: thread::Id,
-        _data: &Data<'raw, size::Small>,
-    ) -> Option<data::Offset<size::Small>> {
-        None
+    fn unmap_descriptor(&self, descriptor: &Descriptor) {
+        self.region.unmap(
+            self.backend,
+            u64::from(descriptor.offset) as usize,
+            descriptor.size,
+        )
+    }
 
-        // let walk = self.peek(data, id);
-        // Self::trace(walk)
-        //     .find(|descriptor| descriptor.free.load(Ordering::Relaxed))
-        //     .map(|descriptor| data.pointer_to_offset(NonNull::from(descriptor)).unwrap())
+    pub(crate) fn reuse(
+        &mut self,
+        data: &Data<'raw, size::Small>,
+        id: thread::Id,
+    ) -> Option<data::Offset<size::Small>> {
+        let walk = self.peek(data, id);
+        let mut safe = None;
+
+        Self::trace(walk)
+            .filter(|descriptor| match descriptor.state.load().unpack() {
+                StateUnpacked::Live => false,
+                // Protected by hazard pointer
+                StateUnpacked::Free
+                    if self
+                        .owned
+                        .iter()
+                        .any(|owned| owned.contains(descriptor.offset)) =>
+                {
+                    false
+                }
+                StateUnpacked::Free => {
+                    safe.get_or_insert(*descriptor);
+                    true
+                }
+                StateUnpacked::Safe => {
+                    safe.get_or_insert(*descriptor);
+                    false
+                }
+            })
+            .for_each(|descriptor| {
+                self.allocator
+                    .uncover(u64::from(descriptor.offset) as usize, descriptor.size.get());
+                descriptor.state.store(State::new(StateUnpacked::Safe));
+            });
+
+        let safe = safe?;
+        log::info!("Reuse descriptor at {:#x?}", safe as *const _);
+        data.pointer_to_offset(NonNull::from(safe))
     }
 
     fn find(
@@ -231,6 +295,10 @@ impl<'raw> Huge<'raw> {
     fn trace(mut walk: Option<&'raw Descriptor>) -> impl Iterator<Item = &'raw Descriptor> {
         std::iter::from_fn(move || {
             let here = walk?;
+
+            cache::flush_cxl(here);
+            cache::fence_cxl();
+
             walk = here.next.as_deref();
             Some(here)
         })
@@ -271,7 +339,7 @@ impl Shared {
     fn claim(&self, id: thread::Id, size: NonZeroUsize) -> (slab::Index<size::Huge>, usize) {
         let mut i = self.hint.load() as usize;
 
-        let slot_count = size.get() / size::Huge::SIZE_SLAB;
+        let slot_count = size.get().next_multiple_of(size::Huge::SIZE_SLAB) / size::Huge::SIZE_SLAB;
         let claim = Claim::new(id, u48::new(slot_count as u64));
 
         while i + slot_count <= self.slots.len() {
@@ -302,6 +370,86 @@ impl core::ops::Index<slab::Index<size::Huge>> for Huge<'_> {
 
 pub(crate) struct Owned {
     head: Atomic<Option<data::Offset<size::Small>>>,
+
+    len: AtomicUsize,
+    hazards: [Atomic<Option<data::Offset<size::Huge>>>; 1024],
+}
+
+impl Owned {
+    fn insert(&self, offset: data::Offset<size::Huge>) {
+        let len = self.len.load(Ordering::Relaxed);
+
+        if self
+            .hazards
+            .iter()
+            .take(len)
+            .any(|hazard| hazard.load() == Some(offset))
+        {
+            return;
+        }
+
+        self.hazards[len].store(Some(offset));
+        self.len.store(len + 1, Ordering::Release);
+
+        log::info!("Insert hazard pointer for {:#x?}", offset);
+        self.invariant();
+    }
+
+    fn swap_remove(&self, offset: data::Offset<size::Huge>) -> bool {
+        let Some(index) = self
+            .hazards
+            .iter()
+            .position(|hazard| hazard.load() == Some(offset))
+        else {
+            return false;
+        };
+
+        let len = self.len.load(Ordering::Relaxed);
+        let last = self.hazards[len - 1].load();
+        self.hazards[len - 1].store(None);
+        self.hazards[index].store(last);
+        self.len.store(len - 1, Ordering::Release);
+
+        log::info!("Remove hazard pointer for {:#x?}", offset);
+        self.invariant();
+        true
+    }
+
+    fn contains(&self, offset: data::Offset<size::Huge>) -> bool {
+        self.hazards
+            .iter()
+            .map_while(|hazard| hazard.load())
+            .any(|hazard| hazard == offset)
+    }
+
+    fn invariant(&self) {
+        if !cfg!(feature = "validate") {
+            return;
+        }
+
+        let len = self.len.load(Ordering::Relaxed);
+
+        assert!(self
+            .hazards
+            .iter()
+            .take(len)
+            .all(|hazard| hazard.load().is_some()));
+
+        assert!(self
+            .hazards
+            .iter()
+            .skip(len)
+            .all(|hazard| hazard.load().is_none()));
+
+        let unique = self
+            .hazards
+            .iter()
+            .take(len)
+            .map(|hazard| hazard.load())
+            .collect::<HashSet<_>>();
+
+        assert_eq!(unique.len(), len);
+    }
 }
 
 pub(crate) struct Allocator {
@@ -340,7 +488,7 @@ impl Allocator {
                 size,
                 index: self.index,
                 next: None,
-                free: AtomicBool::new(false),
+                state: Atomic::new(State::new(StateUnpacked::Live)),
             })
     }
 
@@ -368,7 +516,14 @@ pub(crate) struct Descriptor {
     offset: data::Offset<size::Huge>,
     size: NonZeroUsize,
     next: Option<crate::Box<Descriptor>>,
-    free: AtomicBool,
+    state: Atomic<State>,
+}
+
+#[ribbit::pack(size = 2, debug)]
+enum State {
+    Live,
+    Free,
+    Safe,
 }
 
 impl Descriptor {

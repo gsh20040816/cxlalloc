@@ -15,6 +15,10 @@ impl backend::Impl for Mmap {
     fn allocate(&self, _: region::Id, _: NonZeroUsize) -> io::Result<backend::File> {
         Ok(backend::File::default())
     }
+
+    fn unlink(&self, _id: &region::Id) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl From<Mmap> for backend::Kind {

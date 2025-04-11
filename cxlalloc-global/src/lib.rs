@@ -98,7 +98,10 @@ pub fn report_thread() -> Vec<Report> {
 fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
 
-    if RAW.get().unwrap().map(address) {
+    if RAW.get().unwrap().map(
+        unsafe { cxlalloc::thread::Id::new(THREAD_ID.get()) },
+        address,
+    ) {
         return;
     }
 

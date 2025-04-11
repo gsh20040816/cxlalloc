@@ -1,3 +1,4 @@
+use core::cell::Cell;
 use core::ptr;
 use core::ptr::NonNull;
 use std::mem;
@@ -18,10 +19,18 @@ use ipc_channel::ipc::IpcSender;
 
 static RAW: OnceLock<cxlalloc::Raw> = OnceLock::new();
 
+thread_local! {
+    static ID: Cell<u16> = const { Cell::new(0) };
+}
+
 fn handle(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
 
-    if RAW.get().unwrap().map(address) {
+    if RAW
+        .get()
+        .unwrap()
+        .map(unsafe { cxlalloc::thread::Id::new(ID.get()) }, address)
+    {
         return;
     }
 
@@ -120,7 +129,7 @@ impl Worker {
                         .all(|word| *word == id)
                     );
 
-                    unsafe { allocator.free_untyped(pointer.cast()) }
+                    allocator.free_untyped(pointer.cast());
 
                     self.tx.send(Response::Free)?;
                 }
@@ -143,6 +152,7 @@ impl Worker {
             panic!("Expected handshake")
         };
 
+        ID.set(cli.id);
         let raw = RAW.get_or_init(|| {
             cxlalloc::raw::Raw::builder()
                 .backend(

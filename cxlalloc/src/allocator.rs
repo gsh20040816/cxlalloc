@@ -278,7 +278,8 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
         let size = NonZeroUsize::new(size.next_multiple_of(crate::SIZE_PAGE)).unwrap();
 
-        let (offset, index) = match self.huge.reuse(self.id, &self.small.data) {
+        // FIXME: reuse API shouldn't be exposed here
+        let (offset, index) = match self.huge.reuse(&self.small.data, self.id) {
             Some(offset) => (offset, None),
             None => {
                 let index = self.small.peek(context, huge::Descriptor::CLASS).unwrap();
@@ -292,9 +293,13 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         let descriptor = unsafe { &mut *self.small.data.offset_to_pointer(offset).as_ptr() };
-        let allocation = self
-            .huge
-            .allocate(context.id, &self.small.data, size, descriptor);
+        let allocation = self.huge.allocate(
+            context.id,
+            &self.small.data,
+            size,
+            descriptor,
+            index.is_none(),
+        );
 
         // FIXME: pop before mmap in `self.huge.allocate` or check if
         // allocated on recovery

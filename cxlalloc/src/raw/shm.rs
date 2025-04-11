@@ -20,7 +20,7 @@ impl backend::Impl for Shm {
     }
 
     fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<backend::File> {
-        let path = id_to_path(id);
+        let path = id_to_path(&id);
         unsafe {
             let (fd, clean) = match libc::shm_open(
                 path.as_ptr().cast(),
@@ -55,9 +55,17 @@ impl backend::Impl for Shm {
             Ok(backend::File::new(fd, 0, clean))
         }
     }
+
+    fn unlink(&self, id: &region::Id) -> io::Result<()> {
+        let path = id_to_path(id);
+        match unsafe { libc::shm_unlink(path.as_ptr().cast()) } {
+            -1 => return Err(std::io::Error::last_os_error()),
+            _ => Ok(()),
+        }
+    }
 }
 
-fn id_to_path(id: region::Id) -> ArrayVec<u8, { region::Id::SIZE }> {
+fn id_to_path(id: &region::Id) -> ArrayVec<u8, { region::Id::SIZE }> {
     let mut path = ArrayVec::new_const();
     path.push(b'/');
     path.try_extend_from_slice(id.as_bytes()).unwrap();

@@ -37,6 +37,10 @@ impl backend::Impl for Ivshmem {
             allocation.existing == 0,
         ))
     }
+
+    fn unlink(&self, _id: &region::Id) -> io::Result<()> {
+        todo!()
+    }
 }
 
 impl From<Ivshmem> for backend::Kind {

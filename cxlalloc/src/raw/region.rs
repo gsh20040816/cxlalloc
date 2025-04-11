@@ -257,6 +257,12 @@ impl Random {
 
         Ok(())
     }
+
+    pub(crate) fn unmap(&self, backend: &Backend, offset: usize, size: NonZeroUsize) {
+        let id = self.id.with_suffix(format_args!("{:#x}", offset));
+        let _ = unsafe { munmap(self.address().byte_add(offset), size) };
+        let _ = backend.unlink(&id);
+    }
 }
 
 impl Region for Random {

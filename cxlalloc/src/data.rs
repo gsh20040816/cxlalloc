@@ -57,6 +57,7 @@ where
     new(rename = "new_internal", vis = ""),
     debug,
     eq,
+    hash,
     ord
 )]
 #[repr(transparent)]
