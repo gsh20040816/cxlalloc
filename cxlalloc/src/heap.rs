@@ -354,18 +354,22 @@ where
         free.set(block);
         let count = free.len();
 
-        match count {
-            count if count == class.count() => {
-                self.owned.sized_to_unsized(&self.slabs, class, index);
-
-                self.stat
-                    .record(context.id, stat::thread::Event::SizedToUnsized { class });
-
-                self.unsized_to_global(context);
-            }
-            1 => self.attach(context, class, index),
-            _ => (),
+        // Attach if not empty
+        if count == 1 {
+            self.attach(context, class, index);
         }
+
+        // Return to unsized if full
+        if count < class.count() {
+            return;
+        }
+
+        self.owned.sized_to_unsized(&self.slabs, class, index);
+
+        self.stat
+            .record(context.id, stat::thread::Event::SizedToUnsized { class });
+
+        self.unsized_to_global(context);
     }
 
     #[cold]
@@ -550,12 +554,6 @@ where
 
     #[cold]
     pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
-        // Edge case: always detached
-        if class.size() == 1 {
-            self.r#unsized.push(slabs, index);
-            return;
-        }
-
         let next = slabs.local(index).next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
