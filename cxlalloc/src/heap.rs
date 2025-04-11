@@ -550,6 +550,12 @@ where
 
     #[cold]
     pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
+        // Edge case: always detached
+        if class.size() == 1 {
+            self.r#unsized.push(slabs, index);
+            return;
+        }
+
         let next = slabs.local(index).next.load();
 
         let mut walk = self.r#sized[class].peek().unwrap();
