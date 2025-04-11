@@ -232,9 +232,10 @@ impl Raw {
                 libc::MPOL_F_STATIC_NODES | policy,
                 &mask,
                 64,
-                // MPOL_MF_STRICT
+                // MPOL_MF_STRICT sometimes raises EIO when called concurrently for the same
+                // address range, so disable for now.
                 // https://github.com/torvalds/linux/blob/0c559323bbaabee7346c12e74b497e283aaafef5/include/uapi/linux/mempolicy.h#L48
-                1,
+                0,
             )
         } {
             0 => Ok(()),
