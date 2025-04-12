@@ -3,7 +3,6 @@ use core::mem;
 use core::num::NonZeroUsize;
 
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::collections::HashSet;
@@ -109,6 +108,8 @@ impl<'raw> Huge<'raw> {
         out: &mut Descriptor,
         reuse: bool,
     ) -> *mut ffi::c_void {
+        self.refresh(data, id);
+
         loop {
             match self.allocator.allocate(&self.data, size) {
                 None => self.claim(id, size),
@@ -137,10 +138,10 @@ impl<'raw> Huge<'raw> {
                         },
                     );
 
+                    out.state.store(State::new(StateUnpacked::Live));
                     out.index = descriptor.index;
                     out.offset = descriptor.offset;
                     out.size = descriptor.size;
-                    out.state.store(State::new(StateUnpacked::Live));
 
                     if !reuse {
                         // point at previous head in data region
@@ -159,6 +160,7 @@ impl<'raw> Huge<'raw> {
                     // FIXME: mark descriptor as allocated
 
                     // mmap huge allocation
+                    self.owned[id].insert(out.offset);
                     self.map_descriptor(out).unwrap();
 
                     return self.data.offset_to_pointer(out.offset).as_ptr();
@@ -173,6 +175,8 @@ impl<'raw> Huge<'raw> {
         data: &Data<'raw, size::Small>,
         offset: data::Offset<size::Huge>,
     ) {
+        self.refresh(data, context.id);
+
         let descriptor = self.find(data, offset).unwrap();
         self.stat.record(
             context.id,
@@ -180,10 +184,10 @@ impl<'raw> Huge<'raw> {
                 size: descriptor.size.get() as u64,
             },
         );
-        descriptor.state.store(State::new(StateUnpacked::Free));
 
-        self.owned[context.id].swap_remove(descriptor.offset);
         self.unmap_descriptor(descriptor);
+        self.owned[context.id].swap_remove(descriptor.offset);
+        descriptor.state.store(State::new(StateUnpacked::Free));
 
         cache::flush(&descriptor.state, cache::Invalidate::Yes);
 
@@ -226,6 +230,7 @@ impl<'raw> Huge<'raw> {
     }
 
     fn map_descriptor(&self, descriptor: &Descriptor) -> crate::Result<()> {
+        log::info!("Map {:x?}", descriptor.offset);
         self.region.map(
             self.backend,
             u64::from(descriptor.offset) as usize,
@@ -234,6 +239,7 @@ impl<'raw> Huge<'raw> {
     }
 
     fn unmap_descriptor(&self, descriptor: &Descriptor) {
+        log::info!("Unmap {:x?}", descriptor.offset);
         self.region.unmap(
             self.backend,
             u64::from(descriptor.offset) as usize,
@@ -277,7 +283,7 @@ impl<'raw> Huge<'raw> {
             });
 
         let safe = safe?;
-        log::info!("Reuse descriptor at {:#x?}", safe as *const _);
+        log::trace!("Reuse descriptor at {:#x?}", safe as *const _);
         data.pointer_to_offset(NonNull::from(safe))
     }
 
@@ -377,17 +383,11 @@ pub(crate) struct Owned {
 
 impl Owned {
     fn insert(&self, offset: data::Offset<size::Huge>) {
-        let len = self.len.load(Ordering::Relaxed);
-
-        if self
-            .hazards
-            .iter()
-            .take(len)
-            .any(|hazard| hazard.load() == Some(offset))
-        {
-            return;
+        if cfg!(feature = "validate") {
+            assert!(!self.contains(offset));
         }
 
+        let len = self.len.load(Ordering::Relaxed);
         self.hazards[len].store(Some(offset));
         self.len.store(len + 1, Ordering::Release);
 
@@ -396,15 +396,16 @@ impl Owned {
     }
 
     fn swap_remove(&self, offset: data::Offset<size::Huge>) -> bool {
+        let len = self.len.load(Ordering::Relaxed);
         let Some(index) = self
             .hazards
             .iter()
+            .take(len)
             .position(|hazard| hazard.load() == Some(offset))
         else {
             return false;
         };
 
-        let len = self.len.load(Ordering::Relaxed);
         let last = self.hazards[len - 1].load();
         self.hazards[len - 1].store(None);
         self.hazards[index].store(last);
@@ -416,10 +417,11 @@ impl Owned {
     }
 
     fn contains(&self, offset: data::Offset<size::Huge>) -> bool {
+        let len = self.len.load(Ordering::Relaxed);
         self.hazards
             .iter()
-            .map_while(|hazard| hazard.load())
-            .any(|hazard| hazard == offset)
+            .take(len)
+            .any(|hazard| hazard.load() == Some(offset))
     }
 
     fn invariant(&self) {
