@@ -35,6 +35,34 @@ SYMBOLS = {
     "lightning": "x",
 }
 
+MACRO_SELECT = (
+    pl.when(pl.col("benchmark").struct["trace"].str.contains("12"))
+    .then(pl.lit("MC-12"))
+    .when(pl.col("benchmark").struct["trace"].str.contains("15"))
+    .then(pl.lit("MC-15"))
+    .when(pl.col("benchmark").struct["trace"].str.contains("31"))
+    .then(pl.lit("MC-31"))
+    .when(pl.col("benchmark").struct["trace"].str.contains("37"))
+    .then(pl.lit("MC-37"))
+    .when(pl.col("benchmark").struct["insert_proportion"] > 0.9)
+    .then(pl.lit("YCSB-Load"))
+    .when(pl.col("benchmark").struct["insert_proportion"] < 0.06)
+    .then(pl.lit("YCSB-D"))
+    .otherwise(pl.lit("YCSB-A"))
+)
+
+MACRO_WORKLOADS = ["YCSB-Load", "YCSB-A", "YCSB-D", "MC-12", "MC-15", "MC-31", "MC-37"]
+
+MICRO_SELECT = (
+    pl.when(pl.col("benchmark").struct["object_size"] == 8)
+    .then(pl.lit("threadtest-8B"))
+    .when(pl.col("benchmark").struct["object_size"] == 32768)
+    .then(pl.lit("threadtest-32KiB"))
+    .otherwise(pl.lit("xmalloc")),
+)
+
+MICRO_WORKLOADS = ["threadtest-8B", "threadtest-32KiB", "xmalloc"]
+
 
 def marker(allocator: str):
     return dict(color=COLORS[allocator], symbol=SYMBOLS[allocator], size=8)
@@ -42,6 +70,36 @@ def marker(allocator: str):
 
 def zorder(allocator: str):
     return len(ALLOCATORS) - ALLOCATORS.index(allocator)
+
+
+def collapse(df, workload, *agg):
+    return (
+        df.group_by("date")
+        .agg(
+            pl.col("allocator").struct["name"].first().alias(ALLOCATOR),
+            pl.col("global").struct["thread_count"].first().alias(THREAD_COUNT),
+            workload.first().alias(WORKLOAD),
+            (
+                pl.col("output")
+                .struct["thread"]
+                .list.explode()
+                .struct["operation_count"]
+                / pl.col("output").struct["thread"].list.explode().struct["time"]
+                * 1e9
+            )
+            .sum()
+            .alias(THROUGHPUT),
+            pl.col("output")
+            .struct["process"]
+            .struct["resource_usage"]
+            .struct["max_rss"]
+            .sum()
+            .truediv(2**30)
+            .alias(MAX_RSS),
+            *agg,
+        )
+        .sort(ALLOCATOR, WORKLOAD, THREAD_COUNT)
+    )
 
 
 def display_count(value: int) -> str:

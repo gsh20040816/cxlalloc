@@ -1,5 +1,5 @@
 import common
-from common import ALLOCATOR, THREAD_COUNT, WORKLOAD, THROUGHPUT, MAX_RSS
+from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, THROUGHPUT, MAX_RSS
 import polars as pl
 import plotly.graph_objects as go
 import plotly.subplots as sp
@@ -9,54 +9,26 @@ import sys
 def main():
     df = pl.scan_ndjson(sys.argv[1], infer_schema_length=None)
 
-    df = (
-        df.group_by("date")
-        .agg(
-            pl.col("allocator").struct["name"].alias(ALLOCATOR),
-            pl.col("global").struct["thread_count"].alias(THREAD_COUNT),
-            pl.when(pl.col("benchmark").struct["object_size"].is_null().not_())
-            .then(pl.lit("threadtest"))
-            .otherwise(pl.lit("xmalloc"))
-            .alias(WORKLOAD),
-            (
-                pl.col("output")
-                .struct["thread"]
-                .list.explode()
-                .struct["operation_count"]
-                / pl.col("output").struct["thread"].list.explode().struct["time"]
-                * 1e9
-            )
-            .sum()
-            .alias(THROUGHPUT),
-            pl.col("output")
-            .struct["process"]
-            .struct["resource_usage"]
-            .struct["max_rss"]
-            .sum()
-            .truediv(2**30)
-            .alias(MAX_RSS),
-        )
-        .explode(ALLOCATOR, THREAD_COUNT, WORKLOAD)
-        .sort(ALLOCATOR, WORKLOAD, THREAD_COUNT)
+    df = common.collapse(
+        df,
+        common.MICRO_SELECT,
     )
 
-    workloads = ["threadtest", "xmalloc"]
     metrics = [THROUGHPUT, MAX_RSS]
-    allocators = ["cxlalloc", "mimalloc", "ralloc", "cxl_shm", "boost", "lightning"]
     thread_counts = df.select(THREAD_COUNT).unique().collect().to_series().sort()
 
     fig = sp.make_subplots(
         rows=len(metrics),
-        cols=len(workloads),
+        cols=len(common.MICRO_WORKLOADS),
         shared_xaxes=True,
-        column_titles=workloads,
+        column_titles=common.MICRO_WORKLOADS,
         vertical_spacing=0.05,
         row_heights=[3, 1],
     )
 
-    for col, workload in enumerate(workloads):
+    for col, workload in enumerate(common.MICRO_WORKLOADS):
         for row, metric in enumerate(metrics):
-            for allocator in allocators:
+            for allocator in ALLOCATORS:
                 data = (
                     df.filter(pl.col(ALLOCATOR) == allocator)
                     .filter(pl.col(WORKLOAD) == workload)
@@ -80,26 +52,26 @@ def main():
 
     fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
-    # Clip lightning RSS
-    for col, workload in enumerate(workloads):
-        data = (
-            df.filter(pl.col(WORKLOAD) == workload)
-            .select(MAX_RSS)
-            .sort(MAX_RSS)
-            .collect()
-            .head(-len(thread_counts))
-            .to_series()
-        )
+    # # Clip lightning RSS
+    # for col, workload in enumerate(common.MICRO_WORKLOADS):
+    #     data = (
+    #         df.filter(pl.col(WORKLOAD) == workload)
+    #         .select(MAX_RSS)
+    #         .sort(MAX_RSS)
+    #         .collect()
+    #         .head(-len(thread_counts))
+    #         .to_series()
+    #     )
 
-        # low = data.first() * 0.99
-        low = 0.0
-        high = data.last() * 1.1
+    #     # low = data.first() * 0.99
+    #     low = 0.0
+    #     high = data.last() * 1.1
 
-        fig.for_each_yaxis(
-            lambda yaxis: yaxis.update(range=(low, high)),
-            col=col + 1,
-            row=2,
-        )
+    #     fig.for_each_yaxis(
+    #         lambda yaxis: yaxis.update(range=(low, high)),
+    #         col=col + 1,
+    #         row=2,
+    #     )
 
     fig.for_each_xaxis(lambda xaxis: xaxis.update(title="Thread Count"), row=2, col=1)
 
@@ -129,6 +101,7 @@ def main():
     )
 
     fig.update_layout(
+        title="Microbenchmark Workloads",
         width=600,
         height=400,
         legend=dict(
@@ -143,7 +116,6 @@ def main():
         margin=dict(l=0, r=0, t=50, b=0),
     )
 
-    fig.update_layout()
     fig.write_image("out.pdf")
     fig.show()
 
