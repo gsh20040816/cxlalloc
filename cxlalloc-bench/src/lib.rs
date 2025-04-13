@@ -50,7 +50,7 @@ impl Config {
                     || (config.object_size > 1000 && self.allocator.name == "cxl_shm")
             }
 
-            allocator_bench::benchmark::Config::Xmalloc(_) => self.global.thread_count & 1 == 0,
+            allocator_bench::benchmark::Config::Xmalloc(_) => self.global.thread_count & 1 != 0,
 
             allocator_bench::benchmark::Config::Memcached(config) => {
                 !(self.allocator.name == "cxl_shm"
