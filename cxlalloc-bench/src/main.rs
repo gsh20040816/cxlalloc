@@ -145,7 +145,7 @@ struct Ycsb {
     #[serde_inline_default(vec![10_000_000])]
     operation_count: Vec<usize>,
 
-    workload: Workload,
+    mix: Vec<Workload>,
 }
 
 #[derive(Deserialize)]
@@ -213,7 +213,15 @@ fn main() -> anyhow::Result<()> {
 
                         if i >= skip {
                             experiment
-                                .run(coordinator, &config, i, partial, j, repeat, &mut out)
+                                .run(
+                                    coordinator,
+                                    &config,
+                                    i % partial,
+                                    partial,
+                                    j,
+                                    repeat,
+                                    &mut out,
+                                )
                                 .unwrap();
                         }
 
@@ -402,43 +410,40 @@ impl Ycsb {
         index: allocator_bench::index::Config,
         mut apply: F,
     ) {
-        cartesian!(&self.record_count, &self.operation_count,)
-            .map(|(record_count, operation_count)| {
-                ycsb::Workload::builder()
+        cartesian!(&self.record_count, &self.operation_count, &self.mix)
+            .map(|(record_count, operation_count, workload)| {
+                let partial = ycsb::Workload::builder()
                     .record_count(*record_count)
-                    .operation_count(*operation_count)
-            })
-            .map(|workload| {
-                (
-                    workload,
-                    allocator_bench::benchmark::ycsb_run::Config::builder().index(index.clone()),
-                )
-            })
-            .map(|(workload, config)| match &self.workload {
-                Workload::Load => allocator_bench::benchmark::Config::YcsbLoad(
-                    config
-                        .workload(workload.read_proportion(0.0).insert_proportion(1.0).build())
-                        .build(),
-                ),
-                Workload::Run(Run {
-                    insert,
-                    read,
-                    delete,
-                    distribution,
-                }) => allocator_bench::benchmark::Config::YcsbRun(
-                    config
-                        .workload(
-                            workload
-                                .clone()
-                                .insert_proportion(*insert)
-                                .read_proportion(*read)
-                                .update_proportion(0.0)
-                                .delete_proportion(*delete)
-                                .request_distribution(*distribution)
-                                .build(),
-                        )
-                        .build(),
-                ),
+                    .operation_count(*operation_count);
+
+                let config =
+                    allocator_bench::benchmark::ycsb_run::Config::builder().index(index.clone());
+
+                match workload {
+                    Workload::Load => allocator_bench::benchmark::Config::YcsbLoad(
+                        config
+                            .workload(partial.read_proportion(0.0).insert_proportion(1.0).build())
+                            .build(),
+                    ),
+                    Workload::Run(Run {
+                        insert,
+                        read,
+                        delete,
+                        distribution,
+                    }) => allocator_bench::benchmark::Config::YcsbRun(
+                        config
+                            .workload(
+                                partial
+                                    .insert_proportion(*insert)
+                                    .read_proportion(*read)
+                                    .update_proportion(0.0)
+                                    .delete_proportion(*delete)
+                                    .request_distribution(*distribution)
+                                    .build(),
+                            )
+                            .build(),
+                    ),
+                }
             })
             .map(|benchmark| config.clone().benchmark(benchmark).build())
             .for_each(&mut apply)

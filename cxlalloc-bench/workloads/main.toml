@@ -26,17 +26,17 @@ name = "ycsb"
 record_count = [8400000]
 operation_count = [8400000]
 
-[experiment.benchmark.workload.workload]
+[[experiment.benchmark.workload.mix]]
 phase = "load"
 
-[experiment.benchmark.workload.workload]
+[[experiment.benchmark.workload.mix]]
 phase = "run"
 read = 0.50
 insert = 0.25
 delete = 0.25
 distribution = "zipfian"
 
-[experiment.benchmark.workload.workload]
+[[experiment.benchmark.workload.mix]]
 phase = "run"
 read = 0.95
 insert = 0.05
@@ -88,17 +88,17 @@ name = "ycsb"
 record_count = [8400000]
 operation_count = [8400000]
 
-[experiment.benchmark.workload.workload]
+[[experiment.benchmark.workload.mix]]
 phase = "load"
 
-[experiment.benchmark.workload.workload]
+[[experiment.benchmark.workload.mix]]
 phase = "run"
 read = 0.50
 insert = 0.25
 delete = 0.25
 distribution = "zipfian"
 
-[experiment.benchmark.workload.workload]
+[[experiment.benchmark.workload.mix]]
 phase = "run"
 read = 0.95
 insert = 0.05
