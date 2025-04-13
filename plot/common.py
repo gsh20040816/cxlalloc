@@ -1,5 +1,6 @@
 import math
 import polars as pl
+import polars.selectors as cs
 import plotly
 import plotly.io as pio
 
@@ -7,18 +8,33 @@ import plotly.io as pio
 # https://github.com/plotly/plotly.py/issues/3469
 pio.kaleido.scope.mathjax = None
 
+DATE = "date"
 ALLOCATOR = "Allocator"
 THREAD_COUNT = "Thread Count"
+PROCESS_COUNT = "Process Count"
 WORKLOAD = "workload"
 THROUGHPUT = "Throughput (ops/sec)"
 MAX_RSS = "Max RSS (GiB)"
 SCHEME = plotly.colors.qualitative.D3
 THEME = "plotly_white"
 
-ALLOCATORS = ["cxlalloc", "mimalloc", "ralloc", "cxl_shm", "boost", "lightning"]
+ALLOCATORS = [
+    "cxlalloc",
+    "cxlalloc-extend",
+    "cxlalloc-sfence",
+    "cxlalloc-clflushopt",
+    "mimalloc",
+    "ralloc",
+    "cxl_shm",
+    "boost",
+    "lightning",
+]
 
 COLORS = {
     "cxlalloc": "black",
+    "cxlalloc-extend": "black",
+    "cxlalloc-sfence": "black",
+    "cxlalloc-clflushopt": "black",
     "mimalloc": SCHEME[0],
     "ralloc": SCHEME[1],
     "cxl_shm": SCHEME[2],
@@ -58,7 +74,7 @@ MICRO_SELECT = (
     .then(pl.lit("threadtest-8B"))
     .when(pl.col("benchmark").struct["object_size"] == 32768)
     .then(pl.lit("threadtest-32KiB"))
-    .otherwise(pl.lit("xmalloc")),
+    .otherwise(pl.lit("xmalloc"))
 )
 
 MICRO_WORKLOADS = ["threadtest-8B", "threadtest-32KiB", "xmalloc"]
@@ -77,6 +93,7 @@ def collapse(df, workload, *agg):
         df.group_by("date")
         .agg(
             pl.col("allocator").struct["name"].first().alias(ALLOCATOR),
+            pl.col("global").struct["process_count"].first().alias(PROCESS_COUNT),
             pl.col("global").struct["thread_count"].first().alias(THREAD_COUNT),
             workload.first().alias(WORKLOAD),
             (
@@ -98,7 +115,15 @@ def collapse(df, workload, *agg):
             .alias(MAX_RSS),
             *agg,
         )
-        .sort(ALLOCATOR, WORKLOAD, THREAD_COUNT)
+        .drop(DATE)
+        .group_by(cs.exclude(THROUGHPUT, MAX_RSS))
+        .agg(
+            pl.col(THROUGHPUT).mean().alias(THROUGHPUT),
+            pl.col(THROUGHPUT).std().alias(THROUGHPUT + "_std"),
+            pl.col(MAX_RSS).mean().alias(MAX_RSS),
+            pl.col(MAX_RSS).std().alias(MAX_RSS + "_std"),
+        )
+        .sort(ALLOCATOR, WORKLOAD, PROCESS_COUNT, THREAD_COUNT)
     )
 
 

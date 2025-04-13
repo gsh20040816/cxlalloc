@@ -44,13 +44,14 @@ def main():
                 data = (
                     df.filter(pl.col(ALLOCATOR) == allocator)
                     .filter(pl.col(WORKLOAD) == workload)
-                    .select(THREAD_COUNT, metric)
+                    .select(THREAD_COUNT, metric, metric + "_std")
                     .collect()
                 )
 
                 trace = go.Scatter(
                     x=data[THREAD_COUNT],
                     y=data[metric],
+                    error_y=dict(array=data[metric + "_std"]),
                     marker=common.marker(allocator),
                     zorder=common.zorder(allocator),
                     name=allocator,
