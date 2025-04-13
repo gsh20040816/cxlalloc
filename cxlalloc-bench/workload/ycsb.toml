@@ -1,0 +1,73 @@
+repeat = 10
+
+[[experiment]]
+output = "ycsb.ndjson"
+thread_count = [1, 10, 20, 30, 40, 50, 60, 70, 80]
+process_count = [1]
+allocator = [{ name = "mimalloc" }]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }]
+
+[[experiment.benchmark]]
+kind = "key_value"
+
+[[experiment.benchmark.workload]]
+name = "ycsb"
+record_count = [8400000]
+operation_count = [8400000]
+
+[experiment.benchmark.workload.workload]
+phase = "load"
+
+[experiment.benchmark.workload.workload]
+phase = "run"
+read = 0.50
+insert = 0.25
+delete = 0.25
+distribution = "zipfian"
+
+[experiment.benchmark.workload.workload]
+phase = "run"
+read = 0.95
+insert = 0.05
+distribution = "latest"
+
+[[experiment]]
+output = "ycsb.ndjson"
+thread_count = [1, 10, 20, 30, 40, 50, 60, 70, 80]
+process_count = [10]
+allocator = [
+    { name = "cxlalloc" },
+    { name = "ralloc" },
+    { name = "cxl_shm" },
+    { name = "boost" },
+    { name = "lightning" },
+]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }]
+
+[[experiment.benchmark]]
+kind = "key_value"
+
+[[experiment.benchmark.workload]]
+name = "ycsb"
+record_count = [8400000]
+operation_count = [8400000]
+
+[experiment.benchmark.workload.workload]
+phase = "load"
+
+[experiment.benchmark.workload.workload]
+phase = "run"
+read = 0.50
+insert = 0.25
+delete = 0.25
+distribution = "zipfian"
+
+[experiment.benchmark.workload.workload]
+phase = "run"
+read = 0.95
+insert = 0.05
+distribution = "latest"
