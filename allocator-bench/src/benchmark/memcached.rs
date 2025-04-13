@@ -32,7 +32,7 @@ pub struct Config {
 
     operation_count: u64,
 
-    trace: PathBuf,
+    pub trace: PathBuf,
 }
 
 // HACK: CXL-SHM doesn't support allocations larger than 1KiB (1_000B data + 24B header)

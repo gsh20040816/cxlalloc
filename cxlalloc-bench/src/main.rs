@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -13,6 +14,28 @@ use ycsb::RequestDistribution;
 #[serde_inline_default]
 #[derive(Deserialize)]
 struct Config {
+    /// Skip this many configurations
+    #[serde_inline_default(0)]
+    skip: usize,
+
+    /// Repeat this many times
+    #[serde_inline_default(1)]
+    repeat: usize,
+
+    #[serde_inline_default(PathBuf::from(if cfg!(debug_assertions) {
+            "target/debug/cxlalloc-bench-coordinator"
+        } else {
+            "target/release/cxlalloc-bench-coordinator"
+        }
+    ))]
+    coordinator: PathBuf,
+
+    experiment: Vec<Experiment>,
+}
+
+#[serde_inline_default]
+#[derive(Deserialize)]
+struct Experiment {
     #[serde_inline_default(vec![1])]
     process_count: Vec<usize>,
 
@@ -37,14 +60,6 @@ struct Config {
 
     #[serde(default)]
     allocator_config: cxlalloc_bench::allocator::Config,
-
-    #[serde_inline_default(PathBuf::from(if cfg!(debug_assertions) {
-            "target/debug/cxlalloc-bench-coordinator"
-        } else {
-            "target/release/cxlalloc-bench-coordinator"
-        }
-    ))]
-    coordinator: PathBuf,
 
     #[serde_inline_default(PathBuf::from("result.ndjson"))]
     output: PathBuf,
@@ -159,29 +174,55 @@ fn main() -> anyhow::Result<()> {
 
     let config = toml::from_str::<Config>(&r#in)?;
 
-    let mut out = File::options()
-        .create(true)
-        .append(true)
-        .open(&config.output)?;
-
     // Inefficient but easy to maintain
-    let mut total = 0;
-    config.for_each_cartesian(|global| {
-        config
-            .benchmark
-            .iter()
-            .for_each(|benchmark| benchmark.for_each_cartesian(global.clone(), |_| total += 1))
-    });
+    let mut partial = 0;
+    for experiment in &config.experiment {
+        if experiment.output.exists() {
+            eprintln!("[WARN]: output file {:?} exists", experiment.output);
+        }
+
+        experiment.for_each_cartesian(|global| {
+            experiment.benchmark.iter().for_each(|benchmark| {
+                benchmark.for_each_cartesian(global.clone(), |config| {
+                    if !config.skip() {
+                        partial += 1
+                    }
+                })
+            })
+        });
+    }
 
     let mut i = 0;
-    config.for_each_cartesian(|global| {
-        config.benchmark.iter().for_each(|benchmark| {
-            benchmark.for_each_cartesian(global.clone(), |benchmark| {
-                config.run(&benchmark, i, total, &mut out).unwrap();
-                i += 1;
-            })
-        })
-    });
+    let coordinator = &config.coordinator;
+    let skip = config.skip;
+    let repeat = config.repeat;
+
+    for j in 0..config.repeat {
+        for experiment in &config.experiment {
+            let mut out = File::options()
+                .create(true)
+                .append(true)
+                .open(&experiment.output)?;
+
+            experiment.for_each_cartesian(|global| {
+                experiment.benchmark.iter().for_each(|benchmark| {
+                    benchmark.for_each_cartesian(global.clone(), |config| {
+                        if config.skip() {
+                            return;
+                        }
+
+                        if i >= skip {
+                            experiment
+                                .run(coordinator, &config, i, partial, j, repeat, &mut out)
+                                .unwrap();
+                        }
+
+                        i += 1;
+                    })
+                })
+            });
+        }
+    }
 
     Ok(())
 }
@@ -207,8 +248,8 @@ impl Benchmark {
                 limit,
                 operation_count,
             }) => cartesian!(&limit, &operation_count)
-                .filter_map(|(&limit, &operation_count)| {
-                    let config = config
+                .map(|(&limit, &operation_count)| {
+                    config
                         .clone()
                         .benchmark(allocator_bench::benchmark::Config::Xmalloc(
                             allocator_bench::benchmark::Xmalloc::builder()
@@ -216,13 +257,7 @@ impl Benchmark {
                                 .operation_count(operation_count)
                                 .build(),
                         ))
-                        .build();
-
-                    // Only allow even thread counts
-                    match config.global.thread_count & 1 {
-                        0 => Some(config),
-                        _ => None,
-                    }
+                        .build()
                 })
                 .for_each(apply),
             Benchmark::ThreadTest(ThreadTest {
@@ -282,7 +317,7 @@ type Partial = cxlalloc_bench::ConfigBuilder<
     cxlalloc_bench::config::SetAllocator<cxlalloc_bench::config::SetGlobal>,
 >;
 
-impl Config {
+impl Experiment {
     fn for_each_cartesian<
         F: FnMut(
             cxlalloc_bench::ConfigBuilder<
@@ -315,16 +350,28 @@ impl Config {
 
     fn run(
         &self,
+        coordinator: &Path,
         config: &cxlalloc_bench::Config,
-        index: usize,
-        total: usize,
+        index_config: usize,
+        count_config: usize,
+
+        index_repeat: usize,
+        count_repeat: usize,
+
         out: &mut File,
     ) -> anyhow::Result<()> {
         const EMPTY: [String; 0] = [];
 
-        eprintln!("{}/{}: {:?}", index + 1, total, config);
+        eprintln!(
+            "{}/{} ({} / {}): {:?}",
+            index_config + 1,
+            count_config,
+            index_repeat + 1,
+            count_repeat,
+            config
+        );
 
-        let handle = duct::cmd(&self.coordinator, EMPTY)
+        let handle = duct::cmd(coordinator, EMPTY)
             .stdin_bytes(serde_json::to_vec(&config)?)
             .stdout_file(out.try_clone()?)
             .start()?;

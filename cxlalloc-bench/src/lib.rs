@@ -34,6 +34,23 @@ impl Config {
             benchmark: self.benchmark.clone(),
         }
     }
+
+    pub fn skip(&self) -> bool {
+        match &self.benchmark {
+            allocator_bench::benchmark::Config::Mstress(_)
+            | allocator_bench::benchmark::Config::YcsbRun(_)
+            | allocator_bench::benchmark::Config::YcsbLoad(_)
+            | allocator_bench::benchmark::Config::ThreadTest(_) => false,
+
+            allocator_bench::benchmark::Config::Xmalloc(_) => self.global.thread_count & 1 == 0,
+
+            allocator_bench::benchmark::Config::Memcached(config) => {
+                !(self.allocator.name == "cxl_shm"
+                    && (config.trace.to_string_lossy().contains("cluster12")
+                        || config.trace.to_string_lossy().contains("cluster37")))
+            }
+        }
+    }
 }
 
 fn date() -> u128 {
