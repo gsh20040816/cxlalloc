@@ -7,11 +7,10 @@ use crate::cache;
 
 pub(crate) const SIZE_METADATA: usize = mem::size_of::<u64>() * 2;
 
-pub(crate) trait Interface: Debug + Sized {
+pub(crate) trait Interface: Copy + Debug + Sized {
     const SIZE: usize = Self::SIZE_DATA + SIZE_METADATA;
     const SIZE_DATA: usize;
 
-    fn fill(&mut self, count: u64);
     fn peek(&self) -> Bit;
     fn set(&mut self, bit: Bit);
     fn unset(&mut self, bit: Bit);
@@ -22,6 +21,7 @@ pub(crate) trait Interface: Debug + Sized {
 }
 
 #[repr(C, align(8))]
+#[derive(Copy, Clone)]
 pub(crate) struct BitSet<const SIZE: usize> {
     count: u64,
     sparse: u64,
@@ -61,42 +61,43 @@ impl<const SIZE: usize> BitSet<SIZE> {
     }
 }
 
+impl<const SIZE: usize> BitSet<SIZE> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            count: 0,
+            sparse: 0,
+            dense: [0; SIZE],
+        }
+    }
+
+    pub(crate) const fn filled(count: u64) -> Self {
+        let mut dense = [0u64; SIZE];
+
+        let rows = count / 64;
+        let cols = count % 64;
+
+        let mut i = 0;
+        while i < rows as usize {
+            dense[i] = u64::MAX;
+            i += 1;
+        }
+
+        let mut sparse = (1 << rows) - 1;
+        if cols > 0 {
+            dense[rows as usize] = (1 << cols) - 1;
+            sparse |= ((cols > 0) as u64) << rows;
+        }
+
+        Self {
+            count,
+            sparse,
+            dense,
+        }
+    }
+}
+
 impl<const SIZE: usize> Interface for BitSet<SIZE> {
     const SIZE_DATA: usize = mem::size_of::<u64>() * SIZE;
-
-    fn fill(&mut self, count: u64) {
-        let rows = count as usize / 64;
-
-        // Full rows of 1s
-        self.dense
-            .iter_mut()
-            .take(rows)
-            .for_each(|row| *row = u64::MAX);
-
-        self.sparse = (1 << rows) - 1;
-
-        // Partial row of 1s
-        let skip = match count % 64 {
-            0 => 0,
-            remainder => {
-                self.dense[rows] = (1 << remainder) - 1;
-                self.sparse |= 1 << rows;
-                1
-            }
-        };
-
-        // Full rows of 0s
-        self.dense
-            .iter_mut()
-            .skip(rows)
-            .skip(skip)
-            .for_each(|row| *row = 0);
-
-        self.count = count;
-
-        cache::flush(&self.dense, cache::Invalidate::No);
-        self.validate();
-    }
 
     fn peek(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;

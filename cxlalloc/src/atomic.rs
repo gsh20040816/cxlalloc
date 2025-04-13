@@ -12,6 +12,15 @@ pub struct Atomic<T> {
     _type: PhantomData<T>,
 }
 
+impl<T> Atomic<T> {
+    pub const unsafe fn new_unchecked(value: u64) -> Self {
+        Self {
+            value: AtomicU64::new(value),
+            _type: PhantomData,
+        }
+    }
+}
+
 impl<T: ribbit::Pack<Loose = L>, L: Convert64> Atomic<T> {
     pub fn new(value: T) -> Self {
         let value = ribbit::private::pack(value).into_u64();

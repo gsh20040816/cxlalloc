@@ -7,6 +7,7 @@ pub(crate) use remote::Remote;
 
 use core::alloc::Layout;
 use core::alloc::LayoutError;
+use core::cell::UnsafeCell;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Display;
@@ -25,13 +26,13 @@ use crate::size;
 use crate::thread;
 
 pub(crate) struct Slab<'raw, B: size::Bracket> {
-    locals: Slice<'raw, B, Local<B>>,
+    locals: Slice<'raw, B, UnsafeCell<Local<B>>>,
     remotes: Slice<'raw, B, Detectable<Remote<B>>>,
 }
 
 impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn new(
-        locals: Slice<'raw, B, Local<B>>,
+        locals: Slice<'raw, B, UnsafeCell<Local<B>>>,
         remotes: Slice<'raw, B, Detectable<Remote<B>>>,
     ) -> Self {
         Self { locals, remotes }
@@ -39,6 +40,11 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
 
     #[inline]
     pub(crate) fn local(&self, index: Index<B>) -> &Local<B> {
+        unsafe { &*self.locals[index].get() }
+    }
+
+    #[inline]
+    pub(crate) fn local_mut(&self, index: Index<B>) -> &UnsafeCell<Local<B>> {
         &self.locals[index]
     }
 
@@ -61,7 +67,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            let next = &self.locals[i].next;
+            let next = &self.local(i).next;
             next.store(j);
             cache::flush(next, cache::Invalidate::No);
         }
@@ -70,7 +76,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
         iter::from_fn(move || {
             let next = head?;
-            head = self.locals[next].next.load();
+            head = self.local(next).next.load();
             Some(next)
         })
     }
@@ -92,12 +98,12 @@ where
             return;
         }
 
-        let Err(actual) = self.locals[index].owner.transfer(old, new) else {
+        let Err(actual) = self.local(index).owner.transfer(old, new) else {
             return;
         };
 
         let remote = self.remotes[index].load(context.help);
-        let local = &self.locals[index];
+        let local = &self.local(index);
 
         panic!(
             "Slab {index} transfer failed: \

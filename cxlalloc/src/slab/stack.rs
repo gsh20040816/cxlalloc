@@ -37,7 +37,7 @@ impl<B: size::Bracket> Local<B> {
 
     pub(crate) fn pop(&mut self, slabs: &Slab<B>) -> Option<Index<B>> {
         let head = self.head?;
-        self.head = slabs.locals[head].next.load();
+        self.head = slabs.local(head).next.load();
         cache::flush(&self.head, cache::Invalidate::No);
 
         self.count -= 1;
@@ -49,7 +49,7 @@ impl<B: size::Bracket> Local<B> {
             return;
         }
 
-        let head = &slabs.locals[index];
+        let head = slabs.local(index);
         head.next.store(self.head);
         cache::flush(&head.next, cache::Invalidate::No);
 
@@ -84,8 +84,8 @@ where
     ) {
         self.head
             .update(context, |old, version| {
-                slabs.locals[tail].next.store(old);
-                cache::flush(&slabs.locals[tail].next, cache::Invalidate::No);
+                slabs.local(tail).next.store(old);
+                cache::flush(&slabs.local(tail).next, cache::Invalidate::No);
                 Some((
                     Some(head),
                     recover::LocalToGlobal::new(head, version).into(),
@@ -102,7 +102,7 @@ where
         self.head
             .update(context, |old, version| {
                 let old = old?;
-                let new = slabs.locals[old].next.load();
+                let new = slabs.local(old).next.load();
                 Some((new, recover::GlobalToLocal::new(old, version).into()))
             })
             .flatten()

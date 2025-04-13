@@ -45,7 +45,7 @@ pub(crate) fn fence_cxl() {
 }
 
 #[inline]
-pub(crate) fn flush<T>(address: &T, invalidate: Invalidate) {
+pub(crate) fn flush<T>(address: *const T, invalidate: Invalidate) {
     if !cfg!(feature = "recover-flush") || cfg!(feature = "arch-gpf") {
         return;
     }
@@ -72,10 +72,10 @@ pub(crate) fn fence() {
 }
 
 #[inline]
-pub(crate) fn clflush_all<T>(address: &T, invalidate: Invalidate) {
+pub(crate) fn clflush_all<T>(address: *const T, invalidate: Invalidate) {
     for line in 0..size_of::<T>().next_multiple_of(SIZE_CACHE_LINE) / SIZE_CACHE_LINE {
         clflush(
-            (address as *const T as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
+            (address as *const u8).wrapping_byte_add(line * SIZE_CACHE_LINE),
             invalidate,
         );
     }

@@ -11,8 +11,9 @@ use crate::bitset::BitSet;
 use crate::bitset::Interface as _;
 use crate::SIZE_CACHE_LINE;
 
-pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug {
+pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug + 'static {
     const NAME: &'static str;
+
     const SIZE_SLAB: usize;
     const SIZE_MIN: usize;
     const SIZE_MAX: usize;
@@ -48,6 +49,7 @@ impl Debug for Huge {
 
 impl Bracket for Huge {
     const NAME: &'static str = "huge";
+
     const SIZE_SLAB: usize = 1 << 30;
     const SIZE_MIN: usize = 4096;
     const SIZE_MAX: usize = 4096;
@@ -159,7 +161,7 @@ impl Small {
     }
 
     const fn counts() -> Array<Small, u16> {
-        let mut counts = [0u16; Small::COUNT + 1];
+        let mut counts = [0u16; Small::COUNT];
 
         // Special case: zero size class to defer branch
         counts[0] = 0;
@@ -169,7 +171,7 @@ impl Small {
         counts[1] = (<Self as Bracket>::BitSet::SIZE_DATA * 8) as u16;
 
         let mut i = 2;
-        while i <= Self::COUNT {
+        while i < counts.len() {
             counts[i] = (Self::SIZE_SLAB / (i * 8)) as u16;
             i += 1;
         }
@@ -179,6 +181,19 @@ impl Small {
             _bracket: PhantomData,
         }
     }
+
+    pub(crate) const fn bit_sets() -> [<Self as Bracket>::BitSet; Self::COUNT] {
+        let counts = Self::counts().inner;
+        let mut bit_sets = [const { BitSet::new() }; Self::COUNT];
+
+        let mut class = 0;
+        while class < counts.len() {
+            bit_sets[class] = BitSet::filled(counts[class] as u64);
+            class += 1;
+        }
+
+        bit_sets
+    }
 }
 
 impl Bracket for Small {
@@ -187,10 +202,9 @@ impl Bracket for Small {
     const SIZE_SLAB: usize = (SIZE_CACHE_LINE * 8) * 8 * Self::SIZE_MIN;
     const SIZE_MIN: usize = 8;
     const SIZE_MAX: usize = 1016;
+    const COUNT: usize = 128;
 
-    const COUNT: usize = 127;
-
-    type Array<T> = [T; 1 + Self::COUNT];
+    type Array<T> = [T; Self::COUNT];
 
     // Number of 64-bit chunks in free bitset, minus metadata
     type BitSet = BitSet<
@@ -252,6 +266,7 @@ impl Large {
     const SIZE_MIN_LOG2: usize = 10;
     const SIZE_MAX_LOG2: usize = 19;
 
+    #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size <= Self::SIZE_MAX {
             true => Some(Self::new_internal(u4::new(
@@ -259,6 +274,24 @@ impl Large {
             ))),
             false => None,
         }
+    }
+
+    #[inline]
+    const fn count(&self) -> u64 {
+        Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self._0().value()
+    }
+
+    pub(crate) const fn bit_sets() -> [<Self as Bracket>::BitSet; Self::COUNT] {
+        let mut bit_sets = [const { BitSet::new() }; Self::COUNT];
+
+        let mut class = 0;
+        while class < bit_sets.len() {
+            let count = Self::new_internal(u4::new(class as u8)).count();
+            bit_sets[class] = BitSet::filled(count);
+            class += 1;
+        }
+
+        bit_sets
     }
 }
 
@@ -269,7 +302,6 @@ impl Bracket for Large {
     const SIZE_SLAB: usize = (SIZE_CACHE_LINE * 1) * 8 * Self::SIZE_MIN;
     const SIZE_MIN: usize = 1 << Self::SIZE_MIN_LOG2;
     const SIZE_MAX: usize = 1 << Self::SIZE_MAX_LOG2;
-
     const COUNT: usize = Self::SIZE_MAX_LOG2 - Self::SIZE_MIN_LOG2 + 1;
 
     type BitSet = BitSet<
@@ -313,7 +345,7 @@ impl Bracket for Large {
 
     #[inline]
     fn count(&self) -> u64 {
-        Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self._0().value()
+        self.count()
     }
 }
 

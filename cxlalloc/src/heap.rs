@@ -529,17 +529,16 @@ where
 
         crash::define!(unsized_to_sized_pre_log);
 
-        let local = slabs.local(index);
-        let next = local.next.load();
+        let local = slabs.local_mut(index).get();
+        let next = unsafe { (*core::ptr::addr_of!((*local).next)).load() };
 
         context.log(HeapState::from(UnsizedToSized::new(next, class)));
 
-        self.r#sized[class].push(slabs, index);
+        slab::Local::initialize(local, class);
 
-        local.class.store(class);
-        unsafe {
-            (*local.free.get()).fill(class.count());
-        }
+        cache::flush(local, cache::Invalidate::No);
+
+        self.r#sized[class].push(slabs, index);
 
         let remote = slabs.remote(index);
         remote.store(
