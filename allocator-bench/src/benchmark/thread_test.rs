@@ -23,7 +23,7 @@ pub struct ThreadTest {
     pub(crate) operation_count: u64,
 
     #[builder(default = 8)]
-    pub(crate) object_size: usize,
+    pub object_size: usize,
 }
 
 #[derive(Deserialize, Serialize)]

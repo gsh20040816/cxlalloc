@@ -36,11 +36,19 @@ impl Config {
     }
 
     pub fn skip(&self) -> bool {
+        if self.global.thread_count % self.global.process_count != 0 {
+            return true;
+        }
+
         match &self.benchmark {
             allocator_bench::benchmark::Config::Mstress(_)
             | allocator_bench::benchmark::Config::YcsbRun(_)
-            | allocator_bench::benchmark::Config::YcsbLoad(_)
-            | allocator_bench::benchmark::Config::ThreadTest(_) => false,
+            | allocator_bench::benchmark::Config::YcsbLoad(_) => false,
+
+            allocator_bench::benchmark::Config::ThreadTest(config) => {
+                (config.object_size > 16384 && self.allocator.name == "ralloc")
+                    || (config.object_size > 1000 && self.allocator.name == "cxl_shm")
+            }
 
             allocator_bench::benchmark::Config::Xmalloc(_) => self.global.thread_count & 1 == 0,
 

@@ -256,6 +256,8 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
 
                 for offset in &mut batch.objects {
                     unsafe {
+                        let handle = allocator.offset_to_handle(NonZeroU64::new(*offset).unwrap());
+                        handle.as_ptr().cast::<u64>().write(0xff);
                         allocator.unlink(offset);
                     }
                 }

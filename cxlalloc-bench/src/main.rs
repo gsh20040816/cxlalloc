@@ -329,7 +329,13 @@ impl Experiment {
         mut apply: F,
     ) {
         cartesian!(&self.process_count, &self.thread_count)
-            .filter(|(process_count, thread_count)| **thread_count % **process_count == 0)
+            .map(|(process_count, thread_count)| {
+                if process_count > thread_count {
+                    (thread_count, thread_count)
+                } else {
+                    (process_count, thread_count)
+                }
+            })
             .map(|(process_count, thread_count)| {
                 cxlalloc_bench::Config::builder().global(allocator_bench::config::Global::new(
                     *process_count,
