@@ -1,11 +1,11 @@
 use core::ffi;
+use core::hash::Hasher as _;
 use core::mem;
 use core::num::NonZeroUsize;
 
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
-use std::collections::HashSet;
 
 use gcollections::ops::Bounded as _;
 use gcollections::ops::Cardinality as _;
@@ -14,6 +14,7 @@ use gcollections::ops::Empty as _;
 use gcollections::ops::Intersection as _;
 use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
+use rapidhash::RapidHasher;
 use ribbit::private::u48;
 
 use crate::allocator;
@@ -70,7 +71,7 @@ impl<'raw> Huge<'raw> {
             .map(|pointer| unsafe { pointer.as_ref() })
             .flat_map(|head| Self::trace(Some(head)))
             .filter(|descriptor| matches!(descriptor.state.load().unpack(), StateUnpacked::Free))
-            .filter(|descriptor| self.owned[id].swap_remove(descriptor.offset))
+            .filter(|descriptor| self.owned[id].hazards.try_remove(descriptor.offset))
             .for_each(|descriptor| self.unmap_descriptor(descriptor))
     }
 
@@ -160,7 +161,7 @@ impl<'raw> Huge<'raw> {
                     // FIXME: mark descriptor as allocated
 
                     // mmap huge allocation
-                    self.owned[id].insert(out.offset);
+                    self.owned[id].hazards.insert(out.offset);
                     self.map_descriptor(out).unwrap();
 
                     return self.data.offset_to_pointer(out.offset).as_ptr();
@@ -186,7 +187,7 @@ impl<'raw> Huge<'raw> {
         );
 
         self.unmap_descriptor(descriptor);
-        self.owned[context.id].swap_remove(descriptor.offset);
+        self.owned[context.id].hazards.try_remove(descriptor.offset);
         descriptor.state.store(State::new(StateUnpacked::Free));
 
         cache::flush(&descriptor.state, cache::Invalidate::Yes);
@@ -225,7 +226,7 @@ impl<'raw> Huge<'raw> {
 
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
 
-        self.owned[id].insert(descriptor.offset);
+        self.owned[id].hazards.insert(descriptor.offset);
         self.map_descriptor(descriptor).map_err(crate::Error::from)
     }
 
@@ -263,7 +264,7 @@ impl<'raw> Huge<'raw> {
                     if self
                         .owned
                         .iter()
-                        .any(|owned| owned.contains(descriptor.offset)) =>
+                        .any(|owned| owned.hazards.contains(descriptor.offset)) =>
                 {
                     false
                 }
@@ -377,68 +378,40 @@ impl core::ops::Index<slab::Index<size::Huge>> for Huge<'_> {
 pub(crate) struct Owned {
     head: Atomic<Option<data::Offset<size::Small>>>,
 
-    len: AtomicUsize,
-    hazards: [Atomic<Option<data::Offset<size::Huge>>>; 1024],
+    hazards: Bloom,
 }
 
-impl Owned {
-    fn insert(&self, offset: data::Offset<size::Huge>) {
-        if cfg!(feature = "validate") {
-            assert!(!self.contains(offset));
-        }
+struct Bloom([AtomicU8; 128]);
 
-        let len = self.len.load(Ordering::Relaxed);
-        self.hazards[len].store(Some(offset));
-        self.len.store(len + 1, Ordering::Release);
-
-        log::info!("Insert hazard pointer for {:#x?}", offset);
-        self.invariant();
+impl Bloom {
+    fn contains(&self, offset: data::Offset<size::Huge>) -> bool {
+        self.bucket(offset).load(Ordering::Relaxed) > 0
     }
 
-    fn swap_remove(&self, offset: data::Offset<size::Huge>) -> bool {
-        let len = self.len.load(Ordering::Relaxed);
-        let Some(index) = self
-            .hazards
-            .iter()
-            .take(len)
-            .position(|hazard| hazard.load() == Some(offset))
-        else {
+    fn insert(&self, offset: data::Offset<size::Huge>) {
+        let bucket = self.bucket(offset);
+        let count = bucket.load(Ordering::Relaxed);
+        bucket.store(
+            count.checked_add(1).expect("Bloom filter overflow"),
+            Ordering::Relaxed,
+        );
+    }
+
+    fn try_remove(&self, offset: data::Offset<size::Huge>) -> bool {
+        let bucket = self.bucket(offset);
+        let count = bucket.load(Ordering::Relaxed);
+        let Some(count) = count.checked_sub(1) else {
             return false;
         };
-
-        let last = self.hazards[len - 1].load();
-        self.hazards[len - 1].store(None);
-        self.hazards[index].store(last);
-        self.len.store(len - 1, Ordering::Release);
-
-        log::info!("Remove hazard pointer for {:#x?}", offset);
-        self.invariant();
+        bucket.store(count, Ordering::Relaxed);
         true
     }
 
-    fn contains(&self, offset: data::Offset<size::Huge>) -> bool {
-        let len = self.len.load(Ordering::Relaxed);
-        self.hazards
-            .iter()
-            .take(len)
-            .any(|hazard| hazard.load() == Some(offset))
-    }
-
-    fn invariant(&self) {
-        if !cfg!(feature = "validate") {
-            return;
-        }
-
-        let len = self.len.load(Ordering::Relaxed);
-
-        let unique = self
-            .hazards
-            .iter()
-            .take(len)
-            .map(|hazard| hazard.load().unwrap())
-            .collect::<HashSet<_>>();
-
-        assert_eq!(unique.len(), len);
+    fn bucket(&self, offset: data::Offset<size::Huge>) -> &AtomicU8 {
+        let mut hasher = RapidHasher::default();
+        hasher.write_u64(u64::from(offset));
+        let index = hasher.finish();
+        &self.0[index as usize]
     }
 }
 
