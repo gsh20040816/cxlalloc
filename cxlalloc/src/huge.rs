@@ -431,23 +431,11 @@ impl Owned {
 
         let len = self.len.load(Ordering::Relaxed);
 
-        assert!(self
-            .hazards
-            .iter()
-            .take(len)
-            .all(|hazard| hazard.load().is_some()));
-
-        assert!(self
-            .hazards
-            .iter()
-            .skip(len)
-            .all(|hazard| hazard.load().is_none()));
-
         let unique = self
             .hazards
             .iter()
             .take(len)
-            .map(|hazard| hazard.load())
+            .map(|hazard| hazard.load().unwrap())
             .collect::<HashSet<_>>();
 
         assert_eq!(unique.len(), len);
