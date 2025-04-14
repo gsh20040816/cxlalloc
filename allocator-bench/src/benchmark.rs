@@ -7,7 +7,6 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::Allocator as _;
-use crate::Barrier;
 use crate::Observation;
 use crate::Output;
 use crate::OutputProcess;
@@ -108,19 +107,31 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
         let thread_count = config.process_count as u64 * thread_count_per_process;
 
         // External coordinator must bootstrap barrier synchronization
-        let mut barrier = Barrier::new(false, thread_count).unwrap();
+        let mut barrier_process = shm::Barrier::builder()
+            .name(c"/barrier-process".to_owned())
+            .create(false)
+            .thread_count(config.process_count as u32)
+            .build()
+            .unwrap();
+
+        let mut barrier_thread = shm::Barrier::builder()
+            .name(c"/barrier-thread".to_owned())
+            .create(false)
+            .thread_count(thread_count as u32)
+            .build()
+            .unwrap();
 
         // Prevent race conditions between creating and opening shared memory data structures
         let (backend, global) = match config.is_leader() {
             true => {
                 let backend = B::new(true, allocator, Self::NAME).unwrap();
                 let global = self.setup_global(config, allocator);
-                barrier.wait(thread_count_per_process);
+                barrier_process.wait();
 
                 (backend, global)
             }
             false => {
-                barrier.wait(thread_count_per_process);
+                barrier_process.wait();
                 let backend = B::new(false, allocator, Self::NAME).unwrap();
                 let global = self.setup_global(config, allocator);
 
@@ -145,7 +156,7 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
             let workers = (config.process_id * config.thread_count_per_process()..)
                 .take(config.thread_count_per_process())
                 .map(|thread_id| {
-                    let barrier = &barrier;
+                    let barrier_thread = &barrier_thread;
                     let backend = &backend;
                     let global = &global;
                     let process = &process;
@@ -163,10 +174,10 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                         let mut worker =
                             self.setup_worker(&config, global, process, &mut allocator);
 
-                        barrier.wait(1);
+                        barrier_thread.wait();
                         let output =
                             self.run_worker(&config, global, process, &mut worker, &mut allocator);
-                        barrier.wait(1);
+                        barrier_thread.wait();
 
                         let allocator = allocator.report();
 
@@ -184,9 +195,9 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                 }
 
                 let before = ResourceUsage::new().unwrap();
-                barrier.wait(1);
+                barrier_thread.wait();
                 let output = self.run_coordinator(config, &global, &process, &mut coordinator);
-                barrier.wait(1);
+                barrier_thread.wait();
                 let after = ResourceUsage::new().unwrap();
 
                 if let Some(perf) = &mut perf {
@@ -242,7 +253,8 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
         self.teardown_global(config, global);
 
         if config.is_leader() {
-            barrier.unlink().unwrap();
+            barrier_thread.unlink().unwrap();
+            barrier_process.unlink().unwrap();
             backend.unlink().unwrap();
         }
     }

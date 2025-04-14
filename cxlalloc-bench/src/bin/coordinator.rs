@@ -1,7 +1,6 @@
+use shm::Barrier;
 use std::io;
 use std::io::Write as _;
-
-use allocator_bench::Barrier;
 
 fn main() -> anyhow::Result<()> {
     let stdin = io::stdin().lock();
@@ -9,7 +8,20 @@ fn main() -> anyhow::Result<()> {
     let config = serde_json::from_reader::<_, cxlalloc_bench::Config>(stdin)?;
 
     // Initialize barrier for processes to synchronize on
-    Barrier::new(true, 0)?;
+    Barrier::builder()
+        .name(c"/barrier-process".to_owned())
+        .create(true)
+        .thread_count(u32::try_from(config.global.process_count).unwrap())
+        .build()?;
+
+    Barrier::builder()
+        .name(c"/barrier-thread".to_owned())
+        .create(true)
+        .thread_count(
+            // Account for one coordinator thread per process
+            u32::try_from(config.global.thread_count + config.global.process_count).unwrap(),
+        )
+        .build()?;
 
     (0..config.global.process_count)
         .map(|process_id| {
