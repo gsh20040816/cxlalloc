@@ -1,0 +1,58 @@
+repeat = 10
+
+[[experiment]]
+thread_count = [10, 20, 30, 40, 50, 60, 70, 80]
+process_count = [10]
+allocator = [{ name = "cxlalloc" }]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }, { policy = "bind", node = 2 }]
+size = [0, 68719476736]
+
+[[experiment.benchmark]]
+kind = "thread_test"
+iteration_count = [84000]
+operation_count = [10000]
+object_size = [8, 32768]
+
+[[experiment.benchmark]]
+kind = "xmalloc"
+operation_count = [840000]
+
+[[experiment.benchmark]]
+kind = "key_value"
+
+[[experiment.benchmark.workload]]
+name = "ycsb"
+record_count = [8400000]
+operation_count = [8400000]
+
+[[experiment.benchmark.workload.mix]]
+phase = "load"
+
+[[experiment.benchmark.workload.mix]]
+phase = "run"
+read = 0.50
+insert = 0.25
+delete = 0.25
+distribution = "zipfian"
+
+[[experiment.benchmark.workload.mix]]
+phase = "run"
+read = 0.95
+insert = 0.05
+distribution = "latest"
+
+[[experiment.benchmark.workload]]
+name = "memcached"
+operation_count = [8400000]
+trace = [
+    "twitter/cluster12.000.parquet",
+    "twitter/cluster15.000.parquet",
+    "twitter/cluster31.000.parquet",
+]
+
+[[experiment.benchmark.workload]]
+name = "memcached"
+operation_count = [840000]
+trace = ["twitter/cluster37.000.parquet"]
