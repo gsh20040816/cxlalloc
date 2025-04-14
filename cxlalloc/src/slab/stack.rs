@@ -108,8 +108,8 @@ where
             .flatten()
     }
 
-    pub(crate) fn is_empty(&self, help: &help::Array) -> bool {
-        self.head.load(help).is_none()
+    pub(crate) fn is_empty(&self, context: &allocator::Context) -> bool {
+        self.head.load(context).is_none()
     }
 }
 

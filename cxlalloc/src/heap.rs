@@ -141,10 +141,10 @@ where
         local: &region::Sequential,
         remote: &region::Sequential,
         data: &region::Sequential,
-        help: &help::Array,
+        context: &allocator::Context,
         address: NonNull<ffi::c_void>,
     ) -> crate::Result<()> {
-        let Some(len) = self.shared.len(help).map(u32::from) else {
+        let Some(len) = self.shared.len(context).map(u32::from) else {
             return Err(crate::Error::OutOfBounds);
         };
 
@@ -291,7 +291,7 @@ where
 
         let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
         let remote = &self.slabs.remote(index);
-        let meta = remote.load(context.help);
+        let meta = remote.load(context);
 
         if (meta.free() as u64) < class.count() {
             remote
@@ -336,7 +336,7 @@ where
     #[inline]
     pub(crate) fn free(&mut self, context: &mut allocator::Context, offset: data::Offset<B>) {
         let index = slab::Index::from(offset);
-        let remote = self.slabs.remote(index).load(context.help);
+        let remote = self.slabs.remote(index).load(context);
 
         if remote.owner() != Some(context.id) {
             return self.free_remote(context, index);
@@ -469,8 +469,8 @@ where
     B: size::Bracket,
     State: From<HeapState<B>>,
 {
-    fn len(&self, help: &help::Array) -> Option<slab::Index<B>> {
-        self.bump.load(help)
+    fn len(&self, context: &allocator::Context) -> Option<slab::Index<B>> {
+        self.bump.load(context)
     }
 
     fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
@@ -499,7 +499,7 @@ where
     }
 
     fn pop(&self, context: &mut allocator::Context, slabs: &Slab<B>) -> Option<slab::Index<B>> {
-        if self.free.is_empty(context.help) {
+        if self.free.is_empty(context) {
             return None;
         }
 

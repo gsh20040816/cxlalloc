@@ -260,12 +260,18 @@ impl Raw {
 
         let allocator = self.unfocused::<(), ()>();
 
+        let context = crate::allocator::Context {
+            id,
+            help: &allocator.shared.help,
+            log: &mut None,
+        };
+
         match allocator.small.try_map(
             &self.backend,
             &self.local_small,
             &self.remote_small,
             &self.data_small,
-            &allocator.shared.help,
+            &context,
             address,
         ) {
             Ok(()) => {
@@ -281,7 +287,7 @@ impl Raw {
             &self.local_large,
             &self.remote_large,
             &self.data_large,
-            &allocator.shared.help,
+            &context,
             address,
         ) {
             Ok(()) => {
