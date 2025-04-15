@@ -1,0 +1,25 @@
+repeat = 10
+
+[[experiment]]
+output = "huge.ndjson"
+thread_count = [10, 20, 40, 80]
+process_count = [1, 2, 5, 10, 20, 40, 80]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }]
+
+[[experiment.allocator]]
+name = "cxlalloc"
+
+[[experiment.benchmark]]
+kind = "thread_test"
+object_size = [1073741824]
+iteration_count = [960000]
+operation_count = [1]
+
+[[experiment.benchmark]]
+kind = "xmalloc"
+limit = [80]
+huge = [true]
+operation_count = [960000]
+batch_count = [1]
