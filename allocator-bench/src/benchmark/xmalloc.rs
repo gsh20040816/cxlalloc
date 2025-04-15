@@ -1,11 +1,9 @@
 // https://github.com/emeryberger/Hoard/blob/f021bdb810332c9c9f5a11ae5404aaa38fe129c0/benchmarks/threadtest/threadtest.cpp
 
 use core::cmp;
-use core::mem;
 use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
 use core::ptr;
-use core::ptr::addr_of_mut;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::time::Instant;
@@ -30,11 +28,16 @@ pub struct Xmalloc {
     #[builder(default = 100)]
     limit: u64,
 
+    #[builder(default = 120)]
+    batch_count: u64,
+
     #[builder(default = 10_000_000)]
     operation_count: u64,
+
+    #[builder(default = false)]
+    huge: bool,
 }
 
-const OBJECTS_PER_BATCH: usize = 120;
 const POSSIBLE_SIZES: &[usize] = &[
     8,
     12,
@@ -54,11 +57,6 @@ const POSSIBLE_SIZES: &[usize] = &[
     // (1024 * 3) / 2,
     // 2048,
 ];
-
-struct Batch {
-    next: u64,
-    objects: [u64; OBJECTS_PER_BATCH],
-}
 
 #[repr(C)]
 struct Root {
@@ -218,11 +216,17 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
             let mut size_total = 0;
 
             for _ in 0..worker.operation_count {
-                let batch = allocator.allocate(mem::size_of::<Batch>()).unwrap();
+                let batch = allocator
+                    .allocate((1 + self.batch_count as usize) * 8)
+                    .unwrap();
 
-                for i in 0..OBJECTS_PER_BATCH {
-                    let size =
-                        POSSIBLE_SIZES[worker.rng.next_u32() as usize % POSSIBLE_SIZES.len()];
+                for i in 0..self.batch_count as usize {
+                    let size = match self.huge {
+                        true => 1 << 30,
+                        false => {
+                            POSSIBLE_SIZES[worker.rng.next_u32() as usize % POSSIBLE_SIZES.len()]
+                        }
+                    };
 
                     size_total += size as u64;
                     let object = allocator.allocate(size).unwrap();
@@ -232,10 +236,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                     }
 
                     unsafe {
-                        allocator.link(
-                            addr_of_mut!((*batch.as_ptr().cast::<Batch>()).objects[i]),
-                            &object,
-                        );
+                        allocator.link(batch.as_ptr().cast::<u64>().add(1).add(i), &object);
                     }
                 }
 
@@ -252,10 +253,11 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                     break;
                 };
 
-                let batch = unsafe { handle.as_ptr().cast::<Batch>().as_mut().unwrap() };
+                let batch = handle.as_ptr().cast::<u64>();
 
-                for offset in &mut batch.objects {
+                for i in 0..self.batch_count {
                     unsafe {
+                        let offset = batch.add(1).add(i as usize);
                         let handle = allocator.offset_to_handle(NonZeroU64::new(*offset).unwrap());
                         handle.as_ptr().cast::<u64>().write(0xff);
                         allocator.unlink(offset);
@@ -277,7 +279,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
             operation,
             time: time.as_nanos(),
             // One operation per object, plus one for the batch container itself
-            operation_count: operation_count * (OBJECTS_PER_BATCH as u64 + 1),
+            operation_count: operation_count * (self.batch_count + 1),
             size: size_total,
         }
     }
@@ -293,13 +295,7 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
 
 impl Global {
     fn push<A: Allocator>(&self, config: &Xmalloc, allocator: &mut A, handle: A::Handle) {
-        let batch = unsafe {
-            handle
-                .as_ptr()
-                .cast::<MaybeUninit<Batch>>()
-                .as_mut()
-                .unwrap()
-        };
+        let batch = unsafe { handle.as_ptr().cast::<u64>().as_mut().unwrap() };
 
         let root = unsafe { &*self.root.address() };
 
@@ -316,7 +312,7 @@ impl Global {
             }
         }
 
-        let next = unsafe { AtomicU64::from_ptr(ptr::addr_of_mut!((*batch.as_mut_ptr()).next)) };
+        let next = unsafe { AtomicU64::from_ptr(batch) };
 
         next.store(root.head.load(Ordering::Relaxed), Ordering::Relaxed);
 
@@ -370,7 +366,7 @@ impl Global {
 
         let handle = allocator.offset_to_handle(head);
         let pointer = handle.as_ptr();
-        let next = unsafe { pointer.cast::<Batch>().as_ref().unwrap().next };
+        let next = unsafe { pointer.cast::<u64>().read() };
 
         // HACK: only cxl-shm needs to decrement reference count here
         if std::any::type_name::<A>().contains("cxl_shm") {

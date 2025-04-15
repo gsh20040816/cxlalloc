@@ -132,8 +132,14 @@ struct Xmalloc {
     #[serde_inline_default(vec![100])]
     limit: Vec<u64>,
 
+    #[serde_inline_default(vec![120])]
+    batch_count: Vec<u64>,
+
     #[serde_inline_default(vec![10_000_000])]
     operation_count: Vec<u64>,
+
+    #[serde_inline_default(vec![false])]
+    huge: Vec<bool>,
 }
 
 #[serde_inline_default]
@@ -254,15 +260,19 @@ impl Benchmark {
             ),
             Benchmark::Xmalloc(Xmalloc {
                 limit,
+                batch_count,
                 operation_count,
-            }) => cartesian!(&limit, &operation_count)
-                .map(|(&limit, &operation_count)| {
+                huge,
+            }) => cartesian!(limit, batch_count, operation_count, huge)
+                .map(|(&limit, &batch_count, &operation_count, &huge)| {
                     config
                         .clone()
                         .benchmark(allocator_bench::benchmark::Config::Xmalloc(
                             allocator_bench::benchmark::Xmalloc::builder()
                                 .limit(limit)
+                                .batch_count(batch_count)
                                 .operation_count(operation_count)
+                                .huge(huge)
                                 .build(),
                         ))
                         .build()
