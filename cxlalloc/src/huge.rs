@@ -146,12 +146,11 @@ impl<'raw> Huge<'raw> {
 
                     if !reuse {
                         // point at previous head in data region
-                        if let Some(prev) = self.peek(data, id) {
-                            unsafe {
-                                crate::Box::link(&mut out.next, prev);
-                                cache::flush(out, cache::Invalidate::No);
-                                cache::fence();
-                            }
+                        let prev = self.peek(data, id);
+                        unsafe {
+                            crate::Box::link(&mut out.next, prev);
+                            cache::flush(out, cache::Invalidate::No);
+                            cache::fence();
                         }
 
                         // update linked list of huge descriptors
