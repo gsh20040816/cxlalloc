@@ -74,13 +74,13 @@ class Workload(enum.StrEnum):
 _NAME = pl.col("benchmark").struct["name"]
 WORKLOADS = {
     # memcached
-    Workload.MC_12: (_NAME == "memcached")
+    Workload.MC_12: (_NAME == "mc")
     & pl.col("benchmark").struct["trace"].str.contains("12"),
-    Workload.MC_15: (_NAME == "memcached")
+    Workload.MC_15: (_NAME == "mc")
     & pl.col("benchmark").struct["trace"].str.contains("15"),
-    Workload.MC_31: (_NAME == "memcached")
+    Workload.MC_31: (_NAME == "mc")
     & pl.col("benchmark").struct["trace"].str.contains("31"),
-    Workload.MC_37: (_NAME == "memcached")
+    Workload.MC_37: (_NAME == "mc")
     & pl.col("benchmark").struct["trace"].str.contains("37"),
     # ycsb
     Workload.YCSB_LOAD: _NAME == "ycsb-load",
@@ -107,13 +107,13 @@ MICRO_WORKLOADS = [
     Workload.XMALLOC_SMALL,
 ]
 MACRO_WORKLOADS = [
+    Workload.YCSB_LOAD,
+    Workload.YCSB_A,
+    Workload.YCSB_D,
     Workload.MC_12,
     Workload.MC_15,
     Workload.MC_31,
     Workload.MC_37,
-    Workload.YCSB_LOAD,
-    Workload.YCSB_A,
-    Workload.YCSB_D,
 ]
 HUGE_WORKLOADS = [Workload.THREADTEST_HUGE, Workload.XMALLOC_HUGE]
 
@@ -232,7 +232,7 @@ def update_layout(fig, full: bool, numa: bool, **kwargs):
             xanchor="right" if full else "left",
             yanchor="top",
             font_size=SIZE_LEGEND_ENTRY,
-            y=-0.08 if full else -0.16,
+            y=-0.06 if full else -0.16,
             x=1.0 if full else 0,
         ),
         template=THEME,
@@ -296,11 +296,8 @@ def collapse(
         # cxl-shm doesn't support allocations >= 1KiB
         .filter(
             (
-                (
-                    pl.col(WORKLOAD).str.contains("12")
-                    | pl.col(WORKLOAD).str.contains("37")
-                )
-                & (pl.col(ALLOCATOR) == "cxl_shm")
+                (pl.col(ALLOCATOR) == Allocator.CXL_SHM)
+                & pl.col(WORKLOAD).is_in([Workload.MC_12, Workload.MC_37])
             ).not_()
         )
         .sort(WORKLOAD, ALLOCATOR, PROCESS_COUNT, THREAD_COUNT)
