@@ -91,8 +91,8 @@ WORKLOADS = {
     # threadtest
     Workload.THREADTEST_SMALL: (_NAME == "tt")
     & (pl.col("benchmark").struct["object_size"] == 8),
-    Workload.THREADTEST_LARGE: (_NAME == "tt")
-    & (pl.col("benchmark").struct["object_size"] == 1 << 15),
+    # Workload.THREADTEST_LARGE: (_NAME == "tt")
+    # & (pl.col("benchmark").struct["object_size"] == 1 << 15),
     Workload.THREADTEST_HUGE: (_NAME == "tt")
     & (pl.col("benchmark").struct["object_size"] == 1 << 30),
     # xmalloc
@@ -103,7 +103,7 @@ WORKLOADS = {
 
 MICRO_WORKLOADS = [
     Workload.THREADTEST_SMALL,
-    Workload.THREADTEST_LARGE,
+    # Workload.THREADTEST_LARGE,
     Workload.XMALLOC_SMALL,
 ]
 MACRO_WORKLOADS = [
