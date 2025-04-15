@@ -3,6 +3,7 @@ import math
 import polars as pl
 import polars.selectors as cs
 import plotly
+import plotly.subplots as sp
 import plotly.io as pio
 import sys
 
@@ -166,6 +167,18 @@ SYMBOLS = {
 
 def scan_ndjson(paths: [str] = sys.argv[1:]):
     return pl.scan_ndjson(paths, infer_schema_length=None)
+
+
+def make_subplots(workloads):
+    return sp.make_subplots(
+        rows=len(METRICS),
+        cols=len(workloads),
+        shared_xaxes=True,
+        column_titles=workloads,
+        horizontal_spacing=0.03,
+        vertical_spacing=0.03,
+        row_heights=[3, 1],
+    )
 
 
 def update_layout(fig, full: bool, numa: bool, **kwargs):

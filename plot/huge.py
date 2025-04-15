@@ -1,51 +1,21 @@
 import common
 from common import (
-    ALLOCATOR,
-    DATE,
-    THROUGHPUT,
-    MAX_RSS,
     PROCESS_COUNT,
     THREAD_COUNT,
     WORKLOAD,
 )
-import sys
 import polars as pl
-import polars.selectors as cs
-import plotly.express as px
 import plotly.graph_objects as go
-import plotly.subplots as sp
 
 
-# fig = px.line(
-#     df,
-#     x=THREAD_COUNT,
-#     y=THROUGHPUT,
-#     error_y=THROUGHPUT + "_std",
-#     color=PROCESS_COUNT,
-#     facet_col=WORKLOAD,
-#     markers=True,
-#     log_y=False,
-# )
-# fig.show()
-# fig.write_image("out.pdf")
 def main():
     df = common.scan_ndjson()
-
     df = common.collapse(
         df,
         workloads=common.HUGE_WORKLOADS,
     )
 
-    fig = sp.make_subplots(
-        rows=len(common.METRICS),
-        cols=len(common.HUGE_WORKLOADS),
-        shared_xaxes=True,
-        column_titles=common.HUGE_WORKLOADS,
-        horizontal_spacing=0.03,
-        vertical_spacing=0.03,
-        row_heights=[3, 1],
-    )
-
+    fig = common.make_subplots(common.HUGE_WORKLOADS)
     process_counts = (
         df.select(common.PROCESS_COUNT).unique().collect().to_series().sort()
     )
@@ -86,7 +56,6 @@ def main():
 
     common.update_layout(fig, full=False, numa=True)
     fig.update_layout(legend_title="Process Count")
-
     fig.write_image("out.pdf")
     fig.show()
 
