@@ -34,7 +34,7 @@ pub enum Allocator {
     #[cfg(feature = "allocator-lightning")]
     Lightning,
     #[cfg(feature = "allocator-mimalloc")]
-    Mimalloc,
+    Mimalloc(MimallocCartesian),
     #[cfg(feature = "allocator-ralloc")]
     Ralloc,
 }
@@ -43,6 +43,11 @@ impl Allocator {
     #[cfg(feature = "allocator-cxlalloc")]
     pub fn cxlalloc() -> Self {
         Self::Cxlalloc(CxlallocCartesian::default())
+    }
+
+    #[cfg(feature = "allocator-mimalloc")]
+    pub fn mimalloc() -> Self {
+        Self::Mimalloc(MimallocCartesian::default())
     }
 }
 
@@ -72,6 +77,24 @@ impl Default for CxlallocCartesian {
     }
 }
 
+#[cfg(feature = "allocator-mimalloc")]
+#[serde_inline_default]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MimallocCartesian {
+    #[serde_inline_default(vec![true])]
+    shm: Vec<bool>,
+}
+
+#[cfg(feature = "allocator-mimalloc")]
+impl Default for MimallocCartesian {
+    fn default() -> Self {
+        // HACK: is there a better way to deduplicate...
+        Self {
+            shm: __serde_inline_default_MimallocCartesian_0(),
+        }
+    }
+}
+
 impl Allocator {
     pub fn for_each_cartesian<F: FnMut(allocator_bench::allocator::Config<serde_json::Value>)>(
         &self,
@@ -81,44 +104,50 @@ impl Allocator {
         let partial = partial.name(self.to_string());
 
         #[allow(unused_variables)]
-        let config = match self {
+        let config: Box<dyn Iterator<Item = _>> = match self {
             #[cfg(feature = "allocator-boost")]
-            Allocator::Boost => serde_json::Value::Null,
+            Allocator::Boost => Box::new(core::iter::once(serde_json::Value::Null)),
             #[cfg(feature = "allocator-cxl-shm")]
-            Allocator::CxlShm => serde_json::Value::Null,
+            Allocator::CxlShm => Box::new(core::iter::once(serde_json::Value::Null)),
             #[cfg(feature = "allocator-lightning")]
-            Allocator::Lightning => serde_json::Value::Null,
+            Allocator::Lightning => Box::new(core::iter::once(serde_json::Value::Null)),
             #[cfg(feature = "allocator-mimalloc")]
-            Allocator::Mimalloc => serde_json::Value::Null,
+            Allocator::Mimalloc(MimallocCartesian { shm }) => Box::new(
+                shm.iter()
+                    .map(|shm| mimalloc::Config::builder().shm(*shm).build())
+                    .map(|config| serde_json::to_value(&config))
+                    .map(Result::unwrap),
+            ),
             #[cfg(feature = "allocator-ralloc")]
-            Allocator::Ralloc => serde_json::Value::Null,
+            Allocator::Ralloc => Box::new(core::iter::once(serde_json::Value::Null)),
             #[cfg(feature = "allocator-cxlalloc")]
             Allocator::Cxlalloc(CxlallocCartesian {
                 cache_local,
                 batch_bump,
                 batch_global,
-            }) => {
-                return cartesian!(&cache_local, &batch_bump, &batch_global).for_each(
-                    |(cache_local, batch_bump, batch_global)| {
-                        let config = cxlalloc::Config::builder()
+            }) => Box::new(
+                cache_local
+                    .iter()
+                    .flat_map(move |cache_local| {
+                        batch_bump.iter().flat_map(move |batch_bump| {
+                            batch_global
+                                .iter()
+                                .map(move |batch_global| (cache_local, batch_bump, batch_global))
+                        })
+                    })
+                    .map(|(cache_local, batch_bump, batch_global)| {
+                        cxlalloc::Config::builder()
                             .cache_local(*cache_local)
                             .batch_bump(*batch_bump)
                             .batch_global(*batch_global)
-                            .build();
-
-                        apply(
-                            partial
-                                .clone()
-                                .inner(serde_json::to_value(&config).unwrap())
-                                .build(),
-                        )
-                    },
-                )
-            }
+                            .build()
+                    })
+                    .map(|config| serde_json::to_value(&config))
+                    .map(Result::unwrap),
+            ),
         };
 
-        #[allow(unreachable_code)]
-        apply(partial.inner(config).build())
+        config.for_each(|config| apply(partial.clone().inner(config).build()))
     }
 }
 
@@ -212,7 +241,7 @@ impl Display for Allocator {
             #[cfg(feature = "allocator-lightning")]
             Allocator::Lightning => "lightning",
             #[cfg(feature = "allocator-mimalloc")]
-            Allocator::Mimalloc => "mimalloc",
+            Allocator::Mimalloc(_) => "mimalloc",
             #[cfg(feature = "allocator-ralloc")]
             Allocator::Ralloc => "ralloc",
         };

@@ -5,7 +5,10 @@ use core::ptr::NonNull;
 use std::ffi::CString;
 use std::io;
 
-use allocator_bench::allocator::Config;
+use bon::Builder;
+use serde::Deserialize;
+use serde::Serialize;
+use serde_inline_default::serde_inline_default;
 
 #[expect(unused)]
 #[expect(non_camel_case_types)]
@@ -15,19 +18,46 @@ mod sys {
 }
 
 pub struct Backend {
-    raw: shm::Raw,
-    arena: sys::mi_arena_id_t,
+    raw: Option<shm::Raw>,
+    arena: Option<sys::mi_arena_id_t>,
 }
 
 unsafe impl Sync for Backend {}
 
-pub struct Mimalloc(*mut sys::mi_heap_t);
+pub struct Mimalloc(Option<*mut sys::mi_heap_t>);
+
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+#[serde_inline_default]
+pub struct Config {
+    #[serde_inline_default(true)]
+    shm: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            shm: __serde_inline_default_Config_0(),
+        }
+    }
+}
 
 impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Mimalloc;
-    type Config = ();
+    type Config = Config;
 
-    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
+    fn new(
+        create: bool,
+        config: &allocator_bench::allocator::Config<Self::Config>,
+        name: &str,
+    ) -> io::Result<Self> {
+        if !config.inner.shm {
+            return Ok(Self {
+                raw: None,
+                arena: None,
+            });
+        }
+
         let raw = shm::Raw::builder()
             .maybe_numa(config.numa.clone())
             .name(CString::new(name).unwrap())
@@ -57,21 +87,29 @@ impl allocator_bench::allocator::Backend for Backend {
             sys::mi_heap_set_default(heap);
         }
 
-        Ok(Self { raw, arena })
+        Ok(Self {
+            raw: Some(raw),
+            arena: Some(arena),
+        })
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {
-        let heap = unsafe {
-            let heap = sys::mi_heap_new_ex(0xff, false, self.arena);
-            sys::mi_heap_set_default(heap);
-            heap
+        let heap = match self.arena {
+            None => None,
+            Some(arena) => unsafe {
+                let heap = sys::mi_heap_new_ex(0xff, false, arena);
+                sys::mi_heap_set_default(heap);
+                Some(heap)
+            },
         };
 
         Mimalloc(heap)
     }
 
     fn unlink(mut self) -> io::Result<()> {
-        self.raw.unlink()?;
+        if let Some(raw) = &mut self.raw {
+            raw.unlink()?;
+        }
 
         // FIXME: the destructor for `shm::Raw` unmaps the memory region,
         // but mimalloc does some cleanup of abandoned segments in a process
@@ -116,8 +154,10 @@ impl allocator_bench::Allocator for Mimalloc {
 
 impl Drop for Mimalloc {
     fn drop(&mut self) {
-        unsafe {
-            sys::mi_heap_delete(self.0);
+        if let Some(heap) = self.0 {
+            unsafe {
+                sys::mi_heap_delete(heap);
+            }
         }
     }
 }

@@ -52,7 +52,7 @@ struct Experiment {
         #[cfg(feature = "allocator-lightning")]
         Allocator::Lightning,
         #[cfg(feature = "allocator-mimalloc")]
-        Allocator::Mimalloc,
+        Allocator::mimalloc(),
         #[cfg(feature = "allocator-ralloc")]
         Allocator::Ralloc,
     ])]
