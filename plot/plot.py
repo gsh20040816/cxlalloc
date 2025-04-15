@@ -11,19 +11,9 @@ import sys
 def main():
     df = pl.scan_ndjson(sys.argv[1], infer_schema_length=None)
 
-    df = (
-        common.collapse(df, common.MACRO_SELECT)
-        # cxl-shm doesn't support allocations >= 1KiB
-        .filter(
-            (
-                (
-                    pl.col(WORKLOAD).str.contains("12")
-                    | pl.col(WORKLOAD).str.contains("37")
-                )
-                & (pl.col(ALLOCATOR) == "cxl_shm")
-            ).not_()
-        )
-        .sort(ALLOCATOR, WORKLOAD, THREAD_COUNT)
+    df = common.collapse(
+        df,
+        common.MACRO_WORKLOADS,
     )
 
     metrics = [THROUGHPUT, MAX_RSS]
@@ -48,14 +38,12 @@ def main():
                     .collect()
                 )
 
-                trace = go.Scatter(
+                trace = common.style(
+                    allocator,
+                    go.Scatter,
                     x=data[THREAD_COUNT],
                     y=data[metric],
                     error_y=dict(array=data[metric + "_std"]),
-                    marker=common.marker(allocator),
-                    zorder=common.zorder(allocator),
-                    name=allocator,
-                    legendgroup=allocator,
                 )
 
                 fig.add_trace(trace, row=row + 1, col=col + 1)

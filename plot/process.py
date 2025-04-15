@@ -15,24 +15,38 @@ import plotly.express as px
 
 
 def main():
-    df = pl.scan_ndjson(sys.argv[1], infer_schema_length=None)
+    df = common.scan_ndjson()
 
     df = (
         common.collapse(
-            df.filter(pl.col("allocator").struct["numa"].struct["policy"] == "bind"),
-            common.MICRO_SELECT,
+            # df.filter(pl.col("allocator").struct["numa"].struct["policy"] == "bind"),
+            df,
+            workloads=common.HUGE_WORKLOADS,
         )
-        .group_by(cs.exclude(DATE, PROCESS_COUNT, THROUGHPUT, MAX_RSS))
-        .agg(THROUGHPUT, MAX_RSS)
-        .with_columns(
-            mean=pl.col(THROUGHPUT).list.mean(),
-            std=pl.col(THROUGHPUT).list.std() / pl.col(THROUGHPUT).list.mean() * 100,
-        )
-        .sort("std")
+        # .group_by(cs.exclude(PROCESS_COUNT, THROUGHPUT, MAX_RSS))
+        # .agg(THROUGHPUT, MAX_RSS)
+        # .with_columns(
+        #     mean=pl.col(THROUGHPUT).list.mean(),
+        #     std_percent=pl.col(THROUGHPUT).list.std()
+        #     / pl.col(THROUGHPUT).list.mean()
+        #     * 100,
+        # )
+        # .sort("std_percent")
         .collect()
     )
 
-    print(df)
+    fig = px.line(
+        df,
+        x=THREAD_COUNT,
+        y=THROUGHPUT,
+        error_y=THROUGHPUT + "_std",
+        color=PROCESS_COUNT,
+        facet_col=WORKLOAD,
+        markers=True,
+        log_y=False,
+    )
+    fig.show()
+    fig.write_image("out.pdf")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,22 @@ def main():
     df = pl.scan_ndjson(sys.argv[1], infer_schema_length=None)
 
     df = common.collapse(
-        df,
+        df.with_columns(
+            pl.struct(
+                pl.when(pl.col("allocator").struct["name"] != "cxlalloc")
+                .then(pl.col("allocator").struct["name"])
+                .when(pl.col("allocator").struct["numa"].struct["node"] == 0)
+                .then(pl.lit("cxlalloc"))
+                # .when(pl.col("allocator").struct["consistency"] == "none")
+                # .then(pl.lit("cxlalloc-extend"))
+                .when(pl.col("allocator").struct["consistency"] == "sfence")
+                .then(pl.lit("cxlalloc-sfence"))
+                .when(pl.col("allocator").struct["consistency"] == "clflushopt")
+                .then(pl.lit("cxlalloc-clflushopt"))
+                .otherwise(pl.lit("cxlalloc-cxl"))
+                .alias("name")
+            ).alias("allocator")
+        ),
         common.MICRO_SELECT,
     )
 
