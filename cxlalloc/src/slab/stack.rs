@@ -4,7 +4,6 @@ use crate::allocator;
 use crate::atomic::Version;
 use crate::cache;
 use crate::cas;
-use crate::cas::help;
 use crate::recover;
 use crate::recover::HeapState;
 use crate::size;

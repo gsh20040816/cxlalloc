@@ -59,7 +59,7 @@ impl backend::Impl for Shm {
     fn unlink(&self, id: &region::Id) -> io::Result<()> {
         let path = id_to_path(id);
         match unsafe { libc::shm_unlink(path.as_ptr().cast()) } {
-            -1 => return Err(std::io::Error::last_os_error()),
+            -1 => Err(std::io::Error::last_os_error()),
             _ => Ok(()),
         }
     }

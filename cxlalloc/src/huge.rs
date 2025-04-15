@@ -410,8 +410,8 @@ impl Bloom {
     fn bucket(&self, offset: data::Offset<size::Huge>) -> &AtomicU8 {
         let mut hasher = RapidHasher::default();
         hasher.write_u64(u64::from(offset));
-        let index = hasher.finish();
-        &self.0[index as usize]
+        let index = hasher.finish() as usize % self.0.len();
+        &self.0[index]
     }
 }
 
