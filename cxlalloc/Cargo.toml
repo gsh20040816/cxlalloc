@@ -38,7 +38,6 @@ gcollections.workspace = true
 intervallum.workspace = true
 libc.workspace = true
 log.workspace = true
-rapidhash.workspace = true
 ribbit.workspace = true
 serde = { workspace = true, optional = true }
 shm.path = "../shm"

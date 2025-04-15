@@ -720,7 +720,6 @@ dependencies = [
  "log",
  "proptest",
  "proptest-state-machine",
- "rapidhash",
  "ribbit",
  "serde",
  "shm",
