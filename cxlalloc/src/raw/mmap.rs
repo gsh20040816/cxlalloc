@@ -1,5 +1,4 @@
 use core::num::NonZeroUsize;
-use std::io;
 
 use crate::raw::backend;
 use crate::raw::region;
@@ -12,11 +11,11 @@ impl backend::Impl for Mmap {
         "mmap"
     }
 
-    fn allocate(&self, _: region::Id, _: NonZeroUsize) -> io::Result<backend::File> {
+    fn allocate(&self, _: region::Id, _: NonZeroUsize) -> crate::Result<backend::File> {
         Ok(backend::File::default())
     }
 
-    fn unlink(&self, _id: &region::Id) -> io::Result<()> {
+    fn unlink(&self, _id: &region::Id) -> crate::Result<()> {
         Ok(())
     }
 }

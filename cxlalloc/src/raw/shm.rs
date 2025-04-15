@@ -19,7 +19,7 @@ impl backend::Impl for Shm {
         "shm"
     }
 
-    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<backend::File> {
+    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> crate::Result<backend::File> {
         let path = id_to_path(&id);
         unsafe {
             let (fd, clean) = match libc::shm_open(
@@ -30,7 +30,7 @@ impl backend::Impl for Shm {
                 -1 => {
                     let error = std::io::Error::last_os_error();
                     if !matches!(error.kind(), io::ErrorKind::AlreadyExists) {
-                        return Err(error);
+                        return Err(crate::Error::ShmOpen(error));
                     }
 
                     // Note: there's still a race condition here, since another
@@ -41,7 +41,7 @@ impl backend::Impl for Shm {
                         libc::O_RDWR,
                         libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IWGRP,
                     ) {
-                        -1 => return Err(std::io::Error::last_os_error()),
+                        -1 => return Err(crate::Error::ShmOpen(std::io::Error::last_os_error())),
                         fd => (OwnedFd::from_raw_fd(fd), false),
                     }
                 }
@@ -49,17 +49,17 @@ impl backend::Impl for Shm {
             };
 
             if libc::ftruncate64(fd.as_raw_fd(), size.get().try_into().unwrap()) == -1 {
-                return Err(io::Error::last_os_error());
+                return Err(crate::Error::Ftruncate(io::Error::last_os_error()));
             }
 
             Ok(backend::File::new(fd, 0, clean))
         }
     }
 
-    fn unlink(&self, id: &region::Id) -> io::Result<()> {
+    fn unlink(&self, id: &region::Id) -> crate::Result<()> {
         let path = id_to_path(id);
         match unsafe { libc::shm_unlink(path.as_ptr().cast()) } {
-            -1 => Err(std::io::Error::last_os_error()),
+            -1 => Err(crate::Error::ShmUnlink(std::io::Error::last_os_error())),
             _ => Ok(()),
         }
     }

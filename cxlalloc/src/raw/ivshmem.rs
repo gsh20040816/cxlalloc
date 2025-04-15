@@ -1,6 +1,5 @@
 use core::num::NonZeroUsize;
 use std::fs;
-use std::io;
 use std::os::fd::OwnedFd;
 
 use crate::raw::backend;
@@ -28,8 +27,9 @@ impl backend::Impl for Ivshmem {
         "ivshmem"
     }
 
-    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<backend::File> {
-        let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size.get())?;
+    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> crate::Result<backend::File> {
+        let allocation = driver::find_cxl_alloc_nomap(&self.device, &id, size.get())
+            .map_err(crate::Error::Ioctl)?;
 
         Ok(backend::File::new(
             OwnedFd::from(self.device.try_clone().unwrap()),
@@ -38,7 +38,7 @@ impl backend::Impl for Ivshmem {
         ))
     }
 
-    fn unlink(&self, _id: &region::Id) -> io::Result<()> {
+    fn unlink(&self, _id: &region::Id) -> crate::Result<()> {
         todo!()
     }
 }

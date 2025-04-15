@@ -21,7 +21,6 @@ pub use shm::Shm;
 
 use core::num::NonZeroUsize;
 use core::ops::Deref;
-use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::fd::OwnedFd;
 
@@ -68,7 +67,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub(super) fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File> {
+    pub(super) fn allocate(&self, id: region::Id, size: NonZeroUsize) -> crate::Result<File> {
         self.as_backend().allocate(id, size)
     }
 
@@ -76,7 +75,7 @@ impl Kind {
         self.as_backend().name()
     }
 
-    pub(super) fn unlink(&self, id: &region::Id) -> io::Result<()> {
+    pub(super) fn unlink(&self, id: &region::Id) -> crate::Result<()> {
         self.as_backend().unlink(id)
     }
 
@@ -104,9 +103,9 @@ impl Default for Kind {
 pub(super) trait Impl: Send + Sync {
     fn name(&self) -> &'static str;
 
-    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> io::Result<File>;
+    fn allocate(&self, id: region::Id, size: NonZeroUsize) -> crate::Result<File>;
 
-    fn unlink(&self, id: &region::Id) -> io::Result<()>;
+    fn unlink(&self, id: &region::Id) -> crate::Result<()>;
 }
 
 pub(super) struct File {

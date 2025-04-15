@@ -324,13 +324,15 @@ unsafe fn mmap(
 
     if let Some(numa) = numa {
         unsafe {
-            ::shm::Raw::mbind(numa, actual.as_ptr().cast(), size.get())?;
+            ::shm::Raw::mbind(numa, actual.as_ptr().cast(), size.get())
+                .map_err(crate::Error::Mbind)?;
         }
     }
 
     if matches!(populate, Some(::shm::Populate::Physical)) {
         unsafe {
-            ::shm::Raw::madvise(actual.as_ptr().cast(), size.get())?;
+            ::shm::Raw::madvise(actual.as_ptr().cast(), size.get())
+                .map_err(crate::Error::Madvise)?;
         }
     }
 
