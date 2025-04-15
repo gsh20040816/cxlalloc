@@ -1,5 +1,5 @@
 import common
-from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, THROUGHPUT, MAX_RSS
+from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, MAX_RSS
 import polars as pl
 import plotly.graph_objects as go
 import plotly.subplots as sp
@@ -7,129 +7,72 @@ import sys
 
 
 def main():
-    df = pl.scan_ndjson(sys.argv[1], infer_schema_length=None)
-
+    df = common.scan_ndjson()
     df = common.collapse(
-        df.with_columns(
-            pl.struct(
-                pl.when(pl.col("allocator").struct["name"] != "cxlalloc")
-                .then(pl.col("allocator").struct["name"])
-                .when(pl.col("allocator").struct["numa"].struct["node"] == 0)
-                .then(pl.lit("cxlalloc"))
-                # .when(pl.col("allocator").struct["consistency"] == "none")
-                # .then(pl.lit("cxlalloc-extend"))
-                .when(pl.col("allocator").struct["consistency"] == "sfence")
-                .then(pl.lit("cxlalloc-sfence"))
-                .when(pl.col("allocator").struct["consistency"] == "clflushopt")
-                .then(pl.lit("cxlalloc-clflushopt"))
-                .otherwise(pl.lit("cxlalloc-cxl"))
-                .alias("name")
-            ).alias("allocator")
-        ),
-        common.MICRO_SELECT,
+        df,
+        workloads=common.MICRO_WORKLOADS,
+    ).filter(
+        # Skip benchmarks that took too long to run
+        (
+            pl.col(ALLOCATOR).is_in(
+                [common.Allocator.BOOST, common.Allocator.LIGHTNING]
+            )
+            & (pl.col(WORKLOAD) == common.Workload.THREADTEST_LARGE)
+            & (pl.col(THREAD_COUNT) > 40)
+        ).not_()
     )
 
-    metrics = [THROUGHPUT, MAX_RSS]
     thread_counts = df.select(THREAD_COUNT).unique().collect().to_series().sort()
 
-    fig = sp.make_subplots(
-        rows=len(metrics),
-        cols=len(common.MICRO_WORKLOADS),
-        shared_xaxes=True,
-        column_titles=common.MICRO_WORKLOADS,
-        vertical_spacing=0.05,
-        row_heights=[3, 1],
-    )
+    fig = common.make_subplots(common.MICRO_WORKLOADS)
 
     for col, workload in enumerate(common.MICRO_WORKLOADS):
-        for row, metric in enumerate(metrics):
+        for row, metric in enumerate(common.METRICS):
             for allocator in ALLOCATORS:
                 data = (
                     df.filter(pl.col(ALLOCATOR) == allocator)
                     .filter(pl.col(WORKLOAD) == workload)
-                    .select(THREAD_COUNT, metric)
                     .collect()
                 )
 
-                trace = go.Scatter(
+                trace = common.style(
+                    allocator,
+                    go.Scatter,
                     x=data[THREAD_COUNT],
                     y=data[metric],
-                    name=allocator,
-                    legendgroup=allocator,
-                    marker=common.marker(allocator),
-                    zorder=common.zorder(allocator),
                 )
 
                 fig.add_trace(trace, row=row + 1, col=col + 1)
 
-    # Fix up axes
-    fig.update_xaxes(range=(0, thread_counts[-1]))
-
     fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
-    # # Clip lightning RSS
-    # for col, workload in enumerate(common.MICRO_WORKLOADS):
-    #     data = (
-    #         df.filter(pl.col(WORKLOAD) == workload)
-    #         .select(MAX_RSS)
-    #         .sort(MAX_RSS)
-    #         .collect()
-    #         .head(-len(thread_counts))
-    #         .to_series()
-    #     )
-
-    #     # low = data.first() * 0.99
-    #     low = 0.0
-    #     high = data.last() * 1.1
-
-    #     fig.for_each_yaxis(
-    #         lambda yaxis: yaxis.update(range=(low, high)),
-    #         col=col + 1,
-    #         row=2,
-    #     )
-
-    fig.for_each_xaxis(lambda xaxis: xaxis.update(title="Thread Count"), row=2, col=1)
-
-    for row, metric in enumerate(metrics):
-        fig.for_each_yaxis(
-            lambda yaxis: yaxis.update(title=metric),
-            col=1,
-            row=row + 1,
+    # Clip lightning RSS
+    for col, workload in enumerate(common.MICRO_WORKLOADS):
+        data = (
+            df.filter(pl.col(WORKLOAD) == workload)
+            .select(MAX_RSS)
+            .sort(MAX_RSS)
+            .collect()
+            .head(
+                # HACK: accommodate missing data
+                -4
+                if workload == common.Workload.THREADTEST_LARGE
+                else -len(thread_counts)
+            )
+            .to_series()
         )
 
-    # Shade in NUMA
-    fig.add_vrect(
-        type="rect",
-        x0=40,
-        x1=80,
-        line_width=0,
-        fillcolor="black",
-        opacity=0.10,
-    )
+        # low = data.first() * 0.99
+        low = 0.0
+        high = data.last() * 1.1
 
-    unique = set()
-    # https://stackoverflow.com/a/62162555
-    fig.for_each_trace(
-        lambda trace: trace.update(showlegend=False)
-        if (trace.name in unique)
-        else unique.add(trace.name)
-    )
+        fig.for_each_yaxis(
+            lambda yaxis: yaxis.update(range=(low, high)),
+            col=col + 1,
+            row=2,
+        )
 
-    fig.update_layout(
-        title="Microbenchmark Workloads",
-        width=600,
-        height=400,
-        legend=dict(
-            title_text=ALLOCATOR,
-            # orientation="h",
-            # xanchor="right",
-            # yanchor="top",
-            # y=-0.08,
-            # x=1.0,
-        ),
-        template=common.THEME,
-        margin=dict(l=0, r=0, t=50, b=0),
-    )
+    common.update_layout(fig, full=False, numa=True)
 
     fig.write_image("out.pdf")
     fig.show()
