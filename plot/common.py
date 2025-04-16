@@ -224,16 +224,17 @@ def update_layout(fig, full: bool, numa: bool, **kwargs):
         )
 
     fig.update_layout(
-        width=1200 if full else 600,
+        width=1200 if full else 620,
         height=400,
         legend=dict(
-            title=dict(text=ALLOCATOR, font_size=SIZE_LEGEND_TITLE),
+            title=dict(text="", font_size=SIZE_LEGEND_TITLE),
             orientation="h",
             xanchor="right" if full else "left",
             yanchor="top",
             font_size=SIZE_LEGEND_ENTRY,
             y=-0.06 if full else -0.16,
-            x=1.0 if full else 0,
+            x=1.0 if full else -0.05,
+            tracegroupgap=0,
         ),
         template=THEME,
         margin=dict(l=0, r=0, t=20, b=0),
