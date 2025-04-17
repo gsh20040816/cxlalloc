@@ -47,7 +47,10 @@ def main():
             .then(pl.lit("ralloc-gc"))
             .otherwise(pl.lit("ralloc-leak"))
             .alias(ALLOCATOR),
-            pl.col("config").struct["workload"].alias(WORKLOAD),
+            pl.when(pl.col("config").struct["workload"] == "clevel")
+            .then(pl.lit("hashmap"))
+            .otherwise(pl.col("config").struct["workload"])
+            .alias(WORKLOAD),
             pl.col("config").struct["crash_count"].alias(CRASH_COUNT),
             pl.col("output").struct["time"].alias(TIME_TOTAL),
             pl.col("output").struct["gc_time"].alias(PHASE_GC),
