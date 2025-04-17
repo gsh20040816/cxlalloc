@@ -13,6 +13,7 @@ backend-shm = ["cxlalloc/backend-shm"]
 backend-ivshmem = ["cxlalloc/backend-ivshmem"]
 
 recover = ["cxlalloc/recover"]
+recover-shm = ["cxlalloc/recover-shm"]
 recover-cas = ["cxlalloc/recover-cas"]
 recover-flush = ["cxlalloc/recover-flush"]
 recover-log = ["cxlalloc/recover-log"]

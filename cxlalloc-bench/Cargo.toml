@@ -44,6 +44,7 @@ cxl-mcas = [
     "cxlalloc-global/arch-clwb",
     "cxlalloc-global/arch-clflushopt",
 ]
+recover-shm = ["cxlalloc-global/recover-shm"]
 validate = ["cxlalloc-global/validate"]
 
 allocator-cxlalloc = ["dep:cxlalloc-global"]
