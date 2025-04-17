@@ -11,6 +11,8 @@ pub(crate) trait Interface: Copy + Debug + Sized {
     const SIZE: usize = Self::SIZE_DATA + SIZE_METADATA;
     const SIZE_DATA: usize;
 
+    #[allow(unused)]
+    fn fill(&mut self, count: u64);
     fn peek(&self) -> Bit;
     fn set(&mut self, bit: Bit);
     fn unset(&mut self, bit: Bit);
@@ -71,33 +73,47 @@ impl<const SIZE: usize> BitSet<SIZE> {
     }
 
     pub(crate) const fn filled(count: u64) -> Self {
-        let mut dense = [0u64; SIZE];
+        let mut filled = Self::new();
+        filled.fill(count);
+        filled
+    }
 
+    pub(crate) const fn fill(&mut self, count: u64) {
         let rows = count / 64;
         let cols = count % 64;
 
         let mut i = 0;
         while i < rows as usize {
-            dense[i] = u64::MAX;
+            self.dense[i] = u64::MAX;
             i += 1;
         }
 
-        let mut sparse = (1 << rows) - 1;
-        if cols > 0 {
-            dense[rows as usize] = (1 << cols) - 1;
-            sparse |= ((cols > 0) as u64) << rows;
+        self.sparse = (1u64 << rows) - 1;
+        let skip = match cols {
+            0 => 0,
+            _ => {
+                self.dense[rows as usize] = (1 << cols) - 1;
+                self.sparse |= ((cols > 0) as u64) << rows;
+                1
+            }
+        };
+
+        let mut j = i + skip;
+        while j < self.dense.len() {
+            self.dense[j] = 0;
+            j += 1;
         }
 
-        Self {
-            count,
-            sparse,
-            dense,
-        }
+        self.count = count;
     }
 }
 
 impl<const SIZE: usize> Interface for BitSet<SIZE> {
     const SIZE_DATA: usize = mem::size_of::<u64>() * SIZE;
+
+    fn fill(&mut self, count: u64) {
+        self.fill(count)
+    }
 
     fn peek(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;
