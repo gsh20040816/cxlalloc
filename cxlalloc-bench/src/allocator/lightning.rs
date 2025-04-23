@@ -53,7 +53,7 @@ impl allocator_bench::allocator::Backend for Backend {
         let inner = Arc::new(unsafe {
             sys::LightningAllocator_LightningAllocator(
                 store.as_mut_ptr(),
-                shm.address_mut().cast(),
+                shm.address().as_ptr().cast(),
                 config.size as _,
             );
             store.assume_init()

@@ -66,7 +66,7 @@ impl allocator_bench::allocator::Backend for Backend {
                 false => sys::managed_open,
             };
 
-            let inner = open(shm.address_mut().cast(), config.size);
+            let inner = open(shm.address().as_ptr().cast(), config.size);
 
             Ok(Self { shm, inner })
         }

@@ -44,6 +44,6 @@ impl Barrier {
     }
 
     fn get(&self) -> &AtomicU64 {
-        unsafe { AtomicU64::from_ptr(self.shm.address_mut()) }
+        unsafe { AtomicU64::from_ptr(self.shm.address().as_ptr()) }
     }
 }

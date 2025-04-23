@@ -1,6 +1,7 @@
 use core::ffi::CStr;
 use core::num::NonZeroUsize;
 
+use crate::Page;
 use crate::backend;
 
 #[derive(Clone, Debug, Default)]
@@ -12,6 +13,7 @@ impl backend::Interface for Mmap {
     }
 
     fn open(&self, _: &CStr, size: NonZeroUsize) -> crate::Result<backend::File> {
+        let size = NonZeroUsize::new(size.get().next_multiple_of(Page::SIZE)).unwrap();
         Ok(backend::File::builder()
             .size(size)
             .offset(0)

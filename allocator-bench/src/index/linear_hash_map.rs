@@ -60,6 +60,8 @@ impl LinearHashMap {
 
     #[expect(dead_code)]
     fn view(&self) -> &[AtomicU64] {
-        unsafe { std::slice::from_raw_parts(self.raw.address().cast::<AtomicU64>(), self.len) }
+        unsafe {
+            std::slice::from_raw_parts(self.raw.address().cast::<AtomicU64>().as_ptr(), self.len)
+        }
     }
 }

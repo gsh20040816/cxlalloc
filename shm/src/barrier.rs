@@ -37,7 +37,7 @@ impl Barrier {
 
             unsafe {
                 try_pthread!(libc::pthread_barrier_init(
-                    inner.address_mut(),
+                    inner.address().as_ptr(),
                     &attr,
                     thread_count
                 ))?;
@@ -52,7 +52,7 @@ impl Barrier {
     }
 
     pub fn wait(&self) -> crate::Result<bool> {
-        match unsafe { libc::pthread_barrier_wait(self.0.address_mut()) } {
+        match unsafe { libc::pthread_barrier_wait(self.0.address().as_ptr()) } {
             libc::PTHREAD_BARRIER_SERIAL_THREAD => Ok(true),
             0 => Ok(false),
             error => Err(crate::Error::Libc {
@@ -63,7 +63,7 @@ impl Barrier {
     }
 
     pub fn unlink(&mut self) -> crate::Result<()> {
-        unsafe { try_pthread!(libc::pthread_barrier_destroy(self.0.address_mut()))? }
+        unsafe { try_pthread!(libc::pthread_barrier_destroy(self.0.address().as_ptr()))? }
         self.0.unlink()
     }
 }

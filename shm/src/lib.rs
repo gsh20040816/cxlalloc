@@ -1,7 +1,8 @@
 use core::marker::PhantomData;
 use core::mem;
+use core::num::NonZeroUsize;
+use core::ptr::NonNull;
 use std::ffi::CString;
-use std::io;
 
 pub mod backend;
 mod barrier;
@@ -74,20 +75,12 @@ impl<T> Shm<T> {
 impl<T> Shm<T> {
     const SIZE: usize = mem::size_of::<T>().next_multiple_of(Page::SIZE);
 
-    pub fn address(&self) -> *const T {
+    pub fn address(&self) -> NonNull<T> {
         self.inner.address.cast()
     }
 
-    pub fn address_mut(&self) -> *mut T {
-        self.inner.address.cast()
-    }
-
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> NonZeroUsize {
         self.inner.size
-    }
-
-    pub fn unmap(self) -> io::Result<()> {
-        self.inner.unmap()
     }
 
     pub fn unlink(&mut self) -> crate::Result<()> {

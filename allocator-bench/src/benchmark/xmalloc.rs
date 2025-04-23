@@ -139,25 +139,25 @@ impl<B: Backend> benchmark::Benchmark<B> for Xmalloc {
                 libc::pthread_mutexattr_init(attr.as_mut_ptr());
                 libc::pthread_mutexattr_setpshared(attr.as_mut_ptr(), libc::PTHREAD_PROCESS_SHARED);
 
-                let lock = ptr::addr_of_mut!((*root.address_mut()).lock);
+                let lock = ptr::addr_of_mut!((*root.address().as_ptr()).lock);
                 libc::pthread_mutex_init(lock, attr.as_ptr());
 
                 let mut attr = MaybeUninit::<libc::pthread_condattr_t>::zeroed();
                 libc::pthread_condattr_init(attr.as_mut_ptr());
                 libc::pthread_condattr_setpshared(attr.as_mut_ptr(), libc::PTHREAD_PROCESS_SHARED);
 
-                let empty = ptr::addr_of_mut!((*root.address_mut()).empty);
+                let empty = ptr::addr_of_mut!((*root.address().as_ptr()).empty);
                 libc::pthread_cond_init(empty, attr.as_ptr());
 
-                let full = ptr::addr_of_mut!((*root.address_mut()).full);
+                let full = ptr::addr_of_mut!((*root.address().as_ptr()).full);
                 libc::pthread_cond_init(full, attr.as_ptr());
 
-                ptr::addr_of_mut!((*root.address_mut()).operation_count)
+                ptr::addr_of_mut!((*root.address().as_ptr()).operation_count)
                     .write(AtomicU64::new(self.operation_count));
 
-                ptr::addr_of_mut!((*root.address_mut()).len).write(AtomicU64::new(0));
+                ptr::addr_of_mut!((*root.address().as_ptr()).len).write(AtomicU64::new(0));
 
-                ptr::addr_of_mut!((*root.address_mut()).head).write(AtomicU64::new(0));
+                ptr::addr_of_mut!((*root.address().as_ptr()).head).write(AtomicU64::new(0));
             }
         }
 
@@ -297,7 +297,7 @@ impl Global {
     fn push<A: Allocator>(&self, config: &Xmalloc, allocator: &mut A, handle: A::Handle) {
         let batch = unsafe { handle.as_ptr().cast::<u64>().as_mut().unwrap() };
 
-        let root = unsafe { &*self.root.address() };
+        let root = unsafe { self.root.address().as_ref() };
 
         unsafe {
             libc::pthread_mutex_lock(&root.lock as *const _ as *mut _);
@@ -335,7 +335,7 @@ impl Global {
     }
 
     fn pop<A: Allocator>(&self, allocator: &mut A) -> Option<A::Handle> {
-        let root = unsafe { &*self.root.address() };
+        let root = unsafe { self.root.address().as_ref() };
 
         unsafe {
             libc::pthread_mutex_lock(&root.lock as *const _ as *mut _);

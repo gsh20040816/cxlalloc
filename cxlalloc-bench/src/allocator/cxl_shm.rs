@@ -47,8 +47,8 @@ impl allocator_bench::allocator::Backend for Backend {
             let mut cxl_shm: MaybeUninit<sys::cxl_shm> = MaybeUninit::uninit();
             cxl_shm_cxl_shm2(
                 cxl_shm.as_mut_ptr(),
-                self.0.size() as u64,
-                self.0.address_mut(),
+                self.0.size().get() as u64,
+                self.0.address().as_ptr().cast(),
             );
             cxl_shm_thread_init(cxl_shm.as_mut_ptr());
             CxlShm(cxl_shm.assume_init())

@@ -42,7 +42,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
 
         if create {
             unsafe {
-                ebr::Global::init(ebr.address_mut(), thread_count);
+                ebr::Global::init(ebr.address().as_ptr(), thread_count);
             }
         }
 
@@ -265,10 +265,12 @@ impl<A: Allocator> LinkedHashMap<A> {
     }
 
     fn ebr(&self) -> &ebr::Global<A> {
-        unsafe { self.ebr.address().as_ref().unwrap() }
+        unsafe { self.ebr.address().as_ref() }
     }
 
     fn view(&self) -> &[AtomicU64] {
-        unsafe { std::slice::from_raw_parts(self.raw.address().cast::<AtomicU64>(), self.len) }
+        unsafe {
+            std::slice::from_raw_parts(self.raw.address().cast::<AtomicU64>().as_ptr(), self.len)
+        }
     }
 }

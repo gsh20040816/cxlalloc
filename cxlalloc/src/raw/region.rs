@@ -1,19 +1,17 @@
 use core::ffi;
+use core::ffi::CStr;
 use core::fmt::Display;
 use core::fmt::Write as _;
 use core::num::NonZeroUsize;
 use core::ops::Deref;
-use core::ptr;
 use core::ptr::NonNull;
 use std::io;
 
 use arrayvec::ArrayString;
+pub(crate) use shm::Page;
+pub(crate) type Reservation = shm::Reservation<{ 1 << 40 }>;
 
-use crate::raw::backend;
 use crate::raw::backend::Backend;
-
-#[repr(C, align(4096))]
-pub(crate) struct Page([u8; 4096]);
 
 #[derive(Clone, Debug)]
 pub(crate) struct Id(ArrayString<{ Self::SIZE }>);
@@ -32,62 +30,16 @@ impl Id {
         write!(&mut id, "-{}", suffix).unwrap();
         Self(id)
     }
+
+    fn as_cstr(&self) -> &CStr {
+        CStr::from_bytes_with_nul(self.0.as_bytes()).unwrap()
+    }
 }
 
 impl Deref for Id {
     type Target = ArrayString<{ Self::SIZE }>;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-pub(crate) struct Reservation(NonNull<Page>);
-
-impl Reservation {
-    pub(crate) const SIZE: NonZeroUsize = NonZeroUsize::new(1 << 40).unwrap();
-
-    // In order to keep heap regions contiguous when extending, we need
-    // to reserve an unbacked region of virtual address space,
-    // and then overwrite it later via `mmap` with `MMAP_FIXED`.
-    pub(crate) fn new() -> crate::Result<Self> {
-        let address = Self::mmap(Self::SIZE)?;
-        Ok(Self(address))
-    }
-
-    pub(crate) fn new_contiguous<const COUNT: usize>() -> crate::Result<[Self; COUNT]> {
-        let total = NonZeroUsize::new(Self::SIZE.get() * COUNT).unwrap();
-        let address = Self::mmap(total)?;
-        Ok(std::array::from_fn(|i| {
-            Self(unsafe { address.byte_add(Self::SIZE.get() * i) })
-        }))
-    }
-
-    fn mmap(size: NonZeroUsize) -> crate::Result<NonNull<Page>> {
-        match unsafe {
-            libc::mmap64(
-                ptr::null_mut(),
-                size.get(),
-                libc::PROT_NONE,
-                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                -1,
-                0,
-            )
-        } {
-            libc::MAP_FAILED => Err(crate::Error::Mmap(io::Error::last_os_error())),
-            actual => Ok(NonNull::new(actual).unwrap().cast::<Page>()),
-        }
-    }
-
-    fn munmap(&self) -> crate::Result<()> {
-        unsafe { munmap(self.0, Self::SIZE) }
-    }
-
-    fn start(&self) -> NonNull<Page> {
-        self.0.cast()
-    }
-
-    fn end(&self) -> NonNull<Page> {
-        unsafe { self.0.byte_add(Self::SIZE.get()) }
     }
 }
 
@@ -100,14 +52,14 @@ pub(crate) trait Region {
 
 pub(crate) struct Fixed {
     id: Id,
-    clean: bool,
+    create: bool,
     address: NonNull<Page>,
     size: NonZeroUsize,
 }
 
 pub(crate) struct Sequential {
     id: Id,
-    clean: bool,
+    create: bool,
     reservation: Reservation,
     size: NonZeroUsize,
 }
@@ -120,20 +72,18 @@ pub(crate) struct Random {
 impl Fixed {
     pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let file = backend.allocate(id.clone(), size)?;
+        let file = backend.open(id.as_cstr(), size)?;
+        let create = file.is_create();
         let address = unsafe {
-            mmap(
-                None,
-                size,
-                backend.numa().cloned(),
-                backend.populate(),
-                &file,
-            )?
+            file.map()
+                .maybe_numa(backend.numa().cloned())
+                .maybe_populate(backend.populate())
+                .call()?
         };
         Ok(Self {
             id,
             address,
-            clean: file.clean,
+            create,
             size,
         })
     }
@@ -145,7 +95,7 @@ impl Region for Fixed {
     }
 
     fn is_clean(&self) -> bool {
-        self.clean
+        self.create
     }
 
     fn id(&self) -> &str {
@@ -166,27 +116,25 @@ impl Sequential {
         lazy: bool,
     ) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-
-        let clean = match lazy {
+        let create = match lazy {
             true => false,
             false => {
-                let file = backend.allocate(id.with_suffix(0), size)?;
+                let file = backend.open(id.with_suffix(0).as_cstr(), size)?;
+                let create = file.is_create();
                 unsafe {
-                    mmap(
-                        Some(reservation.0),
-                        size,
-                        backend.numa().cloned(),
-                        backend.populate(),
-                        &file,
-                    )
-                }?;
-                file.clean
+                    file.map()
+                        .address(reservation.start())
+                        .maybe_numa(backend.numa().cloned())
+                        .maybe_populate(backend.populate())
+                        .call()?
+                };
+                create
             }
         };
 
         Ok(Sequential {
             id,
-            clean,
+            create,
             reservation,
             size,
         })
@@ -194,17 +142,15 @@ impl Sequential {
 
     pub(crate) fn map(&self, backend: &Backend, offset: usize) -> crate::Result<()> {
         let index = offset / self.size.get();
-        let file = backend.allocate(self.id.with_suffix(index), self.size)?;
-
         unsafe {
-            mmap(
-                Some(self.reservation.0.byte_add(self.size.get() * index)),
-                self.size,
-                backend.numa().cloned(),
-                backend.populate(),
-                &file,
-            )
-        }?;
+            backend
+                .open(self.id.with_suffix(index).as_cstr(), self.size)?
+                .map()
+                .address(self.reservation.start().byte_add(self.size.get() * index))
+                .maybe_numa(backend.numa().cloned())
+                .maybe_populate(backend.populate())
+                .call()?;
+        }
 
         Ok(())
     }
@@ -212,11 +158,11 @@ impl Sequential {
 
 impl Region for Sequential {
     fn address(&self) -> NonNull<Page> {
-        self.reservation.0
+        self.reservation.start()
     }
 
     fn is_clean(&self) -> bool {
-        self.clean
+        self.create
     }
 
     fn id(&self) -> &str {
@@ -225,7 +171,8 @@ impl Region for Sequential {
 
     /// Remove all virtual address space mappings for this region.
     fn unmap(&self) -> crate::Result<()> {
-        self.reservation.munmap()
+        self.reservation.unmap()?;
+        Ok(())
     }
 }
 
@@ -244,16 +191,18 @@ impl Random {
         offset: usize,
         size: NonZeroUsize,
     ) -> crate::Result<()> {
-        let file = backend.allocate(self.id.with_suffix(format_args!("{:#x}", offset)), size)?;
         unsafe {
-            mmap(
-                Some(self.address().byte_add(offset)),
-                size,
-                backend.numa().cloned(),
-                backend.populate(),
-                &file,
-            )
-        }?;
+            backend
+                .open(
+                    self.id.with_suffix(format_args!("{:#x}", offset)).as_cstr(),
+                    size,
+                )?
+                .map()
+                .address(self.address().byte_add(offset))
+                .maybe_numa(backend.numa().cloned())
+                .maybe_populate(backend.populate())
+                .call()?;
+        }
 
         Ok(())
     }
@@ -261,7 +210,7 @@ impl Random {
     pub(crate) fn unmap(&self, backend: &Backend, offset: usize, size: NonZeroUsize) {
         let id = self.id.with_suffix(format_args!("{:#x}", offset));
         let _ = unsafe { munmap(self.address().byte_add(offset), size) };
-        let _ = backend.unlink(&id);
+        let _ = backend.unlink(id.as_cstr());
     }
 }
 
@@ -279,7 +228,8 @@ impl Region for Random {
     }
 
     fn unmap(&self) -> crate::Result<()> {
-        self.reservation.munmap()
+        self.reservation.unmap()?;
+        Ok(())
     }
 }
 
@@ -288,47 +238,4 @@ unsafe fn munmap(address: NonNull<Page>, size: NonZeroUsize) -> crate::Result<()
         0 => Ok(()),
         _ => Err(crate::Error::Munmap(io::Error::last_os_error())),
     }
-}
-
-unsafe fn mmap(
-    address: Option<NonNull<Page>>,
-    size: NonZeroUsize,
-    numa: Option<::shm::Numa>,
-    populate: Option<::shm::Populate>,
-    file: &backend::File,
-) -> crate::Result<NonNull<Page>> {
-    let actual = match libc::mmap64(
-        address
-            .map(NonNull::as_ptr)
-            .unwrap_or_else(ptr::null_mut)
-            .cast(),
-        size.get(),
-        libc::PROT_READ | libc::PROT_WRITE,
-        file.flags()
-            | address.map(|_| libc::MAP_FIXED).unwrap_or(0)
-            | if matches!(populate, Some(::shm::Populate::PageTable)) {
-                libc::MAP_POPULATE
-            } else {
-                0
-            },
-        file.fd(),
-        file.offset,
-    ) {
-        libc::MAP_FAILED => return Err(crate::Error::Mmap(io::Error::last_os_error())),
-        actual => NonNull::new(actual).unwrap().cast::<Page>(),
-    };
-
-    if let Some(expected) = address {
-        assert_eq!(expected, actual);
-    }
-
-    if let Some(numa) = numa {
-        ::shm::Raw::mbind(numa, actual.as_ptr().cast(), size.get())?;
-    }
-
-    if matches!(populate, Some(::shm::Populate::Physical)) {
-        ::shm::Raw::madvise(actual.as_ptr().cast(), size.get())?;
-    }
-
-    Ok(actual)
 }

@@ -68,8 +68,8 @@ impl allocator_bench::allocator::Backend for Backend {
         let arena = unsafe {
             let mut arena = MaybeUninit::<sys::mi_arena_id_t>::zeroed();
             sys::mi_manage_os_memory_ex(
-                raw.address_mut(),
-                raw.size(),
+                raw.address().as_ptr().cast(),
+                raw.size().get(),
                 true,
                 false,
                 true,

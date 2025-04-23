@@ -5,26 +5,26 @@ use core::ptr::NonNull;
 
 use crate::Page;
 
-pub struct Reservation {
-    size: NonZeroUsize,
+pub struct Reservation<const SIZE: usize> {
     address: NonNull<Page>,
 }
 
-impl Reservation {
+impl<const SIZE: usize> Reservation<SIZE> {
+    pub const SIZE: NonZeroUsize = NonZeroUsize::new(SIZE).unwrap();
+
     // In order to keep heap regions contiguous when extending, we need
     // to reserve an unbacked region of virtual address space,
     // and then overwrite it later via `mmap` with `MMAP_FIXED`.
-    pub fn new(size: NonZeroUsize) -> crate::Result<Self> {
-        let address = Self::mmap(size)?;
-        Ok(Self { size, address })
+    pub fn new() -> crate::Result<Self> {
+        let address = Self::mmap(Self::SIZE)?;
+        Ok(Self { address })
     }
 
-    pub fn new_contiguous<const COUNT: usize>(size: NonZeroUsize) -> crate::Result<[Self; COUNT]> {
-        let total = NonZeroUsize::new(size.get() * COUNT).unwrap();
+    pub fn new_contiguous<const COUNT: usize>() -> crate::Result<[Self; COUNT]> {
+        let total = const { NonZeroUsize::new(SIZE * COUNT).unwrap() };
         let address = Self::mmap(total)?;
         Ok(std::array::from_fn(|i| Self {
-            size,
-            address: unsafe { address.byte_add(size.get() * i) },
+            address: unsafe { address.byte_add(SIZE * i) },
         }))
     }
 
@@ -51,7 +51,7 @@ impl Reservation {
         unsafe {
             crate::try_libc!(libc::munmap(
                 self.address.as_ptr().cast::<ffi::c_void>(),
-                self.size.get(),
+                SIZE,
             ))?;
         }
         Ok(())
@@ -62,6 +62,6 @@ impl Reservation {
     }
 
     pub fn end(&self) -> NonNull<Page> {
-        unsafe { self.address.byte_add(self.size.get()) }
+        unsafe { self.address.byte_add(SIZE) }
     }
 }

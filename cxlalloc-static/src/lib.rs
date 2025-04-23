@@ -38,14 +38,12 @@ fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::
 enum Backend {
     Mmap,
     Shm,
-    Ivshmem,
 }
 
 impl Backend {
     fn parse(name: &str) -> Self {
         match name {
             "mmap" => Backend::Mmap,
-            "ivshmem" => Backend::Ivshmem,
             "shm" => Backend::Shm,
             unknown => panic!("Expected one of [mmap, ivshmem, shm], but got {}", unknown),
         }
@@ -60,20 +58,13 @@ impl Backend {
         let builder = raw::Backend::builder().maybe_numa(numa);
 
         match self {
-            Backend::Mmap => builder.kind(raw::backend::Mmap).build(),
+            Backend::Mmap => builder.backend(raw::backend::Mmap).build(),
 
             #[cfg(feature = "backend-shm")]
-            Backend::Shm => builder.kind(raw::backend::Shm).build(),
+            Backend::Shm => builder.backend(raw::backend::Shm).build(),
             #[cfg(not(feature = "backend-shm"))]
             Backend::Shm => {
                 panic!("cxlalloc-static crate was compiled without `backend-shm` feature")
-            }
-
-            #[cfg(feature = "backend-ivshmem")]
-            Backend::Ivshmem => builder.kind(raw::backend::Ivshmem::new()).build(),
-            #[cfg(not(feature = "backend-ivshmem"))]
-            Backend::Ivshmem => {
-                panic!("cxlalloc-static crate was compiled without `backend-ivshmem` feature")
             }
         }
     }

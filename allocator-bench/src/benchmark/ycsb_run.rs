@@ -133,7 +133,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
     ) -> Self::OutputWorker {
         let mut runner = self
             .workload
-            .runner(unsafe { global.acked.address().as_ref().unwrap() });
+            .runner(unsafe { global.acked.address().as_ref() });
 
         let start = Instant::now();
         let allow_null = self.workload.delete_proportion > 0.0;

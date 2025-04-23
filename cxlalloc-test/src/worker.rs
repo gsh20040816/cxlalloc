@@ -157,7 +157,7 @@ impl Worker {
             cxlalloc::raw::Raw::builder()
                 .backend(
                     cxlalloc::raw::Backend::builder()
-                        .kind(cxlalloc::raw::backend::Shm)
+                        .backend(cxlalloc::raw::backend::Shm)
                         .build(),
                 )
                 .free(false)

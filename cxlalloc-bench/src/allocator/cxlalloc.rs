@@ -38,7 +38,7 @@ impl allocator_bench::allocator::Backend for Backend {
             cxlalloc_global::Raw::builder()
                 .backend(
                     cxlalloc_global::backend::Backend::builder()
-                        .kind(cxlalloc_global::backend::Shm)
+                        .backend(cxlalloc_global::backend::Shm)
                         .maybe_numa(config.numa.clone())
                         .maybe_populate(config.populate)
                         .build(),

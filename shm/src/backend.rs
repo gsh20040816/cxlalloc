@@ -1,11 +1,7 @@
-#[cfg(feature = "backend-mmap")]
 mod mmap;
-#[cfg(feature = "backend-mmap")]
-pub use mmap::Mmap;
-
-#[cfg(feature = "backend-shm")]
 mod shm;
-#[cfg(feature = "backend-shm")]
+
+pub use mmap::Mmap;
 pub use shm::Shm;
 
 use core::ffi;
@@ -26,10 +22,9 @@ use crate::Populate;
 // of a `Box<dyn Backend>` trait object. This is fine
 // because the set of backends should not be extensible
 // by downstream consumers.
+#[derive(Debug)]
 pub enum Backend {
-    #[cfg(feature = "backend-mmap")]
     Mmap(Mmap),
-    #[cfg(feature = "backend-shm")]
     Shm(Shm),
 }
 
@@ -48,9 +43,7 @@ impl Backend {
 
     fn as_backend(&self) -> &dyn Interface {
         match self {
-            #[cfg(feature = "backend-mmap")]
             Backend::Mmap(mmap) => mmap,
-            #[cfg(feature = "backend-shm")]
             Backend::Shm(shm) => shm,
         }
     }
