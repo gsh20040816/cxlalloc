@@ -3,7 +3,7 @@ use core::mem;
 use std::ffi::CString;
 use std::io;
 
-mod backend;
+pub mod backend;
 mod barrier;
 mod error;
 mod raw;

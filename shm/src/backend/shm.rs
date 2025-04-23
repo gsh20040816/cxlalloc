@@ -47,7 +47,12 @@ impl backend::Interface for Shm {
             }
         }
 
-        Ok(backend::File::new(Some(fd), 0, create))
+        Ok(backend::File::builder()
+            .fd(fd)
+            .size(NonZeroUsize::new(size).unwrap())
+            .create(create)
+            .offset(0)
+            .build())
     }
 
     fn unlink(&self, id: &CStr) -> crate::Result<()> {
@@ -55,9 +60,9 @@ impl backend::Interface for Shm {
     }
 }
 
-impl From<Shm> for backend::Concrete {
+impl From<Shm> for backend::Backend {
     fn from(shm: Shm) -> Self {
-        backend::Concrete::Shm(shm)
+        backend::Backend::Shm(shm)
     }
 }
 

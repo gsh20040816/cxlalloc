@@ -11,8 +11,12 @@ impl backend::Interface for Mmap {
         "mmap"
     }
 
-    fn open(&self, _: &CStr, _: NonZeroUsize) -> crate::Result<backend::File> {
-        Ok(backend::File::new(None, 0, true))
+    fn open(&self, _: &CStr, size: NonZeroUsize) -> crate::Result<backend::File> {
+        Ok(backend::File::builder()
+            .size(size)
+            .offset(0)
+            .create(true)
+            .build())
     }
 
     fn unlink(&self, _id: &CStr) -> crate::Result<()> {
@@ -20,8 +24,8 @@ impl backend::Interface for Mmap {
     }
 }
 
-impl From<Mmap> for backend::Concrete {
+impl From<Mmap> for backend::Backend {
     fn from(mmap: Mmap) -> Self {
-        backend::Concrete::Mmap(mmap)
+        backend::Backend::Mmap(mmap)
     }
 }
