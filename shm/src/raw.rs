@@ -46,16 +46,15 @@ impl Raw {
             }
         }
 
-        use libc::shm_open;
         let (create, fd) = match unsafe {
-            crate::try_libc!(shm_open(
+            crate::try_libc!(libc::shm_open(
                 name.as_ptr(),
                 libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
                 0o666,
             ))
         } {
             Err(error) if error.is_already_exists() => unsafe {
-                let fd = crate::try_libc!(shm_open(name.as_ptr(), libc::O_RDWR, 0o666))
+                let fd = crate::try_libc!(libc::shm_open(name.as_ptr(), libc::O_RDWR, 0o666))
                     .map(|fd| OwnedFd::from_raw_fd(fd))?;
                 (false, fd)
             },
@@ -64,9 +63,8 @@ impl Raw {
         };
 
         if create {
-            use libc::ftruncate64;
             unsafe {
-                crate::try_libc!(ftruncate64(fd.as_raw_fd(), size as i64))?;
+                crate::try_libc!(libc::ftruncate64(fd.as_raw_fd(), size as i64))?;
             }
         }
 
@@ -167,8 +165,7 @@ impl Raw {
 
     #[expect(clippy::not_unsafe_ptr_arg_deref)]
     pub fn madvise(address: *mut ffi::c_void, size: usize) -> crate::Result<()> {
-        use libc::madvise;
-        unsafe { crate::try_libc!(madvise(address, size, libc::MADV_POPULATE_WRITE)) }?;
+        unsafe { crate::try_libc!(libc::madvise(address, size, libc::MADV_POPULATE_WRITE)) }?;
         Ok(())
     }
 }
@@ -193,8 +190,7 @@ impl Drop for Raw {
 }
 
 fn shm_unlink(name: &CStr) -> crate::Result<()> {
-    use libc::shm_unlink;
-    unsafe { crate::try_libc!(shm_unlink(name.as_ptr())) }?;
+    unsafe { crate::try_libc!(libc::shm_unlink(name.as_ptr())) }?;
     Ok(())
 }
 

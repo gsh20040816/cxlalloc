@@ -4,6 +4,7 @@ use std::ffi::CString;
 use bon::bon;
 
 use crate::Shm;
+use crate::try_pthread;
 
 pub struct Barrier(Shm<libc::pthread_barrier_t>);
 
@@ -26,22 +27,20 @@ impl Barrier {
         if create {
             let mut attr = unsafe {
                 let mut attr = MaybeUninit::<libc::pthread_barrierattr_t>::zeroed();
-                assert_eq!(libc::pthread_barrierattr_init(attr.as_mut_ptr()), 0);
-                assert_eq!(
-                    libc::pthread_barrierattr_setpshared(
-                        attr.as_mut_ptr(),
-                        libc::PTHREAD_PROCESS_SHARED
-                    ),
-                    0
-                );
+                try_pthread!(libc::pthread_barrierattr_init(attr.as_mut_ptr()))?;
+                try_pthread!(libc::pthread_barrierattr_setpshared(
+                    attr.as_mut_ptr(),
+                    libc::PTHREAD_PROCESS_SHARED
+                ))?;
                 attr.assume_init()
             };
 
             unsafe {
-                assert_eq!(
-                    libc::pthread_barrier_init(inner.address_mut(), &attr, thread_count),
-                    0
-                );
+                try_pthread!(libc::pthread_barrier_init(
+                    inner.address_mut(),
+                    &attr,
+                    thread_count
+                ))?;
             }
 
             unsafe {
@@ -52,16 +51,19 @@ impl Barrier {
         Ok(Self(inner))
     }
 
-    pub fn wait(&self) -> bool {
+    pub fn wait(&self) -> crate::Result<bool> {
         match unsafe { libc::pthread_barrier_wait(self.0.address_mut()) } {
-            libc::PTHREAD_BARRIER_SERIAL_THREAD => true,
-            0 => false,
-            error => panic!("Failed to wait on barrier: {}", error),
+            libc::PTHREAD_BARRIER_SERIAL_THREAD => Ok(true),
+            0 => Ok(false),
+            error => Err(crate::Error::Libc {
+                name: "pthread_barrier_wait",
+                source: std::io::Error::from_raw_os_error(error),
+            }),
         }
     }
 
     pub fn unlink(&mut self) -> crate::Result<()> {
-        unsafe { assert_eq!(libc::pthread_barrier_destroy(self.0.address_mut()), 0) }
+        unsafe { try_pthread!(libc::pthread_barrier_destroy(self.0.address_mut()))? }
         self.0.unlink()
     }
 }

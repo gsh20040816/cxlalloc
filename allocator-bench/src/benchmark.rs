@@ -126,12 +126,12 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
             true => {
                 let backend = B::new(true, allocator, Self::NAME).unwrap();
                 let global = self.setup_global(config, allocator);
-                barrier_process.wait();
+                let _ = barrier_process.wait().unwrap();
 
                 (backend, global)
             }
             false => {
-                barrier_process.wait();
+                let _ = barrier_process.wait().unwrap();
                 let backend = B::new(false, allocator, Self::NAME).unwrap();
                 let global = self.setup_global(config, allocator);
 
@@ -174,10 +174,10 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                         let mut worker =
                             self.setup_worker(&config, global, process, &mut allocator);
 
-                        barrier_thread.wait();
+                        let _ = barrier_thread.wait().unwrap();
                         let output =
                             self.run_worker(&config, global, process, &mut worker, &mut allocator);
-                        barrier_thread.wait();
+                        let _ = barrier_thread.wait().unwrap();
 
                         let allocator = allocator.report();
 
@@ -195,9 +195,9 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                 }
 
                 let before = ResourceUsage::new().unwrap();
-                barrier_thread.wait();
+                let _ = barrier_thread.wait().unwrap();
                 let output = self.run_coordinator(config, &global, &process, &mut coordinator);
-                barrier_thread.wait();
+                let _ = barrier_thread.wait().unwrap();
                 let after = ResourceUsage::new().unwrap();
 
                 if let Some(perf) = &mut perf {

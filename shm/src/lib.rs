@@ -9,7 +9,6 @@ mod raw;
 
 pub use barrier::Barrier;
 pub use error::Error;
-pub(crate) use error::try_libc;
 pub use raw::Raw;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -86,3 +85,37 @@ impl<T> Shm<T> {
         self.inner.unlink()
     }
 }
+
+macro_rules! try_libc {
+    (libc:: $function:ident ( $($arg:expr),* $(,)? )) => {
+        {
+            use libc::$function;
+            crate::try_libc!($function ( $($arg),* ))
+        }
+    };
+    // Only needed for `mbind_syscall` in raw.rs
+    ($function:ident ( $($arg:expr),* $(,)? )) => {
+        match $function ( $($arg),* ) {
+            -1 => Err(crate::Error::Libc {
+                name: stringify!($function),
+                source: ::std::io::Error::last_os_error()
+            }),
+            value => Ok(value),
+        }
+    };
+}
+
+macro_rules! try_pthread {
+    (libc:: $function:ident ( $($arg:expr),* $(,)? )) => {
+        match ::libc::$function ( $($arg),* ) {
+            0 => Ok(()),
+            error => Err(crate::Error::Libc {
+                name: stringify!($function),
+                source: std::io::Error::from_raw_os_error(error),
+            }),
+        }
+    };
+}
+
+pub(crate) use try_libc;
+pub(crate) use try_pthread;
