@@ -6,16 +6,23 @@ use std::io;
 mod barrier;
 mod error;
 mod raw;
+mod reservation;
 
 pub use barrier::Barrier;
 pub use error::Error;
 pub use raw::Raw;
+pub use reservation::Reservation;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 use bon::bon;
 
-const PAGE: usize = 4096;
+#[repr(C, align(4096))]
+pub struct Page([u8; 4096]);
+
+impl Page {
+    pub const SIZE: usize = mem::size_of::<Self>();
+}
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -63,7 +70,7 @@ impl<T> Shm<T> {
 }
 
 impl<T> Shm<T> {
-    const SIZE: usize = mem::size_of::<T>().next_multiple_of(PAGE);
+    const SIZE: usize = mem::size_of::<T>().next_multiple_of(Page::SIZE);
 
     pub fn address(&self) -> *const T {
         self.inner.address.cast()

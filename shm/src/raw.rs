@@ -11,7 +11,7 @@ use std::os::fd::OwnedFd;
 use bon::bon;
 
 use crate::Numa;
-use crate::PAGE;
+use crate::Page;
 use crate::Populate;
 
 pub struct Raw {
@@ -36,7 +36,7 @@ impl Raw {
             name.to_string_lossy(),
         );
 
-        let size = size.next_multiple_of(PAGE);
+        let size = size.next_multiple_of(Page::SIZE);
 
         if create {
             match shm_unlink(&name) {
