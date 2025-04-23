@@ -1,7 +1,6 @@
 use core::hash::Hash;
 use core::hash::Hasher as _;
 use core::sync::atomic::AtomicU64;
-use std::io;
 
 use rapidhash::RapidHasher;
 
@@ -21,7 +20,7 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         _create: bool,
         _populate: Option<shm::Populate>,
         _thread_count: usize,
-    ) -> io::Result<Self> {
+    ) -> anyhow::Result<Self> {
         todo!()
     }
 
@@ -46,8 +45,8 @@ impl<A: Allocator> Index<A> for LinearHashMap {
         todo!()
     }
 
-    fn unlink(&mut self) -> io::Result<()> {
-        self.raw.unlink()
+    fn unlink(&mut self) -> anyhow::Result<()> {
+        self.raw.unlink().map_err(anyhow::Error::from)
     }
 }
 

@@ -7,7 +7,6 @@ pub use linked_hash_map::LinkedHashMap;
 
 use core::marker::PhantomData;
 use core::ops::Deref;
-use std::io;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -62,9 +61,9 @@ where
         create: bool,
         populate: Option<shm::Populate>,
         thread_count: usize,
-    ) -> io::Result<Self>;
+    ) -> anyhow::Result<Self>;
 
-    fn unlink(&mut self) -> io::Result<()>;
+    fn unlink(&mut self) -> anyhow::Result<()>;
 
     fn insert<F: FnOnce(*mut u8)>(
         &self,

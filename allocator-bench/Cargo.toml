@@ -8,6 +8,7 @@ default = ["validate"]
 validate = []
 
 [dependencies]
+anyhow.workspace = true
 arrow-array.workspace = true
 bon.workspace = true
 core_affinity.workspace = true

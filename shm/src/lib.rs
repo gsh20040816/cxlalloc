@@ -4,10 +4,15 @@ use std::ffi::CString;
 use std::io;
 
 mod barrier;
+mod error;
 mod raw;
 
 pub use barrier::Barrier;
+pub use error::Error;
+pub(crate) use error::try_libc;
 pub use raw::Raw;
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 use bon::bon;
 
@@ -42,7 +47,7 @@ impl<T> Shm<T> {
         name: CString,
         #[builder(default)] create: bool,
         populate: Option<Populate>,
-    ) -> io::Result<Self> {
+    ) -> crate::Result<Self> {
         let inner = Raw::builder()
             .maybe_numa(numa)
             .name(name)
@@ -77,7 +82,7 @@ impl<T> Shm<T> {
         self.inner.unmap()
     }
 
-    pub fn unlink(&mut self) -> io::Result<()> {
+    pub fn unlink(&mut self) -> crate::Result<()> {
         self.inner.unlink()
     }
 }

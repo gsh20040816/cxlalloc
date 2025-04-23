@@ -1,6 +1,5 @@
 use core::mem::MaybeUninit;
 use std::ffi::CString;
-use std::io;
 
 use bon::bon;
 
@@ -18,7 +17,7 @@ impl Barrier {
         name: CString,
         #[builder(default)] create: bool,
         thread_count: u32,
-    ) -> io::Result<Self> {
+    ) -> crate::Result<Self> {
         let inner = Shm::<libc::pthread_barrier_t>::builder()
             .name(name)
             .create(create)
@@ -61,7 +60,7 @@ impl Barrier {
         }
     }
 
-    pub fn unlink(&mut self) -> io::Result<()> {
+    pub fn unlink(&mut self) -> crate::Result<()> {
         unsafe { assert_eq!(libc::pthread_barrier_destroy(self.0.address_mut()), 0) }
         self.0.unlink()
     }

@@ -25,7 +25,11 @@ impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Cxlalloc;
     type Config = Config;
 
-    fn new(create: bool, config: &allocator::Config<Self::Config>, name: &str) -> io::Result<Self> {
+    fn new(
+        create: bool,
+        config: &allocator::Config<Self::Config>,
+        name: &str,
+    ) -> anyhow::Result<Self> {
         if create {
             unlink(name)?;
         }
@@ -55,8 +59,9 @@ impl allocator_bench::allocator::Backend for Backend {
         Cxlalloc
     }
 
-    fn unlink(self) -> io::Result<()> {
-        unlink(&self.0)
+    fn unlink(self) -> anyhow::Result<()> {
+        unlink(&self.0)?;
+        Ok(())
     }
 
     #[cfg(feature = "stat-event")]

@@ -2,7 +2,6 @@ use core::ffi::CStr;
 use core::hint;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::io;
 
 use shm::Shm;
 
@@ -16,7 +15,7 @@ unsafe impl Sync for Barrier {}
 impl Barrier {
     const PATH: &CStr = c"/barrier";
 
-    pub fn new(create: bool, total: u64) -> io::Result<Self> {
+    pub fn new(create: bool, total: u64) -> shm::Result<Self> {
         Shm::builder()
             .create(create)
             .name(Self::PATH.to_owned())
@@ -25,7 +24,7 @@ impl Barrier {
             .map(|shm| Self { total, shm })
     }
 
-    pub fn unlink(&mut self) -> io::Result<()> {
+    pub fn unlink(&mut self) -> shm::Result<()> {
         self.shm.unlink()
     }
 

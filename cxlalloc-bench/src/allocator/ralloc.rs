@@ -20,7 +20,7 @@ impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Ralloc;
     type Config = ();
 
-    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> anyhow::Result<Self> {
         unsafe {
             // FIXME: hacky workaround for now, since ralloc
             // maps several different files
@@ -48,8 +48,9 @@ impl allocator_bench::allocator::Backend for Backend {
         Ralloc
     }
 
-    fn unlink(self) -> io::Result<()> {
-        unlink(&self.0)
+    fn unlink(self) -> anyhow::Result<()> {
+        unlink(&self.0)?;
+        Ok(())
     }
 }
 

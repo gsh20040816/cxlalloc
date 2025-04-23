@@ -4,7 +4,6 @@ use core::num::NonZeroU64;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::ffi::CString;
-use std::io;
 use std::ptr::NonNull;
 
 use allocator_bench::allocator::Config;
@@ -27,7 +26,7 @@ impl allocator_bench::allocator::Backend for Backend {
     type Allocator = CxlShm;
     type Config = ();
 
-    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> anyhow::Result<Self> {
         shm::Raw::builder()
             .maybe_numa(config.numa.clone())
             .name(CString::new(name).unwrap())
@@ -36,10 +35,11 @@ impl allocator_bench::allocator::Backend for Backend {
             .maybe_populate(config.populate)
             .build()
             .map(Self)
+            .map_err(anyhow::Error::from)
     }
 
-    fn unlink(mut self) -> io::Result<()> {
-        self.0.unlink()
+    fn unlink(mut self) -> anyhow::Result<()> {
+        self.0.unlink().map_err(anyhow::Error::from)
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {

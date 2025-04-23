@@ -30,5 +30,8 @@ pub enum Error {
     ShmUnlink(#[source] io::Error),
 
     #[error(transparent)]
+    Shm(#[from] shm::Error),
+
+    #[error(transparent)]
     Io(#[from] io::Error),
 }

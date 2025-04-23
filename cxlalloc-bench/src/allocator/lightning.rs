@@ -5,7 +5,6 @@ use core::ops::Deref;
 use core::ptr::NonNull;
 use std::ffi::CString;
 use std::ffi::OsStr;
-use std::io;
 use std::sync::Arc;
 
 use allocator_bench::allocator::Config;
@@ -41,7 +40,7 @@ impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Lightning;
     type Config = ();
 
-    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> anyhow::Result<Self> {
         let shm = shm::Raw::builder()
             .maybe_numa(config.numa.clone())
             .name(CString::new(name).unwrap())
@@ -74,7 +73,7 @@ impl allocator_bench::allocator::Backend for Backend {
         }
     }
 
-    fn unlink(mut self) -> io::Result<()> {
+    fn unlink(mut self) -> anyhow::Result<()> {
         self.shm.unlink()?;
 
         for entry in std::fs::read_dir("/dev/shm").unwrap() {

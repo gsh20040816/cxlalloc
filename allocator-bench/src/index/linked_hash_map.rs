@@ -6,7 +6,6 @@ use core::ptr;
 use core::slice;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::io;
 
 use rapidhash::RapidHasher;
 use shm::Shm;
@@ -33,7 +32,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         create: bool,
         populate: Option<shm::Populate>,
         thread_count: usize,
-    ) -> io::Result<Self> {
+    ) -> anyhow::Result<Self> {
         let ebr = shm::Shm::builder()
             .maybe_numa(numa.clone())
             .name(c"/ebr".to_owned())
@@ -187,9 +186,10 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
         true
     }
 
-    fn unlink(&mut self) -> io::Result<()> {
+    fn unlink(&mut self) -> anyhow::Result<()> {
         self.ebr.unlink()?;
-        self.raw.unlink()
+        self.raw.unlink()?;
+        Ok(())
     }
 }
 

@@ -3,7 +3,6 @@ use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::io;
 
 use bon::Builder;
 use serde::Deserialize;
@@ -79,9 +78,9 @@ pub trait Backend: Sync + Sized {
     type Allocator: Allocator;
     type Config: DeserializeOwned + Serialize;
 
-    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self>;
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> anyhow::Result<Self>;
 
-    fn unlink(self) -> io::Result<()>;
+    fn unlink(self) -> anyhow::Result<()>;
     fn allocator(&self, thread_id: usize) -> Self::Allocator;
 
     fn report(&self) -> serde_json::Value {
@@ -145,11 +144,11 @@ impl Backend for Libc {
     type Allocator = Self;
     type Config = ();
 
-    fn new(_create: bool, _config: &Config<Self::Config>, _name: &str) -> io::Result<Self> {
+    fn new(_create: bool, _config: &Config<Self::Config>, _name: &str) -> anyhow::Result<Self> {
         Ok(Self)
     }
 
-    fn unlink(self) -> io::Result<()> {
+    fn unlink(self) -> anyhow::Result<()> {
         Ok(())
     }
 

@@ -3,7 +3,6 @@ use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use std::ffi::CString;
-use std::io;
 
 use bon::Builder;
 use serde::Deserialize;
@@ -50,7 +49,7 @@ impl allocator_bench::allocator::Backend for Backend {
         create: bool,
         config: &allocator_bench::allocator::Config<Self::Config>,
         name: &str,
-    ) -> io::Result<Self> {
+    ) -> anyhow::Result<Self> {
         if !config.inner.shm {
             return Ok(Self {
                 raw: None,
@@ -106,7 +105,7 @@ impl allocator_bench::allocator::Backend for Backend {
         Mimalloc(heap)
     }
 
-    fn unlink(mut self) -> io::Result<()> {
+    fn unlink(mut self) -> anyhow::Result<()> {
         if let Some(raw) = &mut self.raw {
             raw.unlink()?;
         }

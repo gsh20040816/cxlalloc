@@ -59,6 +59,7 @@ dependencies = [
 name = "allocator-bench"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow-array",
  "bon",
  "core_affinity",

@@ -29,7 +29,7 @@ impl Raw {
         size: usize,
         #[builder(default)] create: bool,
         populate: Option<Populate>,
-    ) -> io::Result<Raw> {
+    ) -> crate::Result<Self> {
         assert!(
             name.as_bytes()[0] == b'/',
             "Shared memory name {:?} should start with /",
@@ -39,36 +39,35 @@ impl Raw {
         let size = size.next_multiple_of(PAGE);
 
         if create {
-            match Self::unlink_inner(&name) {
+            match shm_unlink(&name) {
                 Ok(()) => log::info!("Unlinked stale shm object: {}", name.to_string_lossy()),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+                Err(error) if error.is_not_found() => (),
                 Err(error) => return Err(error),
             }
         }
 
+        use libc::shm_open;
         let (create, fd) = match unsafe {
-            libc::shm_open(
+            crate::try_libc!(shm_open(
                 name.as_ptr(),
                 libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
                 0o666,
-            )
+            ))
         } {
-            -1 => {
-                match io::Error::last_os_error() {
-                    error if error.kind() == io::ErrorKind::AlreadyExists => (),
-                    error => return Err(error),
-                }
-
-                match unsafe { libc::shm_open(name.as_ptr(), libc::O_RDWR, 0o666) } {
-                    -1 => return Err(io::Error::last_os_error()),
-                    fd => (false, unsafe { OwnedFd::from_raw_fd(fd) }),
-                }
-            }
-            fd => (true, unsafe { OwnedFd::from_raw_fd(fd) }),
+            Err(error) if error.is_already_exists() => unsafe {
+                let fd = crate::try_libc!(shm_open(name.as_ptr(), libc::O_RDWR, 0o666))
+                    .map(|fd| OwnedFd::from_raw_fd(fd))?;
+                (false, fd)
+            },
+            Err(error) => return Err(error),
+            Ok(fd) => (true, unsafe { OwnedFd::from_raw_fd(fd) }),
         };
 
-        if create && unsafe { libc::ftruncate(fd.as_raw_fd(), size as i64) } == -1 {
-            return Err(io::Error::last_os_error());
+        if create {
+            use libc::ftruncate64;
+            unsafe {
+                crate::try_libc!(ftruncate64(fd.as_raw_fd(), size as i64))?;
+            }
         }
 
         let address = match unsafe {
@@ -86,20 +85,21 @@ impl Raw {
                 0,
             )
         } {
-            libc::MAP_FAILED => return Err(io::Error::last_os_error()),
+            libc::MAP_FAILED => {
+                return Err(crate::Error::Libc {
+                    name: "mmap64",
+                    source: io::Error::last_os_error(),
+                });
+            }
             address => address,
         };
 
         if let (true, Some(numa)) = (create, numa) {
-            unsafe {
-                Self::mbind(numa, address, size)?;
-            }
+            Self::mbind(numa, address, size)?;
         }
 
         if matches!(populate, Some(Populate::Physical)) {
-            unsafe {
-                Self::madvise(address, size)?;
-            }
+            Self::madvise(address, size)?;
         }
 
         Ok(Self {
@@ -131,20 +131,13 @@ impl Raw {
         }
     }
 
-    pub fn unlink(&mut self) -> io::Result<()> {
-        Self::unlink_inner(&self.name)
-    }
-
-    fn unlink_inner(name: &CStr) -> io::Result<()> {
-        if unsafe { libc::shm_unlink(name.as_ptr()) } == -1 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+    pub fn unlink(&mut self) -> crate::Result<()> {
+        shm_unlink(&self.name)
     }
 
     // https://github.com/numactl/numactl/blob/6c14bd59d438ebb5ef828e393e8563ba18f59cb2/syscall.c#L230-L235
-    pub unsafe fn mbind(numa: Numa, address: *mut ffi::c_void, size: usize) -> io::Result<()> {
+    #[expect(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn mbind(numa: Numa, address: *mut ffi::c_void, size: usize) -> crate::Result<()> {
         let (policy, mask) = match numa {
             Numa::Bind { node } => (libc::MPOL_BIND, 1u64 << node),
             Numa::Interleave { nodes } => (
@@ -156,11 +149,10 @@ impl Raw {
             ),
         };
 
-        match unsafe {
-            libc::syscall(
-                libc::SYS_mbind,
+        unsafe {
+            crate::try_libc!(mbind_syscall(
                 address,
-                size,
+                size as u64,
                 libc::MPOL_F_STATIC_NODES | policy,
                 &mask,
                 64,
@@ -168,18 +160,16 @@ impl Raw {
                 // address range, so disable for now.
                 // https://github.com/torvalds/linux/blob/0c559323bbaabee7346c12e74b497e283aaafef5/include/uapi/linux/mempolicy.h#L48
                 0,
-            )
-        } {
-            0 => Ok(()),
-            _ => Err(io::Error::last_os_error()),
+            ))
         }
+        .map(drop)
     }
 
-    pub unsafe fn madvise(address: *mut ffi::c_void, size: usize) -> io::Result<()> {
-        match unsafe { libc::madvise(address, size, libc::MADV_POPULATE_WRITE) } {
-            -1 => Err(io::Error::last_os_error()),
-            _ => Ok(()),
-        }
+    #[expect(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn madvise(address: *mut ffi::c_void, size: usize) -> crate::Result<()> {
+        use libc::madvise;
+        unsafe { crate::try_libc!(madvise(address, size, libc::MADV_POPULATE_WRITE)) }?;
+        Ok(())
     }
 }
 
@@ -200,4 +190,22 @@ impl Drop for Raw {
             }
         }
     }
+}
+
+fn shm_unlink(name: &CStr) -> crate::Result<()> {
+    use libc::shm_unlink;
+    unsafe { crate::try_libc!(shm_unlink(name.as_ptr())) }?;
+    Ok(())
+}
+
+// https://github.com/numactl/numactl/blob/63e02235bdbcf5aa334903be2111a82b27c8c155/syscall.c#L230
+unsafe fn mbind_syscall(
+    address: *mut ffi::c_void,
+    size: libc::c_ulong,
+    mode: libc::c_int,
+    mask: *const libc::c_ulong,
+    maxnode: libc::c_ulong,
+    flags: libc::c_uint,
+) -> i64 {
+    unsafe { libc::syscall(libc::SYS_mbind, address, size, mode, mask, maxnode, flags) }
 }

@@ -2,7 +2,6 @@ use core::ffi;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
 use std::ffi::CString;
-use std::io;
 
 use allocator_bench::allocator::Config;
 use cxx::SharedPtr;
@@ -53,7 +52,7 @@ impl allocator_bench::allocator::Backend for Backend {
     type Allocator = Boost;
     type Config = ();
 
-    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> io::Result<Self> {
+    fn new(create: bool, config: &Config<Self::Config>, name: &str) -> anyhow::Result<Self> {
         unsafe {
             let shm = shm::Raw::builder()
                 .maybe_numa(config.numa.clone())
@@ -73,8 +72,9 @@ impl allocator_bench::allocator::Backend for Backend {
         }
     }
 
-    fn unlink(mut self) -> io::Result<()> {
-        self.shm.unlink()
+    fn unlink(mut self) -> anyhow::Result<()> {
+        self.shm.unlink()?;
+        Ok(())
     }
 
     fn allocator(&self, _: usize) -> Self::Allocator {
