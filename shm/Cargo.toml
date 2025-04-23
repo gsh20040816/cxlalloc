@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = []
+default = ["backend-shm"]
 serde = ["dep:serde"]
+backend-mmap = []
+backend-shm = []
 
 [dependencies]
 bon.workspace = true

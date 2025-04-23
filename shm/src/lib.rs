@@ -2,14 +2,14 @@ use core::marker::PhantomData;
 use core::mem;
 use std::ffi::CString;
 use std::io;
-use std::os::fd::AsRawFd;
-use std::os::fd::OwnedFd;
 
+mod backend;
 mod barrier;
 mod error;
 mod raw;
 mod reservation;
 
+pub use backend::Backend;
 pub use barrier::Barrier;
 pub use error::Error;
 pub use raw::Raw;
@@ -24,35 +24,6 @@ pub struct Page([u8; 4096]);
 
 impl Page {
     pub const SIZE: usize = mem::size_of::<Self>();
-}
-
-pub struct File {
-    fd: Option<OwnedFd>,
-    offset: i64,
-    create: bool,
-}
-
-impl File {
-    pub(crate) fn new(fd: OwnedFd, offset: i64, create: bool) -> Self {
-        Self {
-            fd: Some(fd),
-            offset,
-            create,
-        }
-    }
-
-    pub(crate) fn flags(&self) -> libc::c_int {
-        match self.fd {
-            Some(_) => libc::MAP_SHARED_VALIDATE,
-            None => libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-        }
-    }
-}
-
-impl AsRawFd for File {
-    fn as_raw_fd(&self) -> std::os::unix::prelude::RawFd {
-        self.fd.as_ref().map(|fd| fd.as_raw_fd()).unwrap_or(-1)
-    }
 }
 
 #[derive(Clone, Debug)]
