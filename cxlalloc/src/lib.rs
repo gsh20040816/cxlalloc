@@ -44,7 +44,7 @@ pub(crate) use slab::Slab;
 pub(crate) const SIZE_CACHE_LINE: usize = 64;
 pub(crate) const SIZE_PAGE: usize = 4096;
 
-pub(crate) const COUNT_THREAD: usize = 96;
+pub(crate) const COUNT_THREAD: usize = 256;
 
 pub(crate) static COUNT_CACHE_SLAB: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static BATCH_GLOBAL_PUSH: AtomicUsize = AtomicUsize::new(1);
