@@ -1,45 +1,52 @@
 use core::ffi;
 use core::ffi::CStr;
 use core::fmt::Display;
-use core::fmt::Write as _;
 use core::num::NonZeroUsize;
-use core::ops::Deref;
 use core::ptr::NonNull;
 use std::io;
+use std::io::Write as _;
 
-use arrayvec::ArrayString;
 pub(crate) use shm::Page;
 pub(crate) type Reservation = shm::Reservation<{ 1 << 40 }>;
 
 use crate::raw::backend::Backend;
 
 #[derive(Clone, Debug)]
-pub(crate) struct Id(ArrayString<{ Self::SIZE }>);
+pub(crate) struct Id {
+    buffer: [u8; Self::SIZE],
+    len: usize,
+}
 
 impl Id {
     pub(crate) const SIZE: usize = 32;
 
     pub(crate) fn new(inner: &str) -> Self {
-        ArrayString::from(inner)
-            .map(Self)
-            .expect("Region identifiers must be less than 32 bytes")
+        let mut buffer = [0u8; Self::SIZE];
+        buffer[0] = b'/';
+        buffer[1..].copy_from_slice(inner.as_bytes());
+        Self {
+            buffer,
+            len: 1 + inner.len(),
+        }
     }
 
     pub(crate) fn with_suffix<T: Display>(&self, suffix: T) -> Self {
-        let mut id = self.clone().0;
-        write!(&mut id, "-{}", suffix).unwrap();
-        Self(id)
+        let mut buffer = self.clone().buffer;
+        let mut cursor = std::io::Cursor::new(&mut buffer[self.len..]);
+        write!(cursor, "-{}", suffix).unwrap();
+        let last = buffer.iter().rposition(|byte| *byte != 0).unwrap();
+        Self {
+            buffer,
+            len: last + 1,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.buffer[..self.len]).unwrap()
     }
 
     fn as_cstr(&self) -> &CStr {
-        CStr::from_bytes_with_nul(self.0.as_bytes()).unwrap()
-    }
-}
-
-impl Deref for Id {
-    type Target = ArrayString<{ Self::SIZE }>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        CStr::from_bytes_until_nul(&self.buffer).unwrap()
     }
 }
 
@@ -99,7 +106,7 @@ impl Region for Fixed {
     }
 
     fn id(&self) -> &str {
-        &self.id.0
+        self.id.as_str()
     }
 
     fn unmap(&self) -> crate::Result<()> {
@@ -166,7 +173,7 @@ impl Region for Sequential {
     }
 
     fn id(&self) -> &str {
-        &self.id.0
+        self.id.as_str()
     }
 
     /// Remove all virtual address space mappings for this region.
@@ -224,7 +231,7 @@ impl Region for Random {
     }
 
     fn id(&self) -> &str {
-        &self.id.0
+        self.id.as_str()
     }
 
     fn unmap(&self) -> crate::Result<()> {
