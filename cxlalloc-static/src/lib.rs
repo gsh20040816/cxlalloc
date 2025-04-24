@@ -45,7 +45,7 @@ impl Backend {
         match name {
             "mmap" => Backend::Mmap,
             "shm" => Backend::Shm,
-            unknown => panic!("Expected one of [mmap, ivshmem, shm], but got {}", unknown),
+            unknown => panic!("Expected one of [mmap, shm], but got {}", unknown),
         }
     }
 
@@ -59,13 +59,7 @@ impl Backend {
 
         match self {
             Backend::Mmap => builder.backend(raw::backend::Mmap).build(),
-
-            #[cfg(feature = "backend-shm")]
             Backend::Shm => builder.backend(raw::backend::Shm).build(),
-            #[cfg(not(feature = "backend-shm"))]
-            Backend::Shm => {
-                panic!("cxlalloc-static crate was compiled without `backend-shm` feature")
-            }
         }
     }
 }
