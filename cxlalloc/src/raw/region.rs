@@ -23,7 +23,7 @@ impl Id {
     pub(crate) fn new(inner: &str) -> Self {
         let mut buffer = [0u8; Self::SIZE];
         buffer[0] = b'/';
-        buffer[1..].copy_from_slice(inner.as_bytes());
+        buffer[1..][..inner.len()].copy_from_slice(inner.as_bytes());
         Self {
             buffer,
             len: 1 + inner.len(),
