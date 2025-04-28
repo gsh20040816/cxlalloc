@@ -180,7 +180,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
                 }
                 ycsb::Operation::Scan => todo!(),
                 ycsb::Operation::Insert => {
-                    let key = runner.next_key_insert(&mut worker.rng);
+                    let key = runner.next_key_insert(&mut worker.rng, 1);
                     insert(config.thread_id, allocator, &global.index, &key);
                     runner.acknowledge(key);
                 }

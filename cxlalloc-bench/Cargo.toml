@@ -73,7 +73,7 @@ serde-inline-default.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 shm.workspace = true
-ycsb.path = "../ycsb"
+ycsb.workspace = true
 
 [build-dependencies]
 bindgen.workspace = true

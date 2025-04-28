@@ -9,7 +9,6 @@ members = [
     "cxlalloc-recover",
     "cxlalloc-static",
     "cxlalloc-test",
-    "ycsb",
 ]
 exclude = ["extern"]
 resolver = "2"
@@ -55,6 +54,7 @@ shm.git = "https://github.com/nwtnni/shm.git"
 spin_sleep = "1.3"
 thiserror = "2.0"
 toml = "0.8"
+ycsb = { git = "https://github.com/nwtnni/ycsb.git", features = ["serde"] }
 
 # https://proptest-rs.github.io/proptest/proptest/tips-and-best-practices.html
 [profile.test.package.proptest]
