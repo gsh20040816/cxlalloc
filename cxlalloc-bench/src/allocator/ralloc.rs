@@ -5,7 +5,7 @@ use std::ffi::CString;
 use std::ffi::OsStr;
 use std::io;
 
-use allocator_bench::allocator::Config;
+use shm_bench::allocator::Config;
 
 #[expect(unused)]
 mod sys {
@@ -16,7 +16,7 @@ pub struct Backend(String);
 
 pub struct Ralloc;
 
-impl allocator_bench::allocator::Backend for Backend {
+impl shm_bench::allocator::Backend for Backend {
     type Allocator = Ralloc;
     type Config = ();
 
@@ -54,7 +54,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 }
 
-impl allocator_bench::Allocator for Ralloc {
+impl shm_bench::Allocator for Ralloc {
     type Handle = NonNull<ffi::c_void>;
 
     #[inline]

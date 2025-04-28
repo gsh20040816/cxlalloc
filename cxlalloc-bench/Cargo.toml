@@ -55,7 +55,7 @@ allocator-lightning = []
 allocator-ralloc = []
 
 [dependencies]
-allocator-bench.path = "../allocator-bench"
+shm-bench.workspace = true
 anyhow.workspace = true
 bon.workspace = true
 cartesian.workspace = true

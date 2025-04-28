@@ -4,7 +4,7 @@ use core::ptr::NonNull;
 use std::ffi::OsStr;
 use std::io;
 
-use allocator_bench::allocator;
+use shm_bench::allocator;
 use bon::Builder;
 use clap::Parser;
 use serde::Deserialize;
@@ -21,7 +21,7 @@ pub struct Config {
     batch_bump: usize,
 }
 
-impl allocator_bench::allocator::Backend for Backend {
+impl shm_bench::allocator::Backend for Backend {
     type Allocator = Cxlalloc;
     type Config = Config;
 
@@ -70,7 +70,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 }
 
-impl allocator_bench::Allocator for Cxlalloc {
+impl shm_bench::Allocator for Cxlalloc {
     type Handle = NonNull<ffi::c_void>;
 
     #[inline]

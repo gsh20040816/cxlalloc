@@ -253,8 +253,8 @@ impl Benchmark {
             Benchmark::KeyValue(key_value) => key_value.for_each_cartesian(config, apply),
             Benchmark::Mstress => apply(
                 config
-                    .benchmark(allocator_bench::benchmark::Config::Mstress(
-                        allocator_bench::benchmark::Mstress::builder().build(),
+                    .benchmark(shm_bench::benchmark::Config::Mstress(
+                        shm_bench::benchmark::Mstress::builder().build(),
                     ))
                     .build(),
             ),
@@ -267,8 +267,8 @@ impl Benchmark {
                 .map(|(&limit, &batch_count, &operation_count, &huge)| {
                     config
                         .clone()
-                        .benchmark(allocator_bench::benchmark::Config::Xmalloc(
-                            allocator_bench::benchmark::Xmalloc::builder()
+                        .benchmark(shm_bench::benchmark::Config::Xmalloc(
+                            shm_bench::benchmark::Xmalloc::builder()
                                 .limit(limit)
                                 .batch_count(batch_count)
                                 .operation_count(operation_count)
@@ -286,8 +286,8 @@ impl Benchmark {
                 .map(|(iteration_count, operation_count, object_size)| {
                     config
                         .clone()
-                        .benchmark(allocator_bench::benchmark::Config::ThreadTest(
-                            allocator_bench::benchmark::ThreadTest::builder()
+                        .benchmark(shm_bench::benchmark::Config::ThreadTest(
+                            shm_bench::benchmark::ThreadTest::builder()
                                 .iteration_count(*iteration_count)
                                 .operation_count(*operation_count)
                                 .object_size(*object_size)
@@ -312,8 +312,8 @@ impl KeyValue {
                         .map(|(operation_count, trace)| {
                             config
                                 .clone()
-                                .benchmark(allocator_bench::benchmark::Config::Memcached(
-                                    allocator_bench::benchmark::memcached::Config::builder()
+                                .benchmark(shm_bench::benchmark::Config::Memcached(
+                                    shm_bench::benchmark::memcached::Config::builder()
                                         .index(index.clone())
                                         .operation_count(*operation_count)
                                         .trace(trace.clone())
@@ -355,7 +355,7 @@ impl Experiment {
                 }
             })
             .map(|(process_count, thread_count)| {
-                cxlalloc_bench::Config::builder().global(allocator_bench::config::Global::new(
+                cxlalloc_bench::Config::builder().global(shm_bench::config::Global::new(
                     *process_count,
                     *thread_count,
                 ))
@@ -417,7 +417,7 @@ impl Ycsb {
     fn for_each_cartesian<F: FnMut(cxlalloc_bench::Config)>(
         &self,
         config: Partial,
-        index: allocator_bench::index::Config,
+        index: shm_bench::index::Config,
         mut apply: F,
     ) {
         cartesian!(&self.record_count, &self.operation_count, &self.mix)
@@ -427,10 +427,10 @@ impl Ycsb {
                     .operation_count(*operation_count);
 
                 let config =
-                    allocator_bench::benchmark::ycsb_run::Config::builder().index(index.clone());
+                    shm_bench::benchmark::ycsb_run::Config::builder().index(index.clone());
 
                 match workload {
-                    Workload::Load => allocator_bench::benchmark::Config::YcsbLoad(
+                    Workload::Load => shm_bench::benchmark::Config::YcsbLoad(
                         config
                             .workload(partial.read_proportion(0.0).insert_proportion(1.0).build())
                             .build(),
@@ -440,7 +440,7 @@ impl Ycsb {
                         read,
                         delete,
                         distribution,
-                    }) => allocator_bench::benchmark::Config::YcsbRun(
+                    }) => shm_bench::benchmark::Config::YcsbRun(
                         config
                             .workload(
                                 partial

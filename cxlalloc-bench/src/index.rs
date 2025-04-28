@@ -35,13 +35,13 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn for_each_cartesian<F: FnMut(allocator_bench::index::Config)>(
+    pub fn for_each_cartesian<F: FnMut(shm_bench::index::Config)>(
         &self,
         index: Index,
         mut apply: F,
     ) {
         cartesian!(&self.len, &self.populate).for_each(|(len, populate)| {
-            let config = allocator_bench::index::Config::builder()
+            let config = shm_bench::index::Config::builder()
                 .name(index.to_string())
                 .len(*len)
                 .maybe_populate(populate.0)

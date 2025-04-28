@@ -56,29 +56,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "allocator-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow-array",
- "bon",
- "core_affinity",
- "crossbeam-channel 0.5.14",
- "hdrhistogram",
- "libc",
- "log",
- "parquet",
- "rand 0.9.0",
- "rapidhash",
- "serde",
- "serde_json",
- "shm",
- "spin_sleep",
- "toml",
- "ycsb",
-]
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -724,7 +701,6 @@ dependencies = [
 name = "cxlalloc-bench"
 version = "0.1.0"
 dependencies = [
- "allocator-bench",
  "anyhow",
  "bindgen",
  "bon",
@@ -742,6 +718,7 @@ dependencies = [
  "serde-inline-default",
  "serde_json",
  "shm",
+ "shm-bench",
  "toml",
  "ycsb",
 ]
@@ -1997,6 +1974,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "shm-bench"
+version = "0.1.0"
+source = "git+https://github.com/nwtnni/shm-bench.git#bba744c86f1996dfc4ebcad59f04891a3a168c41"
+dependencies = [
+ "anyhow",
+ "arrow-array",
+ "bon",
+ "core_affinity",
+ "crossbeam-channel 0.5.14",
+ "hdrhistogram",
+ "libc",
+ "log",
+ "parquet",
+ "rand 0.9.0",
+ "rapidhash",
+ "serde",
+ "serde_json",
+ "shm",
+ "ycsb",
+]
+
+[[package]]
 name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2007,15 +2006,6 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
-
-[[package]]
-name = "spin_sleep"
-version = "1.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17db5ecef7e0bebeb8bf8bc4c4b554e05e0205d7008f10bb37787892e7a6507b"
-dependencies = [
- "windows-sys 0.59.0",
-]
 
 [[package]]
 name = "static_assertions"

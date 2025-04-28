@@ -13,8 +13,8 @@ pub mod mimalloc;
 #[cfg(feature = "allocator-ralloc")]
 pub mod ralloc;
 
-use allocator_bench::allocator::Coherence;
-use allocator_bench::allocator::Consistency;
+use shm_bench::allocator::Coherence;
+use shm_bench::allocator::Consistency;
 use cartesian::cartesian;
 use serde::Deserialize;
 use serde::Serialize;
@@ -96,7 +96,7 @@ impl Default for MimallocCartesian {
 }
 
 impl Allocator {
-    pub fn for_each_cartesian<F: FnMut(allocator_bench::allocator::Config<serde_json::Value>)>(
+    pub fn for_each_cartesian<F: FnMut(shm_bench::allocator::Config<serde_json::Value>)>(
         &self,
         partial: Partial,
         mut apply: F,
@@ -201,13 +201,13 @@ const COHERENCE: Coherence = if cfg!(feature = "cxl-limited") {
     Coherence::None
 };
 
-type Partial = allocator_bench::allocator::ConfigBuilder<
+type Partial = shm_bench::allocator::ConfigBuilder<
     serde_json::Value,
-    allocator_bench::allocator::config::SetCoherence<
-        allocator_bench::allocator::config::SetConsistency<
-            allocator_bench::allocator::config::SetPopulate<
-                allocator_bench::allocator::config::SetSize<
-                    allocator_bench::allocator::config::SetNuma,
+    shm_bench::allocator::config::SetCoherence<
+        shm_bench::allocator::config::SetConsistency<
+            shm_bench::allocator::config::SetPopulate<
+                shm_bench::allocator::config::SetSize<
+                    shm_bench::allocator::config::SetNuma,
                 >,
             >,
         >,
@@ -217,7 +217,7 @@ type Partial = allocator_bench::allocator::ConfigBuilder<
 impl Config {
     pub fn for_each_cartesian<F: FnMut(Partial)>(&self, mut apply: F) {
         cartesian!(&self.numa, &self.size, &self.populate).for_each(|(numa, size, populate)| {
-            let config = allocator_bench::allocator::Config::builder()
+            let config = shm_bench::allocator::Config::builder()
                 .maybe_numa(numa.0.clone())
                 .size(*size)
                 .maybe_populate(populate.0)

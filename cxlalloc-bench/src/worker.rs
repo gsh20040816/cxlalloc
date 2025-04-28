@@ -1,8 +1,8 @@
 use core::sync::atomic::Ordering;
 use std::time::SystemTime;
 
-use allocator_bench::benchmark;
-use allocator_bench::index;
+use shm_bench::benchmark;
+use shm_bench::index;
 use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
@@ -10,9 +10,9 @@ use serde::Serialize;
 #[derive(Builder, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub date: u128,
-    pub process: allocator_bench::config::Process,
-    pub allocator: allocator_bench::allocator::Config<serde_json::Value>,
-    pub benchmark: allocator_bench::benchmark::Config,
+    pub process: shm_bench::config::Process,
+    pub allocator: shm_bench::allocator::Config<serde_json::Value>,
+    pub benchmark: shm_bench::benchmark::Config,
 }
 
 impl Config {
@@ -23,16 +23,16 @@ impl Config {
 
                 use env_logger::fmt::style;
 
-                let process_id = allocator_bench::PROCESS_ID.load(Ordering::Relaxed);
+                let process_id = shm_bench::PROCESS_ID.load(Ordering::Relaxed);
                 let style_process = style::Ansi256Color::from(process_id as u8 + 1).on_default();
 
                 // Color-code process ID if there is more than one process
-                if allocator_bench::PROCESS_COUNT.load(Ordering::Relaxed) > 1 {
+                if shm_bench::PROCESS_COUNT.load(Ordering::Relaxed) > 1 {
                     write!(buffer, "[{style_process}P{process_id:02}{style_process:#}]")?;
                 }
 
                 // Color-code thread ID
-                match allocator_bench::THREAD_ID.get() {
+                match shm_bench::THREAD_ID.get() {
                     None => {
                         write!(buffer, "[{style_process}C{process_id:02}{style_process:#}]")?;
                     }
@@ -87,12 +87,12 @@ impl Config {
         }
     }
 
-    fn specialize_benchmark<B: allocator_bench::allocator::Backend>(&self) {
+    fn specialize_benchmark<B: shm_bench::allocator::Backend>(&self) {
         // FIXME: figure out how to conditionally specialize index
         match self.benchmark.clone() {
             benchmark::Config::Memcached(memcached) => {
                 assert_eq!(memcached.index.name, "linked");
-                self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
+                self.run_benchmark::<B, _>(shm_bench::index::Capture::<
                     _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(memcached))
@@ -101,25 +101,25 @@ impl Config {
             benchmark::Config::ThreadTest(thread_test) => self.run_benchmark::<B, _>(thread_test),
             benchmark::Config::YcsbRun(ycsb) => {
                 assert_eq!(ycsb.index.name, "linked");
-                self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
+                self.run_benchmark::<B, _>(shm_bench::index::Capture::<
                     _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(ycsb))
             }
             benchmark::Config::YcsbLoad(ycsb) => {
                 assert_eq!(ycsb.index.name, "linked");
-                self.run_benchmark::<B, _>(allocator_bench::index::Capture::<
+                self.run_benchmark::<B, _>(shm_bench::index::Capture::<
                     _,
                     index::LinkedHashMap<B::Allocator>,
                 >::new(
-                    allocator_bench::benchmark::ycsb_load::Config(ycsb)
+                    shm_bench::benchmark::ycsb_load::Config(ycsb)
                 ))
             }
             benchmark::Config::Xmalloc(xmalloc) => self.run_benchmark::<B, _>(xmalloc),
         }
     }
 
-    fn run_benchmark<A: allocator_bench::allocator::Backend, B: benchmark::Benchmark<A>>(
+    fn run_benchmark<A: shm_bench::allocator::Backend, B: benchmark::Benchmark<A>>(
         &self,
         benchmark: B,
     ) {
@@ -128,7 +128,7 @@ impl Config {
             &self.process,
             &self.allocator.map(|value| {
                 serde_json::from_value(match value {
-                    // The `flatten` attribute on `allocator_bench::allocator::Config`
+                    // The `flatten` attribute on `shm_bench::allocator::Config`
                     // causes us to parse `null` as an empty object, but we need null.
                     serde_json::Value::Object(object)
                         if std::any::type_name::<A::Config>() == "()" && object.is_empty() =>

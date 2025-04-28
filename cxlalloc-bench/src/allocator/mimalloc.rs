@@ -40,13 +40,13 @@ impl Default for Config {
     }
 }
 
-impl allocator_bench::allocator::Backend for Backend {
+impl shm_bench::allocator::Backend for Backend {
     type Allocator = Mimalloc;
     type Config = Config;
 
     fn new(
         create: bool,
-        config: &allocator_bench::allocator::Config<Self::Config>,
+        config: &shm_bench::allocator::Config<Self::Config>,
         name: &str,
     ) -> anyhow::Result<Self> {
         if !config.inner.shm {
@@ -120,7 +120,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 }
 
-impl allocator_bench::Allocator for Mimalloc {
+impl shm_bench::Allocator for Mimalloc {
     type Handle = NonNull<ffi::c_void>;
 
     #[inline]

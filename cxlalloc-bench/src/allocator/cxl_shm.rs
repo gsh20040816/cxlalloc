@@ -5,7 +5,7 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::ptr::NonNull;
 
-use allocator_bench::allocator::Config;
+use shm_bench::allocator::Config;
 use sys::cxl_shm_cxl_shm2;
 use sys::cxl_shm_thread_init;
 use sys::CXLRef_s_get_addr;
@@ -21,7 +21,7 @@ unsafe impl Sync for Backend {}
 
 pub struct CxlShm(sys::cxl_shm);
 
-impl allocator_bench::allocator::Backend for Backend {
+impl shm_bench::allocator::Backend for Backend {
     type Allocator = CxlShm;
     type Config = ();
 
@@ -55,7 +55,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 }
 
-impl allocator_bench::Allocator for CxlShm {
+impl shm_bench::Allocator for CxlShm {
     type Handle = sys::CXLRef;
 
     #[inline]
@@ -104,7 +104,7 @@ impl allocator_bench::Allocator for CxlShm {
     }
 }
 
-impl allocator_bench::allocator::Handle for sys::CXLRef {
+impl shm_bench::allocator::Handle for sys::CXLRef {
     fn as_ptr(&self) -> *mut ffi::c_void {
         unsafe { CXLRef_s_get_addr(self as *const _ as *mut _) }
     }

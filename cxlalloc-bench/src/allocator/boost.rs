@@ -2,7 +2,7 @@ use core::ffi;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
 
-use allocator_bench::allocator::Config;
+use shm_bench::allocator::Config;
 use cxx::SharedPtr;
 
 #[cxx::bridge]
@@ -47,7 +47,7 @@ pub struct Boost(SharedPtr<sys::ManagedExternalBuffer>);
 
 unsafe impl Sync for Backend {}
 
-impl allocator_bench::allocator::Backend for Backend {
+impl shm_bench::allocator::Backend for Backend {
     type Allocator = Boost;
     type Config = ();
 
@@ -81,7 +81,7 @@ impl allocator_bench::allocator::Backend for Backend {
     }
 }
 
-impl allocator_bench::Allocator for Boost {
+impl shm_bench::Allocator for Boost {
     type Handle = NonNull<ffi::c_void>;
 
     #[inline]

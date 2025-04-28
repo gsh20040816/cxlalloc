@@ -20,9 +20,9 @@ use serde::Serialize;
 pub struct Config {
     #[builder(default = date())]
     date: u128,
-    pub global: allocator_bench::config::Global,
-    allocator: allocator_bench::allocator::Config<serde_json::Value>,
-    benchmark: allocator_bench::benchmark::Config,
+    pub global: shm_bench::config::Global,
+    allocator: shm_bench::allocator::Config<serde_json::Value>,
+    benchmark: shm_bench::benchmark::Config,
 }
 
 impl Config {
@@ -41,18 +41,18 @@ impl Config {
         }
 
         match &self.benchmark {
-            allocator_bench::benchmark::Config::Mstress(_)
-            | allocator_bench::benchmark::Config::YcsbRun(_)
-            | allocator_bench::benchmark::Config::YcsbLoad(_) => false,
+            shm_bench::benchmark::Config::Mstress(_)
+            | shm_bench::benchmark::Config::YcsbRun(_)
+            | shm_bench::benchmark::Config::YcsbLoad(_) => false,
 
-            allocator_bench::benchmark::Config::ThreadTest(config) => {
+            shm_bench::benchmark::Config::ThreadTest(config) => {
                 (config.object_size > 16384 && self.allocator.name == "ralloc")
                     || (config.object_size > 1000 && self.allocator.name == "cxl_shm")
             }
 
-            allocator_bench::benchmark::Config::Xmalloc(_) => self.global.thread_count & 1 != 0,
+            shm_bench::benchmark::Config::Xmalloc(_) => self.global.thread_count & 1 != 0,
 
-            allocator_bench::benchmark::Config::Memcached(config) => {
+            shm_bench::benchmark::Config::Memcached(config) => {
                 self.allocator.name == "cxl_shm"
                     && (config.trace.to_string_lossy().contains("cluster12")
                         || config.trace.to_string_lossy().contains("cluster37"))

@@ -6,7 +6,7 @@ use core::ptr::NonNull;
 use std::ffi::OsStr;
 use std::sync::Arc;
 
-use allocator_bench::allocator::Config;
+use shm_bench::allocator::Config;
 use sys::LightningAllocator_Free;
 use sys::LightningAllocator_Initialize;
 use sys::LightningAllocator_Malloc;
@@ -35,7 +35,7 @@ pub struct Lightning {
 unsafe impl Send for sys::LightningAllocator {}
 unsafe impl Sync for sys::LightningAllocator {}
 
-impl allocator_bench::allocator::Backend for Backend {
+impl shm_bench::allocator::Backend for Backend {
     type Allocator = Lightning;
     type Config = ();
 
@@ -96,7 +96,7 @@ impl Lightning {
     }
 }
 
-impl allocator_bench::Allocator for Lightning {
+impl shm_bench::Allocator for Lightning {
     type Handle = NonNull<ffi::c_void>;
 
     #[inline]
