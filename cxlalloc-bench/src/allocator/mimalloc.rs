@@ -118,6 +118,13 @@ impl shm_bench::allocator::Backend for Backend {
         std::mem::forget(self.raw);
         Ok(())
     }
+
+    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
+        match &self.raw {
+            Some(shm) => mapping.start == shm.address().as_ptr().addr(),
+            None => false,
+        }
+    }
 }
 
 impl shm_bench::Allocator for Mimalloc {

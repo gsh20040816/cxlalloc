@@ -4,6 +4,7 @@ use core::ptr::NonNull;
 use std::ffi::CString;
 use std::ffi::OsStr;
 use std::io;
+use std::path::Path;
 
 use shm_bench::allocator::Config;
 
@@ -51,6 +52,15 @@ impl shm_bench::allocator::Backend for Backend {
     fn unlink(self) -> anyhow::Result<()> {
         unlink(&self.0)?;
         Ok(())
+    }
+
+    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
+        mapping.path.as_ref().is_some_and(|path| {
+            Path::new(&path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&self.0))
+        })
     }
 }
 

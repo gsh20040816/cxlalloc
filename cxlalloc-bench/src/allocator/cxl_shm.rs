@@ -37,6 +37,10 @@ impl shm_bench::allocator::Backend for Backend {
             .map_err(anyhow::Error::from)
     }
 
+    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
+        mapping.start == self.0.address().as_ptr().addr()
+    }
+
     fn unlink(mut self) -> anyhow::Result<()> {
         self.0.unlink().map_err(anyhow::Error::from)
     }

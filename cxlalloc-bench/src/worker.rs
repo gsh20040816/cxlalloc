@@ -1,11 +1,11 @@
 use core::sync::atomic::Ordering;
 use std::time::SystemTime;
 
-use shm_bench::benchmark;
-use shm_bench::index;
 use bon::Builder;
 use serde::Deserialize;
 use serde::Serialize;
+use shm_bench::benchmark;
+use shm_bench::index;
 
 #[derive(Builder, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -16,7 +16,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn run(self) {
+    pub fn run(self) -> anyhow::Result<()> {
         let _ = env_logger::Builder::from_default_env()
             .format(move |buffer, record| {
                 use std::io::Write;
@@ -69,7 +69,7 @@ impl Config {
         self.specialize_allocator()
     }
 
-    fn specialize_allocator(&self) {
+    fn specialize_allocator(&self) -> anyhow::Result<()> {
         match self.allocator.name.as_str() {
             #[cfg(feature = "allocator-boost")]
             "boost" => self.specialize_benchmark::<crate::allocator::boost::Backend>(),
@@ -87,7 +87,7 @@ impl Config {
         }
     }
 
-    fn specialize_benchmark<B: shm_bench::allocator::Backend>(&self) {
+    fn specialize_benchmark<B: shm_bench::allocator::Backend>(&self) -> anyhow::Result<()> {
         // FIXME: figure out how to conditionally specialize index
         match self.benchmark.clone() {
             benchmark::Config::Memcached(memcached) => {
@@ -122,8 +122,9 @@ impl Config {
     fn run_benchmark<A: shm_bench::allocator::Backend, B: benchmark::Benchmark<A>>(
         &self,
         benchmark: B,
-    ) {
-        benchmark.run_process(
+    ) -> anyhow::Result<()> {
+        shm_bench::benchmark::run(
+            &benchmark,
             self.date,
             &self.process,
             &self.allocator.map(|value| {

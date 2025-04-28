@@ -88,6 +88,10 @@ impl shm_bench::allocator::Backend for Backend {
 
         Ok(())
     }
+
+    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
+        mapping.start == self.shm.address().as_ptr().addr()
+    }
 }
 
 impl Lightning {

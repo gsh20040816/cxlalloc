@@ -2,8 +2,8 @@ use core::ffi;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
 
-use shm_bench::allocator::Config;
 use cxx::SharedPtr;
+use shm_bench::allocator::Config;
 
 #[cxx::bridge]
 mod sys {
@@ -69,6 +69,10 @@ impl shm_bench::allocator::Backend for Backend {
 
             Ok(Self { shm, inner })
         }
+    }
+
+    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
+        mapping.start == self.shm.address().as_ptr().addr()
     }
 
     fn unlink(mut self) -> anyhow::Result<()> {
