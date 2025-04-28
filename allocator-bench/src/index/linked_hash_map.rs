@@ -35,7 +35,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
     ) -> anyhow::Result<Self> {
         let ebr = shm::Shm::builder()
             .maybe_numa(numa.clone())
-            .name(c"/ebr".to_owned())
+            .name("ebr".to_owned())
             .create(create)
             .maybe_populate(populate)
             .build()?;
@@ -51,7 +51,7 @@ impl<A: Allocator> Index<A> for LinkedHashMap<A> {
             ebr,
             raw: shm::Raw::builder()
                 .maybe_numa(numa)
-                .name(c"/index".to_owned())
+                .name("index".to_owned())
                 .size(len * 8)
                 .create(create)
                 .maybe_populate(populate)

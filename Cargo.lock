@@ -386,9 +386,9 @@ dependencies = [
 
 [[package]]
 name = "bon"
-version = "3.3.2"
+version = "3.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe7acc34ff59877422326db7d6f2d845a582b16396b6b08194942bf34c6528ab"
+checksum = "ced38439e7a86a4761f7f7d5ded5ff009135939ecb464a24452eaa4c1696af7d"
 dependencies = [
  "bon-macros",
  "rustversion",
@@ -396,9 +396,9 @@ dependencies = [
 
 [[package]]
 name = "bon-macros"
-version = "3.3.2"
+version = "3.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4159dd617a7fbc9be6a692fe69dc2954f8e6bb6bb5e4d7578467441390d77fd0"
+checksum = "0ce61d2d3844c6b8d31b2353d9f66cf5e632b3e9549583fe3cac2f4f6136725e"
 dependencies = [
  "darling",
  "ident_case",
@@ -1988,6 +1988,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm"
 version = "0.1.0"
+source = "git+https://github.com/nwtnni/shm.git#142e4da23e0ae2fbc28ff71ef4df6bc37c81824e"
 dependencies = [
  "bon",
  "libc",

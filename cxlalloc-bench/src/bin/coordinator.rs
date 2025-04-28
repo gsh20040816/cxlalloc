@@ -9,13 +9,13 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize barrier for processes to synchronize on
     Barrier::builder()
-        .name(c"/barrier-process".to_owned())
+        .name("barrier-process".to_owned())
         .create(true)
         .thread_count(u32::try_from(config.global.process_count).unwrap())
         .build()?;
 
     Barrier::builder()
-        .name(c"/barrier-thread".to_owned())
+        .name("barrier-thread".to_owned())
         .create(true)
         .thread_count(
             // Account for one coordinator thread per process

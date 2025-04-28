@@ -108,14 +108,14 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
 
         // External coordinator must bootstrap barrier synchronization
         let mut barrier_process = shm::Barrier::builder()
-            .name(c"/barrier-process".to_owned())
+            .name("barrier-process".to_owned())
             .create(false)
             .thread_count(config.process_count as u32)
             .build()
             .unwrap();
 
         let mut barrier_thread = shm::Barrier::builder()
-            .name(c"/barrier-thread".to_owned())
+            .name("barrier-thread".to_owned())
             .create(false)
             .thread_count(thread_count as u32)
             .build()
@@ -222,9 +222,7 @@ pub trait Benchmark<B: Backend>: Sync + Serialize {
                 r#global: config.global,
                 allocator: serde_json::to_value(allocator).unwrap(),
                 benchmark: serde_json::to_value(Named {
-                    // HACK: shouldn't hard-code / in benchmark names,
-                    // which is an allocator/shm implementation detail
-                    name: Self::NAME.trim_start_matches("/"),
+                    name: Self::NAME,
                     inner: self,
                 })
                 .unwrap(),

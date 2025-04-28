@@ -3,7 +3,6 @@ use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
-use std::ffi::CString;
 use std::ptr::NonNull;
 
 use allocator_bench::allocator::Config;
@@ -29,7 +28,7 @@ impl allocator_bench::allocator::Backend for Backend {
     fn new(create: bool, config: &Config<Self::Config>, name: &str) -> anyhow::Result<Self> {
         shm::Raw::builder()
             .maybe_numa(config.numa.clone())
-            .name(CString::new(name).unwrap())
+            .name(name.to_owned())
             .size(config.size)
             .create(create)
             .maybe_populate(config.populate)

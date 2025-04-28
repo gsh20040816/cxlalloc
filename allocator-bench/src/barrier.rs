@@ -1,4 +1,3 @@
-use core::ffi::CStr;
 use core::hint;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
@@ -13,7 +12,7 @@ pub struct Barrier {
 unsafe impl Sync for Barrier {}
 
 impl Barrier {
-    const PATH: &CStr = c"/barrier";
+    const PATH: &str = "barrier";
 
     pub fn new(create: bool, total: u64) -> shm::Result<Self> {
         Shm::builder()

@@ -1,7 +1,6 @@
 use core::ffi;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
-use std::ffi::CString;
 
 use allocator_bench::allocator::Config;
 use cxx::SharedPtr;
@@ -56,7 +55,7 @@ impl allocator_bench::allocator::Backend for Backend {
         unsafe {
             let shm = shm::Raw::builder()
                 .maybe_numa(config.numa.clone())
-                .name(CString::new(name).unwrap())
+                .name(name.to_owned())
                 .size(config.size)
                 .maybe_populate(config.populate)
                 .build()?;

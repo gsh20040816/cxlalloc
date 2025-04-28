@@ -2,7 +2,6 @@ use core::ffi;
 use core::mem::MaybeUninit;
 use core::num::NonZeroU64;
 use core::ptr::NonNull;
-use std::ffi::CString;
 
 use bon::Builder;
 use serde::Deserialize;
@@ -59,7 +58,7 @@ impl allocator_bench::allocator::Backend for Backend {
 
         let raw = shm::Raw::builder()
             .maybe_numa(config.numa.clone())
-            .name(CString::new(name).unwrap())
+            .name(name.to_owned())
             .size(config.size)
             .create(create)
             .maybe_populate(config.populate)

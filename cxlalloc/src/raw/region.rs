@@ -1,5 +1,4 @@
 use core::ffi;
-use core::ffi::CStr;
 use core::fmt::Display;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
@@ -22,11 +21,10 @@ impl Id {
 
     pub(crate) fn new(inner: &str) -> Self {
         let mut buffer = [0u8; Self::SIZE];
-        buffer[0] = b'/';
-        buffer[1..][..inner.len()].copy_from_slice(inner.as_bytes());
+        buffer[0..][..inner.len()].copy_from_slice(inner.as_bytes());
         Self {
             buffer,
-            len: 1 + inner.len(),
+            len: inner.len(),
         }
     }
 
@@ -43,10 +41,6 @@ impl Id {
 
     fn as_str(&self) -> &str {
         std::str::from_utf8(&self.buffer[..self.len]).unwrap()
-    }
-
-    fn as_cstr(&self) -> &CStr {
-        CStr::from_bytes_until_nul(&self.buffer).unwrap()
     }
 }
 
@@ -79,7 +73,7 @@ pub(crate) struct Random {
 impl Fixed {
     pub(super) fn new(backend: &Backend, id: Id, size: NonZeroUsize) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
-        let file = backend.open(id.as_cstr(), size)?;
+        let file = backend.open(id.as_str(), size)?;
         let create = file.is_create();
         let address = unsafe {
             file.map()
@@ -126,7 +120,7 @@ impl Sequential {
         let create = match lazy {
             true => false,
             false => {
-                let file = backend.open(id.with_suffix(0).as_cstr(), size)?;
+                let file = backend.open(id.with_suffix(0).as_str(), size)?;
                 let create = file.is_create();
                 unsafe {
                     file.map()
@@ -151,7 +145,7 @@ impl Sequential {
         let index = offset / self.size.get();
         unsafe {
             backend
-                .open(self.id.with_suffix(index).as_cstr(), self.size)?
+                .open(self.id.with_suffix(index).as_str(), self.size)?
                 .map()
                 .address(self.reservation.start().byte_add(self.size.get() * index))
                 .maybe_numa(backend.numa().cloned())
@@ -201,7 +195,7 @@ impl Random {
         unsafe {
             backend
                 .open(
-                    self.id.with_suffix(format_args!("{:#x}", offset)).as_cstr(),
+                    self.id.with_suffix(format_args!("{:#x}", offset)).as_str(),
                     size,
                 )?
                 .map()
@@ -217,7 +211,7 @@ impl Random {
     pub(crate) fn unmap(&self, backend: &Backend, offset: usize, size: NonZeroUsize) {
         let id = self.id.with_suffix(format_args!("{:#x}", offset));
         let _ = unsafe { munmap(self.address().byte_add(offset), size) };
-        let _ = backend.unlink(id.as_cstr());
+        let _ = backend.unlink(id.as_str());
     }
 }
 

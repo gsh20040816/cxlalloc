@@ -77,7 +77,7 @@ impl<B: Backend, I: Index<B::Allocator>> benchmark::Benchmark<B> for index::Capt
             )
             .unwrap(),
             acked: Shm::builder()
-                .name(c"/acked".to_owned())
+                .name("acked".to_owned())
                 .create(config.is_leader())
                 .populate(shm::Populate::Physical)
                 .build()
