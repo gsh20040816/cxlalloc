@@ -8,6 +8,8 @@
 *.log
 *.txt
 *.csv
+*.parquet
+*.pdf
 
 **/target
 **/__pycache__
