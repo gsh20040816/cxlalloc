@@ -17,15 +17,16 @@ THREAD_COUNT = "Thread Count"
 PROCESS_COUNT = "Process Count"
 WORKLOAD = "workload"
 THROUGHPUT = "Throughput (ops/sec)"
-MAX_RSS = "Max RSS (GiB)"
+MAX_RSS = "Avg. Max RSS (GiB)"
 METRICS = [THROUGHPUT, MAX_RSS]
 
 
 class Allocator(enum.StrEnum):
     SHMALLOC = "shmalloc"
     SHMALLOC_CXL = "shmalloc-cxl"
-    SHMALLOC_SFENCE = "shmalloc-sfence"
-    SHMALLOC_CLFLUSHOPT = "shmalloc-clflushopt"
+    SHMALLOC_SFENCE = "shmalloc-hwcc-gpf"
+    SHMALLOC_CLFLUSHOPT = "shmalloc-hwcc"
+    SHMALLOC_FLUSH_CAS = "shmalloc-flush-cas"
     MIMALLOC = "mimalloc"
     RALLOC = "ralloc"
     CXL_SHM = "cxl-shm"
@@ -35,6 +36,7 @@ class Allocator(enum.StrEnum):
 
 _NAME = pl.col("allocator").struct["name"]
 ALLOCATORS = {
+    Allocator.SHMALLOC_FLUSH_CAS: _NAME == "cxlalloc-flush-cas",
     Allocator.SHMALLOC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 0),
@@ -96,8 +98,8 @@ WORKLOADS = {
     Workload.THREADTEST_HUGE: (_NAME == "tt")
     & (pl.col("benchmark").struct["object_size"] == 1 << 30),
     # xmalloc
-    Workload.XMALLOC_SMALL: (_NAME == "xm")
-    & (pl.col("benchmark").struct["batch_count"] == 120),
+    Workload.XMALLOC_SMALL: (_NAME == "xm"),
+    # & (pl.col("benchmark").struct["batch_count"] == 120),
     Workload.XMALLOC_HUGE: (_NAME == "xm") & (pl.col("benchmark").struct["huge"]),
 }
 
@@ -132,6 +134,7 @@ COLORS = {
     Allocator.SHMALLOC_CXL: "black",
     Allocator.SHMALLOC_SFENCE: "black",
     Allocator.SHMALLOC_CLFLUSHOPT: "black",
+    Allocator.SHMALLOC_FLUSH_CAS: "black",
     Allocator.MIMALLOC: SCHEME[0],
     Allocator.RALLOC: SCHEME[1],
     Allocator.CXL_SHM: SCHEME[2],
@@ -145,6 +148,7 @@ DASHES = {
     Allocator.SHMALLOC_CXL: "solid",
     Allocator.SHMALLOC_SFENCE: "solid",
     Allocator.SHMALLOC_CLFLUSHOPT: "solid",
+    Allocator.SHMALLOC_FLUSH_CAS: "solid",
     Allocator.MIMALLOC: "solid",
     Allocator.RALLOC: "solid",
     Allocator.CXL_SHM: "solid",
@@ -162,6 +166,7 @@ SYMBOLS = {
     Allocator.SHMALLOC_CXL: "square",
     Allocator.SHMALLOC_SFENCE: "diamond",
     Allocator.SHMALLOC_CLFLUSHOPT: "cross",
+    Allocator.SHMALLOC_FLUSH_CAS: "x",
 }
 
 
@@ -281,7 +286,7 @@ def collapse(
             .struct["process"]
             .struct["resource_usage"]
             .struct["max_rss"]
-            .sum()
+            .mean()
             .truediv(2**30)
             .alias(MAX_RSS),
             *agg,

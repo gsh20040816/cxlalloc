@@ -35,7 +35,7 @@ def main():
     )
 
     integral = (
-        df.group_by("name")
+        df.group_by("name", "thread")
         .agg(
             pl.col("ts") // RESOLUTION_TIME_MICRO,
             pl.col("size").cum_sum() // RESOLUTION_SPACE,
@@ -45,7 +45,9 @@ def main():
         .collect()
     )
 
-    fig = px.line(integral, x="ts", y="size", color="name", facet_row="name")
+    fig = px.line(
+        integral, x="ts", y="size", color="name", facet_row="name", facet_col="thread"
+    )
     fig.show()
     fig.write_html("trace-integral.html", include_plotlyjs="cdn", include_mathjax=False)
 

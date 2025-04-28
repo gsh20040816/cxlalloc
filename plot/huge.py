@@ -32,7 +32,7 @@ def main():
                 trace = go.Scatter(
                     x=data[THREAD_COUNT],
                     y=data[metric],
-                    error_y=dict(array=data[metric + "_std"], color="red"),
+                    error_y=dict(array=data[metric + "_std"]),
                     line=dict(color="black"),
                     marker=dict(
                         symbol={

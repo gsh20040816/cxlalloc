@@ -8,7 +8,12 @@ import polars as pl
 from polars import selectors as cs
 
 
-DF = pl.read_ndjson(sys.argv[1])
+DF = pl.read_ndjson(sys.argv[1]).with_columns(
+    allocator=pl.col("allocator").struct.with_fields(
+        numa=pl.col("allocator").struct["numa"].struct["policy"].fill_null("none"),
+        # populate=pl.col("allocator").struct["populate"].fill_null("none"),
+    )
+)
 
 
 NULL = "null"
@@ -125,6 +130,7 @@ def main():
     app = Dash(
         external_stylesheets=[dbc.themes.BOOTSTRAP],
     )
+
     app.layout = [
         # https://community.plotly.com/t/is-there-a-way-to-trigger-load-on-initial-page-load-only-and-not-every-time-a-change-is-made-to-the-page/57504/4
         html.Div(id="init"),
@@ -250,6 +256,7 @@ def update(
         cols = [
             x.selector.first().alias(x.name),
             op(y.selector).alias(f"{y.name}"),
+            y.selector.std().alias(f"{y.name}_std"),
         ]
 
         for col in [v for v in [facet_row, facet_column, facet_color] if v is not None]:
@@ -263,6 +270,7 @@ def update(
             filtered,
             x=x.name,
             y=y.name,
+            error_y=f"{y.name}_std",
             facet_row=facet_row.name if facet_row is not None else None,
             facet_col=facet_column.name if facet_column is not None else None,
             color=facet_color.name if facet_color is not None else None,

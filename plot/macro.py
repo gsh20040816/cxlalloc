@@ -1,5 +1,4 @@
 import common
-import math
 
 from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, METRICS
 
@@ -35,9 +34,30 @@ def main():
 
                 fig.add_trace(trace, row=row + 1, col=col + 1)
 
-    fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"))
+    fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
-    common.update_layout(fig, full=True, numa=True)
+    # # Clip lightning RSS
+    # for col, workload in enumerate(common.MACRO_WORKLOADS):
+    #     data = (
+    #         df.filter(pl.col(WORKLOAD) == workload)
+    #         .select(common.MAX_RSS)
+    #         .sort(common.MAX_RSS)
+    #         .collect()
+    #         .head(-9)
+    #         .to_series()
+    #     )
+    #
+    #     # low = data.first() * 0.99
+    #     low = 0.0
+    #     high = data.last() * 1.1
+    #
+    #     fig.for_each_yaxis(
+    #         lambda yaxis: yaxis.update(range=(low, high)),
+    #         col=col + 1,
+    #         row=2,
+    #     )
+
+    common.update_layout(fig, full=True, numa=False)
 
     fig.write_image("out.pdf")
     fig.show()
