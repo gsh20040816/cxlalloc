@@ -1,6 +1,7 @@
 repeat = 10
 
 [[experiment]]
+numa = [{ policy = "bind", node = 0 }]
 thread_count = [1, 2, 4, 8, 16, 24, 32]
 # process_count = [10]
 allocator = [{ name = "cxlalloc" }]

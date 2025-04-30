@@ -2,6 +2,7 @@ repeat = 10
 
 [[experiment]]
 output = "huge.ndjson"
+numa = [{ policy = "bind", node = 0 }]
 thread_count = [10, 20, 40, 80]
 process_count = [1, 2, 5, 10, 20, 40, 80]
 
