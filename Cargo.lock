@@ -2081,7 +2081,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/shm.git#61a9d2077f5a4b3cdf97788510664b7a138144b2"
+source = "git+https://github.com/nwtnni/shm.git#1fa7d2b4ee4fcbb67788af9e0546a5b79a5e41d0"
 dependencies = [
  "bon",
  "libc",
@@ -2092,7 +2092,7 @@ dependencies = [
 [[package]]
 name = "shm-bench"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/shm-bench.git#dc84f948c2cb41b672a6bc1aaafd7bfc37fcd6fb"
+source = "git+https://github.com/nwtnni/shm-bench.git#02ad81d2fb0503ad940f35d238dbaf00c71f4938"
 dependencies = [
  "anyhow",
  "arrow-array",
