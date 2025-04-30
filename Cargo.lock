@@ -151,7 +151,7 @@ dependencies = [
  "chrono",
  "half",
  "hashbrown",
- "num",
+ "num 0.4.3",
 ]
 
 [[package]]
@@ -162,7 +162,7 @@ checksum = "bc6ed265c73f134a583d02c3cab5e16afab9446d8048ede8707e31f85fad58a0"
 dependencies = [
  "bytes",
  "half",
- "num",
+ "num 0.4.3",
 ]
 
 [[package]]
@@ -181,7 +181,7 @@ dependencies = [
  "chrono",
  "half",
  "lexical-core",
- "num",
+ "num 0.4.3",
  "ryu",
 ]
 
@@ -194,7 +194,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-schema",
  "half",
- "num",
+ "num 0.4.3",
 ]
 
 [[package]]
@@ -227,7 +227,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-data",
  "arrow-schema",
- "num",
+ "num 0.4.3",
 ]
 
 [[package]]
@@ -594,7 +594,7 @@ checksum = "622892f5635ce1fc38c8f16dfc938553ed64af482edb5e150bf4caedbfcb2304"
 dependencies = [
  "libc",
  "num_cpus",
- "winapi",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -933,12 +933,33 @@ checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
 name = "errno"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f639046355ee4f37944e44f60642c6f3a7efa3cf6b78c78a0d989a8ce6c396a1"
+dependencies = [
+ "errno-dragonfly",
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "errno"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "errno-dragonfly"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa68f1b12764fab894d2755d2518754e71b4fd80ecfb822714a1206c2aab39bf"
+dependencies = [
+ "cc",
+ "libc",
 ]
 
 [[package]]
@@ -1088,6 +1109,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
+name = "hwloc2"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f2a4b6f52a58293f5a69375e8bedfc53b15e439f751d9d20a62689632fe348e"
+dependencies = [
+ "bitflags 1.3.2",
+ "errno 0.2.8",
+ "kernel32-sys",
+ "libc",
+ "num 0.1.43",
+ "pkg-config",
+ "winapi 0.2.8",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1203,6 +1239,16 @@ checksum = "1cfaf33c695fc6e08064efbc1f72ec937429614f25eef83af942d0e227c3a28f"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kernel32-sys"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
+dependencies = [
+ "winapi 0.2.8",
+ "winapi-build",
 ]
 
 [[package]]
@@ -1469,6 +1515,17 @@ dependencies = [
 
 [[package]]
 name = "num"
+version = "0.1.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9bdb1fb680e609c2e0930c1866cafdd0be7e7c7a1ecf92aec71ed8d99d3e133"
+dependencies = [
+ "num-integer",
+ "num-iter",
+ "num-traits",
+]
+
+[[package]]
+name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
@@ -1607,7 +1664,7 @@ dependencies = [
  "half",
  "hashbrown",
  "lz4_flex",
- "num",
+ "num 0.4.3",
  "num-bigint",
  "paste",
  "seq-macro",
@@ -1899,7 +1956,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
 dependencies = [
  "bitflags 2.9.0",
- "errno",
+ "errno 0.3.10",
  "libc",
  "linux-raw-sys",
  "windows-sys 0.59.0",
@@ -2035,12 +2092,12 @@ dependencies = [
 [[package]]
 name = "shm-bench"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/shm-bench.git#9f75a2009e5736ba06e66b938623504f3eaa2fb5"
+source = "git+https://github.com/nwtnni/shm-bench.git#dc84f948c2cb41b672a6bc1aaafd7bfc37fcd6fb"
 dependencies = [
  "anyhow",
  "arrow-array",
  "bon",
- "core_affinity",
+ "hwloc2",
  "libc",
  "log",
  "parquet",
@@ -2380,6 +2437,12 @@ dependencies = [
 
 [[package]]
 name = "winapi"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"
+
+[[package]]
+name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
@@ -2387,6 +2450,12 @@ dependencies = [
  "winapi-i686-pc-windows-gnu",
  "winapi-x86_64-pc-windows-gnu",
 ]
+
+[[package]]
+name = "winapi-build"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d315eee3b34aca4797b2da6b13ed88266e6d612562a0c46390af8299fc699bc"
 
 [[package]]
 name = "winapi-i686-pc-windows-gnu"
