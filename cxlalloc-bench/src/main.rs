@@ -9,6 +9,7 @@ use cxlalloc_bench::index;
 use cxlalloc_bench::Index;
 use serde::Deserialize;
 use serde_inline_default::serde_inline_default;
+use shm::Numa;
 use ycsb::RequestDistribution;
 
 #[serde_inline_default]
@@ -41,6 +42,10 @@ struct Experiment {
 
     #[serde_inline_default(vec![1,2,4,8,16,32,40])]
     thread_count: Vec<usize>,
+
+    /// Global NUMA policy
+    #[serde_inline_default(vec![Some(Numa::Bind { node: 0 })])]
+    numa: Vec<Option<Numa>>,
 
     #[serde_inline_default(vec![
         #[cfg(feature = "allocator-cxlalloc")]
@@ -346,19 +351,21 @@ impl Experiment {
         &self,
         mut apply: F,
     ) {
-        cartesian!(&self.process_count, &self.thread_count)
-            .map(|(process_count, thread_count)| {
+        cartesian!(&self.process_count, &self.thread_count, &self.numa)
+            .map(|(process_count, thread_count, numa)| {
                 if process_count > thread_count {
-                    (thread_count, thread_count)
+                    (thread_count, thread_count, numa)
                 } else {
-                    (process_count, thread_count)
+                    (process_count, thread_count, numa)
                 }
             })
-            .map(|(process_count, thread_count)| {
-                cxlalloc_bench::Config::builder().global(shm_bench::config::Global::new(
-                    *process_count,
-                    *thread_count,
-                ))
+            .filter_map(|(process_count, thread_count, numa)| {
+                shm_bench::config::Global::builder()
+                    .process_count(*process_count)
+                    .thread_count(*thread_count)
+                    .maybe_numa(numa.clone())
+                    .build()
+                    .map(|global| cxlalloc_bench::Config::builder().global(global))
             })
             .for_each(|global_config| {
                 self.allocator_config
@@ -426,8 +433,7 @@ impl Ycsb {
                     .record_count(*record_count)
                     .operation_count(*operation_count);
 
-                let config =
-                    shm_bench::benchmark::ycsb_run::Config::builder().index(index.clone());
+                let config = shm_bench::benchmark::ycsb_run::Config::builder().index(index.clone());
 
                 match workload {
                     Workload::Load => shm_bench::benchmark::Config::YcsbLoad(

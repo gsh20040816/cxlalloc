@@ -7,6 +7,10 @@ fn main() -> anyhow::Result<()> {
     let mut stdout = std::io::stdout().lock();
     let config = serde_json::from_reader::<_, cxlalloc_bench::Config>(stdin)?;
 
+    if let Some(numa) = &config.global.numa {
+        numa.set_mempolicy()?;
+    }
+
     // Initialize barrier for processes to synchronize on
     Barrier::builder()
         .name("barrier-process".to_owned())
