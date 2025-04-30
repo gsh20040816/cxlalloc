@@ -29,6 +29,7 @@
             clang
             cmake
             gdb
+            hwloc
             libndctl
             linuxPackages_latest.perf
             numactl
