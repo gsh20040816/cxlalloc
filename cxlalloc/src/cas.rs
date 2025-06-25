@@ -3,7 +3,6 @@ use core::sync::atomic::Ordering;
 use ribbit::atomic::Atomic64;
 
 use crate::allocator;
-use crate::atomic::Version;
 use crate::cache;
 use crate::recover;
 use crate::recover::HeapState;
@@ -130,20 +129,20 @@ pub(crate) mod help {
 
     use ribbit::atomic::Atomic16;
 
-    use crate::atomic::Version;
     use crate::cache;
+    use crate::cas;
     use crate::thread;
 
     pub(crate) struct Array(
-        pub(super) crate::thread::Array<[Atomic16<Version>; crate::COUNT_THREAD]>,
+        pub(super) crate::thread::Array<[Atomic16<cas::Version>; crate::COUNT_THREAD]>,
     );
 
     impl Array {
-        pub(super) fn load(&self, i: thread::Id, j: thread::Id) -> Version {
+        pub(super) fn load(&self, i: thread::Id, j: thread::Id) -> cas::Version {
             self.0[i][u16::from(j) as usize].load(Ordering::Relaxed)
         }
 
-        pub(super) fn store(&self, i: thread::Id, j: thread::Id, new: Version) {
+        pub(super) fn store(&self, i: thread::Id, j: thread::Id, new: cas::Version) {
             let version = &self.0[i][u16::from(j) as usize];
 
             version.store(new, Ordering::Relaxed);
@@ -154,5 +153,21 @@ pub(crate) mod help {
             cache::flush_cxl(version);
             cache::fence_cxl();
         }
+    }
+}
+
+#[repr(C)]
+#[ribbit::pack(size = 16, debug, eq, hash)]
+pub struct Version(u16);
+
+impl Default for Version {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl Version {
+    pub fn next(&self) -> Self {
+        Self::new(self._0().wrapping_add(1))
     }
 }

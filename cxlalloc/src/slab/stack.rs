@@ -2,7 +2,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 
 use crate::allocator;
-use crate::atomic::Version;
 use crate::cache;
 use crate::cas;
 use crate::recover;
@@ -133,7 +132,7 @@ where
             .flatten()
     }
 
-    pub(crate) fn detect(&self, context: &mut allocator::Context, version: Version) -> bool {
+    pub(crate) fn detect(&self, context: &mut allocator::Context, version: cas::Version) -> bool {
         self.head.detect(context, version)
     }
 
@@ -148,7 +147,7 @@ struct Head<B> {
     id: thread::Id,
 
     #[ribbit(size = 16)]
-    version: Version,
+    version: cas::Version,
 
     #[ribbit(size = 32)]
     index: Option<Index<B>>,

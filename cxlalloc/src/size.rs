@@ -285,7 +285,7 @@ impl Large {
     }
 
     pub(crate) const fn from_index(index: u8) -> Self {
-        Self::new_internal(u4::new(index as u8))
+        Self::new_internal(u4::new(index))
     }
 
     #[inline]

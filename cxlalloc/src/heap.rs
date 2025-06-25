@@ -7,7 +7,6 @@ use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 
 use crate::allocator;
-use crate::atomic::Version;
 use crate::bitset::Interface as _;
 use crate::cache;
 use crate::cas;
@@ -509,7 +508,11 @@ where
         start..end
     }
 
-    pub(crate) fn detect_bump(&self, context: &mut allocator::Context, version: Version) -> bool {
+    pub(crate) fn detect_bump(
+        &self,
+        context: &mut allocator::Context,
+        version: cas::Version,
+    ) -> bool {
         self.bump.detect(context, version)
     }
 
@@ -531,7 +534,11 @@ where
         self.free.pop(context, slabs)
     }
 
-    pub(crate) fn detect_global(&self, context: &mut allocator::Context, version: Version) -> bool {
+    pub(crate) fn detect_global(
+        &self,
+        context: &mut allocator::Context,
+        version: cas::Version,
+    ) -> bool {
         self.free.detect(context, version)
     }
 }

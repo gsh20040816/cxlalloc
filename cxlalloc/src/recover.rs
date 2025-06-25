@@ -2,8 +2,8 @@ use core::sync::atomic::Ordering;
 
 use crate::allocator::Allocator;
 use crate::allocator::Context;
-use crate::atomic::Version;
 use crate::bitset::Bit;
+use crate::cas;
 use crate::size;
 use crate::slab;
 use crate::view;
@@ -176,7 +176,7 @@ pub(crate) enum HeapState<B> {
         index: slab::Index<B>,
 
         #[ribbit(size = 16)]
-        version: Version,
+        version: cas::Version,
     },
 
     #[ribbit(size = 48, from, debug)]
@@ -185,7 +185,7 @@ pub(crate) enum HeapState<B> {
         start: Option<slab::Index<B>>,
 
         #[ribbit(size = 16)]
-        version: Version,
+        version: cas::Version,
     },
 
     #[ribbit(size = 32, from, debug)]
@@ -200,7 +200,7 @@ pub(crate) enum HeapState<B> {
         index: slab::Index<B>,
 
         #[ribbit(size = 16)]
-        version: Version,
+        version: cas::Version,
     },
 
     #[ribbit(size = 44, from, debug)]
@@ -227,7 +227,7 @@ pub(crate) enum HeapState<B> {
         index: slab::Index<B>,
 
         #[ribbit(size = 16)]
-        version: Version,
+        version: cas::Version,
 
         last: bool,
     },
@@ -238,7 +238,7 @@ pub(crate) enum HeapState<B> {
         index: slab::Index<B>,
 
         #[ribbit(size = 16)]
-        version: Version,
+        version: cas::Version,
     },
 }
 
