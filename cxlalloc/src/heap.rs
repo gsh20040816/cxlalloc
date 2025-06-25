@@ -210,7 +210,7 @@ where
         index: slab::Index<B>,
     ) -> *mut ffi::c_void {
         let free = unsafe { &mut *self.slabs.local(index).free.get() };
-        let block = free.peek();
+        let block = unsafe { free.peek_unchecked() };
 
         self.stat.record(
             context.id,

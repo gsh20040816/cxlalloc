@@ -13,7 +13,14 @@ pub(crate) trait Interface: Copy + Debug + Sized {
 
     #[allow(unused)]
     fn fill(&mut self, count: u64);
-    fn peek(&self) -> Bit;
+
+    // Return the first set bit.
+    //
+    // # Safety
+    //
+    // Caller must guarantee that this bitset is non-empty.
+    unsafe fn peek_unchecked(&self) -> Bit;
+
     fn set(&mut self, bit: Bit);
     fn unset(&mut self, bit: Bit);
     fn len(&self) -> u64;
@@ -88,7 +95,11 @@ impl<const SIZE: usize> BitSet<SIZE> {
             i += 1;
         }
 
-        self.sparse = (1u64 << rows) - 1;
+        self.sparse = match 1u64.checked_shl(rows as u32) {
+            Some(bit) => bit - 1,
+            None => u64::MAX,
+        };
+
         let skip = match cols {
             0 => 0,
             _ => {
@@ -115,7 +126,7 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
         self.fill(count)
     }
 
-    fn peek(&self) -> Bit {
+    unsafe fn peek_unchecked(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;
         let col = unsafe { self.dense.get_unchecked(row as usize) }.trailing_zeros() as u8;
         Bit::new(u6::new(row), u6::new(col))
@@ -212,5 +223,41 @@ impl Bit {
 impl From<Bit> for u64 {
     fn from(bit: Bit) -> Self {
         ribbit::convert::packed_to_loose(bit) as u64
+    }
+}
+
+// A bitset filled to `len` has length `len`.
+#[test]
+fn fill_len() {
+    let mut set = BitSet::<64>::new();
+    for len in 0..=64 * 64 {
+        set.fill(0);
+        assert_eq!(set.len(), 0);
+        set.fill(len);
+        assert_eq!(set.len(), len);
+    }
+}
+
+// Peeking and unsetting one bit at a time decreases `len` one at a time.
+#[test]
+fn peek_unset_len() {
+    let mut set = BitSet::<64>::filled(64 * 64);
+    for (bit, len) in (0..64 * 64).zip((0..64 * 64).rev()) {
+        let bit = unsafe { Bit::from_loose(bit as u16) };
+        assert_eq!(unsafe { set.peek_unchecked() }, bit);
+        set.unset(bit);
+        assert_eq!(set.len(), len);
+    }
+}
+
+// Setting a bit one at a time increases `len` and decreases `peek`.
+#[test]
+fn set_peek_len() {
+    let mut set = BitSet::<64>::filled(0);
+    for (bit, len) in (0..64 * 64).rev().zip(0..64 * 64) {
+        let bit = unsafe { Bit::from_loose(bit as u16) };
+        assert_eq!(set.len(), len);
+        set.set(bit);
+        assert_eq!(unsafe { set.peek_unchecked() }, bit);
     }
 }
