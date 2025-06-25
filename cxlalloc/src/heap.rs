@@ -373,7 +373,7 @@ where
     }
 
     #[cold]
-    fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
+    pub(crate) fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
         // FIXME: not correct to load in production, only for metrics
         let class = self.slabs.local(index).class.load();
 
@@ -422,7 +422,7 @@ where
         self.unsized_to_global(context);
     }
 
-    fn unsized_to_global(&mut self, context: &mut allocator::Context) {
+    pub(crate) fn unsized_to_global(&mut self, context: &mut allocator::Context) {
         let count = self.owned.r#unsized.len();
         if count <= COUNT_CACHE_SLAB.load(Ordering::Relaxed) {
             return;

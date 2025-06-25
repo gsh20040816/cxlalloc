@@ -111,7 +111,27 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             }
             HeapStateUnpacked::SizedToApplication(_state) => todo!(),
             HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
-            HeapStateUnpacked::Remote(_state) => todo!(),
+            HeapStateUnpacked::Remote(state) => {
+                let index = state.index();
+                let version = state.version();
+                let last = state.last();
+
+                let slab = heap.slabs.remote(index);
+
+                // Crashed before CASing remote descriptor, retry
+                if !slab.detect(context, version) {
+                    heap.free_remote(context, index);
+                    return;
+                }
+
+                // Finished CAS and do not need to claim slab
+                if !last {
+                    return;
+                }
+
+                heap.owned.r#unsized.recover_push(&heap.slabs, index);
+                heap.unsized_to_global(context);
+            }
             HeapStateUnpacked::Detach(_state) => todo!(),
         }
     }
