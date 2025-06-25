@@ -1,5 +1,4 @@
 mod allocator;
-pub mod atomic;
 mod bitset;
 mod r#box;
 mod cache;
