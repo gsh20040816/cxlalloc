@@ -488,8 +488,8 @@ where
         start..end
     }
 
-    pub(crate) fn detect_global(&self, context: &mut allocator::Context, version: Version) -> bool {
-        self.free.detect(context, version)
+    pub(crate) fn detect_bump(&self, context: &mut allocator::Context, version: Version) -> bool {
+        self.bump.detect(context, version)
     }
 
     fn push(
@@ -508,6 +508,10 @@ where
         }
 
         self.free.pop(context, slabs)
+    }
+
+    pub(crate) fn detect_global(&self, context: &mut allocator::Context, version: Version) -> bool {
+        self.free.detect(context, version)
     }
 }
 

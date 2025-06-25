@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use crate::allocator::Allocator;
 use crate::allocator::Context;
 use crate::atomic::Version;
@@ -5,6 +7,7 @@ use crate::bitset::Bit;
 use crate::size;
 use crate::slab;
 use crate::view;
+use crate::BATCH_BUMP_POP;
 
 impl<S, O> Allocator<'_, view::Focus, S, O> {
     pub(crate) fn recover(&mut self) {
@@ -54,13 +57,28 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
                 // Crashed between logging and CASing
                 if !heap.shared.detect_global(context, version) {
-                    context.clear();
                     return;
                 }
 
                 heap.owned.r#unsized.recover_push(&heap.slabs, index);
             }
-            HeapStateUnpacked::BumpToLocal(_state) => todo!(),
+            // FIXME: deduplicate with `heap::Shared::bump`?
+            HeapStateUnpacked::BumpToLocal(state) => {
+                let start = state.start().unwrap_or(slab::Index::MIN);
+                let version = state.version();
+
+                if !heap.shared.detect_bump(context, version) {
+                    return;
+                }
+
+                let batch = BATCH_BUMP_POP.load(Ordering::Relaxed);
+                let end = unsafe { start.add(batch as u32) };
+
+                unsafe {
+                    heap.slabs.link(start..end, None);
+                    heap.owned.r#unsized.set(Some(start), batch);
+                }
+            }
             HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
             HeapStateUnpacked::SizedToApplication(_state) => todo!(),
             HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
