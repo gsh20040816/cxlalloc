@@ -17,36 +17,45 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let Some(state) = context.log else { return };
 
         match state.unpack() {
-            StateUnpacked::Small(small) => match small.unpack() {
-                HeapStateUnpacked::UnsizedToSized(state) => {
-                    let r#unsized = &mut self.small.owned.r#unsized;
-                    let index = state.index();
-                    let slabs = &self.small.slabs;
+            StateUnpacked::Small(state) => Self::recover_heap(context, &mut self.small, state),
+            StateUnpacked::Large(state) => Self::recover_heap(context, &mut self.large, state),
+        }
+    }
 
-                    match r#unsized.peek() {
-                        // Successfully pushed to `r#sized`
-                        head if head != index => {
-                            let count = r#unsized.trace(&self.small.slabs).count();
-                            r#unsized.set(head, count);
-                        }
-                        // Retry
-                        _ => {
-                            self.small
-                                .owned
-                                .unsized_to_sized(context, slabs, state.class());
-                        }
+    fn recover_heap<B>(
+        context: &mut Context,
+        heap: &mut crate::Heap<view::Focus, B>,
+        state: HeapState<B>,
+    ) where
+        B: size::Bracket,
+        State: From<HeapState<B>>,
+    {
+        match state.unpack() {
+            HeapStateUnpacked::UnsizedToSized(state) => {
+                let r#unsized = &mut heap.owned.r#unsized;
+                let index = state.index();
+                let slabs = &heap.slabs;
+
+                match r#unsized.peek() {
+                    // Successfully pushed to `r#sized`
+                    head if head != index => {
+                        let count = r#unsized.trace(&heap.slabs).count();
+                        r#unsized.set(head, count);
+                    }
+                    // Retry
+                    _ => {
+                        heap.owned.unsized_to_sized(context, slabs, state.class());
                     }
                 }
-                HeapStateUnpacked::GlobalToLocal(_state) => todo!(),
-                HeapStateUnpacked::BumpToLocal(_state) => todo!(),
-                HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
-                HeapStateUnpacked::SizedToApplication(_state) => todo!(),
-                HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
-                HeapStateUnpacked::LocalToGlobalSave(_state) => todo!(),
-                HeapStateUnpacked::Remote(_state) => todo!(),
-                HeapStateUnpacked::Detach(_state) => todo!(),
-            },
-            StateUnpacked::Large(_) => todo!(),
+            }
+            HeapStateUnpacked::GlobalToLocal(_state) => todo!(),
+            HeapStateUnpacked::BumpToLocal(_state) => todo!(),
+            HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
+            HeapStateUnpacked::SizedToApplication(_state) => todo!(),
+            HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
+            HeapStateUnpacked::LocalToGlobalSave(_state) => todo!(),
+            HeapStateUnpacked::Remote(_state) => todo!(),
+            HeapStateUnpacked::Detach(_state) => todo!(),
         }
     }
 }
