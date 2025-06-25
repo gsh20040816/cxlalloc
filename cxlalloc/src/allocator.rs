@@ -231,6 +231,11 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         let p = self.small.pop(context, class, index);
+
+        // FIXME: use transactional allocation in state machine test
+        // since it tries to recover after every allocation
+        self.owned.state.store(None, Ordering::Relaxed);
+
         log::trace!("allocate small {:#x} {:#x?}", size, p);
         p
     }
@@ -248,6 +253,10 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         self.small.free(context, offset);
+
+        // FIXME: use transactional allocation in state machine test
+        // since it tries to recover after every allocation
+        self.owned.state.store(None, Ordering::Relaxed);
     }
 }
 

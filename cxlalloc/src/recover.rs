@@ -14,12 +14,14 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let context = &mut Context {
             id: self.id,
             help: &self.shared.help,
-            log: &mut self.owned.state,
+            log: &self.owned.state,
         };
 
         let Some(state) = context.log.load(Ordering::Relaxed) else {
             return;
         };
+
+        dbg!(&state);
 
         match state.unpack() {
             StateUnpacked::Small(state) => Self::recover_heap(context, &mut self.small, state),
