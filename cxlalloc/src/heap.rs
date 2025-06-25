@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 
 use crate::allocator;
+use crate::atomic::Version;
 use crate::bitset::Interface as _;
 use crate::cache;
 use crate::cas;
@@ -485,6 +486,10 @@ where
         let start = start.unwrap_or(slab::Index::MIN);
         let end = unsafe { start.add(batch) };
         start..end
+    }
+
+    pub(crate) fn detect_global(&self, context: &mut allocator::Context, version: Version) -> bool {
+        self.free.detect(context, version)
     }
 
     fn push(

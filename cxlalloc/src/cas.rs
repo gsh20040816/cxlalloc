@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use crate::allocator;
 use crate::atomic::Convert64;
 use crate::atomic::Version;
@@ -76,6 +78,24 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
         }
     }
 
+    pub(crate) fn detect(&self, context: &mut allocator::Context, version: Version) -> bool {
+        assert_eq!(context.help.load(context.id, context.id), version);
+
+        let state = self.0.load();
+
+        // State hasn't been updated yet
+        state.id() == Some(context.id) && state.version() == version
+            // State has been observed by another thread before updating
+            || context
+                .help
+                .0
+                .iter()
+                .map(|view| view[u16::from(context.id) as usize].load(Ordering::Relaxed))
+                .filter(|observed| *observed == ribbit::private::pack(version))
+                .count()
+                > 1
+    }
+
     fn help(&self, context: &allocator::Context, state: State<T>) {
         if !cfg!(feature = "recover-cas") {
             return;
@@ -95,7 +115,7 @@ pub(crate) mod help {
     use crate::cache;
     use crate::thread;
 
-    pub(crate) struct Array(crate::thread::Array<[AtomicU16; crate::COUNT_THREAD]>);
+    pub(crate) struct Array(pub(super) crate::thread::Array<[AtomicU16; crate::COUNT_THREAD]>);
 
     impl Array {
         pub(super) fn load(&self, i: thread::Id, j: thread::Id) -> Version {

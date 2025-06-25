@@ -53,14 +53,17 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
     pub(crate) unsafe fn focus(mut self, id: thread::Id) -> Allocator<'raw, view::Focus, S, O> {
         self.huge.focus(&self.small.data, id);
 
-        Allocator {
+        let mut allocator = Allocator {
             id,
             shared: self.shared,
             owned: L::focus(self.owned, id),
             small: self.small.focus(id),
             large: self.large.focus(id),
             huge: self.huge,
-        }
+        };
+
+        allocator.recover();
+        allocator
     }
 }
 
@@ -108,6 +111,11 @@ impl Context<'_> {
         }
 
         *self.log = Some(state.into());
+        cache::flush(&self.log, cache::Invalidate::No);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self.log = None;
         cache::flush(&self.log, cache::Invalidate::No);
     }
 }

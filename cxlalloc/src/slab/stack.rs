@@ -44,18 +44,29 @@ impl<B: size::Bracket> Local<B> {
     }
 
     pub(crate) fn push(&mut self, slabs: &Slab<B>, index: Index<B>) {
-        if self.head == Some(index) {
-            return;
-        }
+        assert_ne!(self.head, Some(index));
 
         let head = slabs.local(index);
         head.next.store(self.head);
         cache::flush(&head.next, cache::Invalidate::No);
 
+        // Prevent reordering to guarantee that `head` points to `self.head`
+        cache::fence();
+
         self.head = Some(index);
         cache::flush(&self.head, cache::Invalidate::No);
 
+        // Count can be recomputed on recovery and doesn't
+        // require flushing or fencing.
         self.count += 1;
+    }
+
+    pub(crate) fn recover_push(&mut self, slabs: &Slab<B>, index: Index<B>) {
+        if self.head != Some(index) {
+            self.push(slabs, index);
+        }
+
+        self.count = self.trace(slabs).count();
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slab<B>) -> impl Iterator<Item = Index<B>> + 'a {
@@ -105,6 +116,10 @@ where
                 Some((new, recover::GlobalToLocal::new(old, version).into()))
             })
             .flatten()
+    }
+
+    pub(crate) fn detect(&self, context: &mut allocator::Context, version: Version) -> bool {
+        self.head.detect(context, version)
     }
 
     pub(crate) fn is_empty(&self, context: &allocator::Context) -> bool {

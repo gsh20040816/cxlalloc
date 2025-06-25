@@ -48,7 +48,18 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     }
                 }
             }
-            HeapStateUnpacked::GlobalToLocal(_state) => todo!(),
+            HeapStateUnpacked::GlobalToLocal(state) => {
+                let index = state.index();
+                let version = state.version();
+
+                // Crashed between logging and CASing
+                if !heap.shared.detect_global(context, version) {
+                    context.clear();
+                    return;
+                }
+
+                heap.owned.r#unsized.recover_push(&heap.slabs, index);
+            }
             HeapStateUnpacked::BumpToLocal(_state) => todo!(),
             HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
             HeapStateUnpacked::SizedToApplication(_state) => todo!(),
