@@ -132,7 +132,17 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 heap.owned.r#unsized.recover_push(&heap.slabs, index);
                 heap.unsized_to_global(context);
             }
-            HeapStateUnpacked::Detach(_state) => todo!(),
+            HeapStateUnpacked::Detach(state) => {
+                let index = state.index();
+                let version = state.version();
+
+                let slab = heap.slabs.remote(index);
+                let class = heap.slabs.local(index).class.load();
+
+                if !slab.detect(context, version) {
+                    heap.detach(context, class, index);
+                }
+            }
         }
     }
 }

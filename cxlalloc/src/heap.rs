@@ -221,7 +221,8 @@ where
         free.unset(block);
 
         if free.is_empty() {
-            self.detach(context, class);
+            let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
+            self.detach(context, class, index);
         }
 
         let offset = data::Offset::from_block(index, class, block);
@@ -285,11 +286,15 @@ where
     }
 
     #[cold]
-    fn detach(&mut self, context: &mut allocator::Context, class: B) {
+    pub(crate) fn detach(
+        &mut self,
+        context: &mut allocator::Context,
+        class: B,
+        index: slab::Index<B>,
+    ) {
         self.stat
             .record(context.id, stat::thread::Event::Detach { class });
 
-        let index = self.owned.r#sized[class].pop(&self.slabs).unwrap();
         let remote = &self.slabs.remote(index);
         let meta = remote.load(context);
 
