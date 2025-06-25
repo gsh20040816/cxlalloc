@@ -51,7 +51,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     }
                 }
             }
-            HeapStateUnpacked::GlobalToLocal(state) => {
+            HeapStateUnpacked::GlobalToUnsized(state) => {
                 let index = state.index();
                 let version = state.version();
 
@@ -63,7 +63,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 heap.owned.r#unsized.recover_push(&heap.slabs, index);
             }
             // FIXME: deduplicate with `heap::Shared::bump`?
-            HeapStateUnpacked::BumpToLocal(state) => {
+            HeapStateUnpacked::BumpToUnsized(state) => {
                 let start = state.start().unwrap_or(slab::Index::MIN);
                 let version = state.version();
 
@@ -79,10 +79,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     heap.owned.r#unsized.set(Some(start), batch);
                 }
             }
-            HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
-            HeapStateUnpacked::SizedToApplication(_state) => todo!(),
-            HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
-            HeapStateUnpacked::LocalToGlobalSave(state) => {
+            HeapStateUnpacked::UnsizedToGlobalSave(state) => {
                 let index = state.index();
 
                 match heap.owned.r#unsized.peek() {
@@ -99,6 +96,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     }
                 }
             }
+            HeapStateUnpacked::UnsizedToGlobal(_state) => todo!(),
+            HeapStateUnpacked::SizedToApplication(_state) => todo!(),
+            HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
             HeapStateUnpacked::Remote(_state) => todo!(),
             HeapStateUnpacked::Detach(_state) => todo!(),
         }
@@ -125,7 +125,7 @@ pub(crate) enum HeapState<B> {
     },
 
     #[ribbit(size = 48, from)]
-    GlobalToLocal {
+    GlobalToUnsized {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
 
@@ -134,7 +134,7 @@ pub(crate) enum HeapState<B> {
     },
 
     #[ribbit(size = 48, from)]
-    BumpToLocal {
+    BumpToUnsized {
         #[ribbit(size = 32)]
         start: Option<slab::Index<B>>,
 
@@ -142,8 +142,14 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
+    #[ribbit(size = 32, from)]
+    UnsizedToGlobalSave {
+        #[ribbit(size = 32)]
+        index: slab::Index<B>,
+    },
+
     #[ribbit(size = 48, from)]
-    LocalToGlobal {
+    UnsizedToGlobal {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
 
@@ -167,12 +173,6 @@ pub(crate) enum HeapState<B> {
 
         #[ribbit(size = 12)]
         block: Bit,
-    },
-
-    #[ribbit(size = 32, from)]
-    LocalToGlobalSave {
-        #[ribbit(size = 32)]
-        index: slab::Index<B>,
     },
 
     #[ribbit(size = 49, from)]

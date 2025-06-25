@@ -17,11 +17,11 @@ use crate::raw::region;
 use crate::raw::Backend;
 use crate::recover;
 use crate::recover::ApplicationToSized;
-use crate::recover::BumpToLocal;
+use crate::recover::BumpToUnsized;
 use crate::recover::HeapState;
-use crate::recover::LocalToGlobalSave;
 use crate::recover::SizedToApplication;
 use crate::recover::State;
+use crate::recover::UnsizedToGlobalSave;
 use crate::recover::UnsizedToSized;
 use crate::size;
 use crate::slab;
@@ -443,7 +443,7 @@ where
         let tail = iter.last().unwrap_or(head);
         let next = self.slabs.local(tail).next.load();
 
-        context.log(HeapState::from(LocalToGlobalSave::new(head)));
+        context.log(HeapState::from(UnsizedToGlobalSave::new(head)));
 
         self.owned.r#unsized.set(next, count - batch);
 
@@ -479,7 +479,7 @@ where
             .bump
             .update(context, |old, version| {
                 let new = unsafe { old.unwrap_or(slab::Index::MIN).add(batch) };
-                Some((Some(new), BumpToLocal::new(old, version).into()))
+                Some((Some(new), BumpToUnsized::new(old, version).into()))
             })
             .unwrap();
 

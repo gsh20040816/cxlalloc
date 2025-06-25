@@ -102,7 +102,7 @@ where
                 cache::flush(&slabs.local(tail).next, cache::Invalidate::No);
                 Some((
                     Some(head),
-                    recover::LocalToGlobal::new(head, version).into(),
+                    recover::UnsizedToGlobal::new(head, version).into(),
                 ))
             })
             .unwrap();
@@ -117,7 +117,7 @@ where
             .update(context, |old, version| {
                 let old = old?;
                 let new = slabs.local(old).next.load();
-                Some((new, recover::GlobalToLocal::new(old, version).into()))
+                Some((new, recover::GlobalToUnsized::new(old, version).into()))
             })
             .flatten()
     }
