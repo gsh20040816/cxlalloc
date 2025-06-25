@@ -113,11 +113,6 @@ impl Context<'_> {
         *self.log = Some(state.into());
         cache::flush(&self.log, cache::Invalidate::No);
     }
-
-    pub(crate) fn clear(&mut self) {
-        *self.log = None;
-        cache::flush(&self.log, cache::Invalidate::No);
-    }
 }
 
 impl<'raw, S, O> Allocator<'raw, view::Focus, S, O>

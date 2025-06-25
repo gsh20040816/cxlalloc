@@ -66,6 +66,10 @@ impl<B: size::Bracket> Local<B> {
             self.push(slabs, index);
         }
 
+        self.recover_count(slabs);
+    }
+
+    pub(crate) fn recover_count(&mut self, slabs: &Slab<B>) {
         self.count = self.trace(slabs).count();
     }
 

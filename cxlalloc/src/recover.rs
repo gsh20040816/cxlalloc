@@ -82,7 +82,23 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             HeapStateUnpacked::LocalToGlobal(_state) => todo!(),
             HeapStateUnpacked::SizedToApplication(_state) => todo!(),
             HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
-            HeapStateUnpacked::LocalToGlobalSave(_state) => todo!(),
+            HeapStateUnpacked::LocalToGlobalSave(state) => {
+                let index = state.index();
+
+                match heap.owned.r#unsized.peek() {
+                    // Crashed before popping batch from `r#unsized`
+                    Some(head) if head == index => {
+                        // Possible that writes to head and count were reordered,
+                        // such that write to count persisted first before crash?
+                        heap.owned.r#unsized.recover_count(&heap.slabs);
+                    }
+                    // Crashed after popping batch, undo
+                    _ => {
+                        heap.owned.r#unsized.set(Some(index), 0);
+                        heap.owned.r#unsized.recover_count(&heap.slabs);
+                    }
+                }
+            }
             HeapStateUnpacked::Remote(_state) => todo!(),
             HeapStateUnpacked::Detach(_state) => todo!(),
         }
