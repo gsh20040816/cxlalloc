@@ -96,7 +96,19 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     }
                 }
             }
-            HeapStateUnpacked::UnsizedToGlobal(_state) => todo!(),
+            HeapStateUnpacked::UnsizedToGlobal(state) => {
+                let index = state.index();
+                let version = state.version();
+
+                // Completed successfully
+                if heap.shared.detect_global(context, version) {
+                    return;
+                }
+
+                // Undo popping of batch
+                heap.owned.r#unsized.set(Some(index), 0);
+                heap.owned.r#unsized.recover_count(&heap.slabs);
+            }
             HeapStateUnpacked::SizedToApplication(_state) => todo!(),
             HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
             HeapStateUnpacked::Remote(_state) => todo!(),
