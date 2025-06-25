@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::sync::atomic::Ordering;
 
 use crate::allocator;
 use crate::atomic::Version;
@@ -36,7 +37,7 @@ impl<B: size::Bracket> Local<B> {
 
     pub(crate) fn pop(&mut self, slabs: &Slab<B>) -> Option<Index<B>> {
         let head = self.head?;
-        self.head = slabs.local(head).next.load();
+        self.head = slabs.local(head).next.load(Ordering::Relaxed);
         cache::flush(&self.head, cache::Invalidate::No);
 
         self.count -= 1;
@@ -47,7 +48,7 @@ impl<B: size::Bracket> Local<B> {
         assert_ne!(self.head, Some(index));
 
         let head = slabs.local(index);
-        head.next.store(self.head);
+        head.next.store(self.head, Ordering::Relaxed);
         cache::flush(&head.next, cache::Invalidate::No);
 
         // Prevent reordering to guarantee that `head` points to `self.head`
@@ -97,14 +98,19 @@ where
         tail: Index<B>,
     ) {
         self.head
-            .update(context, |old, version| {
-                slabs.local(tail).next.store(old);
-                cache::flush(&slabs.local(tail).next, cache::Invalidate::No);
-                Some((
-                    Some(head),
-                    recover::UnsizedToGlobal::new(head, version).into(),
-                ))
-            })
+            .update(
+                context,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                |old, version| {
+                    slabs.local(tail).next.store(old, Ordering::Relaxed);
+                    cache::flush(&slabs.local(tail).next, cache::Invalidate::No);
+                    Some((
+                        Some(head),
+                        recover::UnsizedToGlobal::new(head, version).into(),
+                    ))
+                },
+            )
             .unwrap();
     }
 
@@ -114,11 +120,16 @@ where
         slabs: &Slab<B>,
     ) -> Option<Index<B>> {
         self.head
-            .update(context, |old, version| {
-                let old = old?;
-                let new = slabs.local(old).next.load();
-                Some((new, recover::GlobalToUnsized::new(old, version).into()))
-            })
+            .update(
+                context,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                |old, version| {
+                    let old = old?;
+                    let new = slabs.local(old).next.load(Ordering::Relaxed);
+                    Some((new, recover::GlobalToUnsized::new(old, version).into()))
+                },
+            )
             .flatten()
     }
 
@@ -127,7 +138,7 @@ where
     }
 
     pub(crate) fn is_empty(&self, context: &allocator::Context) -> bool {
-        self.head.load(context).is_none()
+        self.head.load(context, Ordering::Relaxed).is_none()
     }
 }
 

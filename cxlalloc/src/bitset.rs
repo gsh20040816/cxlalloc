@@ -204,13 +204,13 @@ pub(crate) struct Bit {
 }
 
 impl Bit {
-    pub(crate) unsafe fn from_packed(packed: u16) -> Self {
-        ribbit::private::unpack(packed)
+    pub unsafe fn from_loose(block: u16) -> Self {
+        unsafe { ribbit::convert::loose_to_packed(block) }
     }
 }
 
 impl From<Bit> for u64 {
     fn from(bit: Bit) -> Self {
-        ribbit::private::pack(bit) as u64
+        ribbit::convert::packed_to_loose(bit) as u64
     }
 }

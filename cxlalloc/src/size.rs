@@ -11,7 +11,7 @@ use crate::bitset::BitSet;
 use crate::bitset::Interface as _;
 use crate::SIZE_CACHE_LINE;
 
-pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug + 'static {
+pub(crate) trait Bracket: ribbit::Pack + Debug + 'static {
     const NAME: &'static str;
 
     const SIZE_SLAB: usize;
@@ -38,7 +38,6 @@ pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Default + Debug + 'static {
 }
 
 #[ribbit::pack(size = 8, eq)]
-#[derive(Default)]
 pub struct Huge;
 
 impl Debug for Huge {
@@ -59,12 +58,12 @@ impl Bracket for Huge {
     type BitSet = BitSet<0>;
 
     fn new(_: usize) -> Option<Self> {
-        Some(Huge::default())
+        Some(Huge::new())
     }
 
     fn from_index(index: usize) -> Option<Self> {
         match index {
-            0 => Some(Huge::default()),
+            0 => Some(Huge::new()),
             _ => None,
         }
     }
@@ -140,8 +139,13 @@ impl<B: Bracket, T> ops::IndexMut<B> for Array<B, T> {
 
 /// 0B, 8B, 16B, 24B, ..., 1016B
 #[ribbit::pack(size = 7, new(rename = "new_internal", vis = ""), eq, hash)]
-#[derive(Default)]
 pub(crate) struct Small(u7);
+
+impl Default for Small {
+    fn default() -> Self {
+        Small::new_internal(const { u7::new(0) })
+    }
+}
 
 impl Debug for Small {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -158,6 +162,10 @@ impl Small {
             ))),
             false => None,
         }
+    }
+
+    pub(crate) const fn from_index(size: u8) -> Self {
+        Self::new_internal(u7::new(size))
     }
 
     const fn counts() -> Array<Small, u16> {
@@ -276,6 +284,10 @@ impl Large {
         }
     }
 
+    pub(crate) const fn from_index(index: u8) -> Self {
+        Self::new_internal(u4::new(index as u8))
+    }
+
     #[inline]
     const fn count(&self) -> u64 {
         Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self._0().value()
@@ -360,7 +372,7 @@ mod test {
     fn small_consistent() {
         // Skip special size classes
         for i in 2..Small::COUNT {
-            let class = Small::from_index(i).unwrap();
+            let class = Small::from_index(i as u8);
 
             if Small::SIZE_SLAB as u64 % class.size() == 0 {
                 assert_eq!(
@@ -386,7 +398,7 @@ mod test {
     #[test]
     fn large_consistent() {
         for i in 0..Large::COUNT {
-            let class = Large::from_index(i).unwrap();
+            let class = Large::from_index(i as u8);
             assert_eq!(
                 class.size() * class.count(),
                 Large::SIZE_SLAB as u64,

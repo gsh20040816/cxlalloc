@@ -96,7 +96,7 @@ impl<B: size::Bracket> Offset<B> {
                 block,
                 class.count(),
             );
-            Bit::from_packed(block as u16)
+            Bit::from_loose(block as u16)
         }
     }
 

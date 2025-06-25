@@ -2,7 +2,7 @@ use crate::thread;
 
 #[repr(C)]
 #[ribbit::pack(size = 32, debug)]
-pub(crate) struct Remote<B> {
+pub(crate) struct Remote {
     #[ribbit(size = 16)]
     pub(crate) owner: Option<thread::Id>,
 

@@ -17,6 +17,7 @@ use core::num::NonZeroU32;
 use core::num::NonZeroU64;
 use core::ops::Range;
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
 
 use crate::allocator;
 use crate::cache;
@@ -27,13 +28,13 @@ use crate::thread;
 
 pub(crate) struct Slab<'raw, B: size::Bracket> {
     locals: Slice<'raw, B, UnsafeCell<Local<B>>>,
-    remotes: Slice<'raw, B, Detectable<Remote<B>>>,
+    remotes: Slice<'raw, B, Detectable<Remote>>,
 }
 
 impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn new(
         locals: Slice<'raw, B, UnsafeCell<Local<B>>>,
-        remotes: Slice<'raw, B, Detectable<Remote<B>>>,
+        remotes: Slice<'raw, B, Detectable<Remote>>,
     ) -> Self {
         Self { locals, remotes }
     }
@@ -49,7 +50,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
     }
 
     #[inline]
-    pub(crate) fn remote(&self, index: Index<B>) -> &Detectable<Remote<B>> {
+    pub(crate) fn remote(&self, index: Index<B>) -> &Detectable<Remote> {
         &self.remotes[index]
     }
 
@@ -68,7 +69,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
                 .chain(iter::once(head)),
         ) {
             let next = &self.local(i).next;
-            next.store(j);
+            next.store(j, Ordering::Relaxed);
             cache::flush(next, cache::Invalidate::No);
         }
     }
@@ -76,7 +77,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
         iter::from_fn(move || {
             let next = head?;
-            head = self.local(next).next.load();
+            head = self.local(next).next.load(Ordering::Relaxed);
             Some(next)
         })
     }
@@ -102,7 +103,7 @@ where
             return;
         };
 
-        let remote = self.remotes[index].load(context);
+        let remote = self.remotes[index].load(context, Ordering::Relaxed);
         let local = &self.local(index);
 
         panic!(

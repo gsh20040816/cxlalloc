@@ -1,4 +1,5 @@
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
 
 use crate::raw;
 use crate::thread;
@@ -27,12 +28,12 @@ fn allocate(crash: crash::Dynamic, reclaim: bool) {
             .as_mut()
             .unwrap();
         *size = SIZE;
-        allocator.set_root_shared(size);
+        allocator.set_root_shared(size, Ordering::Release);
     });
 
     let mut allocator = raw.allocator::<usize, ()>(id);
 
-    match allocator.root_shared() {
+    match allocator.root_shared(Ordering::Acquire) {
         None if reclaim => (),
         None => panic!("Expected allocation to be present"),
 

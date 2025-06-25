@@ -3,6 +3,9 @@ use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
+
+use ribbit::atomic::Atomic64;
 
 use crate::bitset::Interface as _;
 use crate::cache;
@@ -16,7 +19,6 @@ use crate::size::Bracket as _;
 use crate::stat;
 use crate::thread;
 use crate::view;
-use crate::Atomic;
 use crate::Heap;
 use crate::Huge;
 
@@ -70,17 +72,17 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
 pub(crate) struct Context<'raw> {
     pub(crate) id: thread::Id,
     pub(crate) help: &'raw cas::help::Array,
-    pub(crate) log: &'raw mut Option<recover::State>,
+    pub(crate) log: &'raw Atomic64<Option<recover::State>>,
 }
 
 #[repr(C)]
 pub(crate) struct Shared<R> {
-    root: Atomic<Option<data::Offset<size::Small>>>,
+    root: Atomic64<Option<data::Offset<size::Small>>>,
     _root: PhantomData<R>,
 
     /// Untyped roots
     /// Memento uses 512+ :(
-    roots: [Atomic<Option<data::Offset<size::Small>>>; 1024],
+    roots: [Atomic64<Option<data::Offset<size::Small>>>; 1024],
 
     pub(crate) help: cas::help::Array,
 }
@@ -89,7 +91,7 @@ pub(crate) struct Shared<R> {
 pub(crate) struct Owned<R> {
     root: Option<data::Offset<size::Small>>,
     _root: PhantomData<R>,
-    pub(crate) state: Option<recover::State>,
+    pub(crate) state: Atomic64<Option<recover::State>>,
 }
 
 impl Context<'_> {
@@ -110,7 +112,7 @@ impl Context<'_> {
             return;
         }
 
-        *self.log = Some(state.into());
+        self.log.store(Some(state.into()), Ordering::Relaxed);
         cache::flush(&self.log, cache::Invalidate::No);
     }
 }
@@ -127,22 +129,22 @@ where
             .chain(self.huge.report(self.id))
     }
 
-    pub fn root_shared(&self) -> Option<&'raw S> {
-        let offset = self.shared.root.load()?;
+    pub fn root_shared(&self, ordering: Ordering) -> Option<&'raw S> {
+        let offset = self.shared.root.load(ordering)?;
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
     }
 
-    pub fn set_root_shared(&self, root: &'raw S) {
+    pub fn set_root_shared(&self, root: &'raw S, ordering: Ordering) {
         let offset = self
             .small
             .data
             .pointer_to_offset(NonNull::from(root))
             .unwrap();
-        self.shared.root.store(Some(offset));
+        self.shared.root.store(Some(offset), ordering);
     }
 
     pub fn root_untyped(&self, index: usize) -> Option<NonNull<ffi::c_void>> {
-        let offset = self.shared.roots[index].load()?;
+        let offset = self.shared.roots[index].load(Ordering::Acquire)?;
         let pointer = self.small.data.offset_to_pointer(offset);
         log::trace!("get root {} {:?} {:#x?}", index, offset, pointer);
         Some(pointer)
@@ -152,7 +154,7 @@ where
         let offset =
             NonNull::new(pointer).and_then(|pointer| self.small.data.pointer_to_offset(pointer));
         log::trace!("set root {} {:?} {:#x?}", index, offset, pointer);
-        self.shared.roots[index].store(offset);
+        self.shared.roots[index].store(offset, Ordering::Release);
     }
 
     pub fn root_owned(&self) -> Option<&'raw O> {

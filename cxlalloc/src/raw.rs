@@ -258,12 +258,12 @@ impl Raw {
             return false;
         };
 
-        let allocator = self.unfocused::<(), ()>();
+        let allocator = self.allocator::<(), ()>(id);
 
         let context = crate::allocator::Context {
             id,
             help: &allocator.shared.help,
-            log: &mut None,
+            log: &allocator.owned.state,
         };
 
         match allocator.small.try_map(

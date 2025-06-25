@@ -111,7 +111,6 @@ pub(crate) mod thread {
         Claim { class: B },
     }
 
-    #[derive(Default)]
     pub(crate) struct Recorder<B: size::Bracket> {
         #[cfg(feature = "stat-event")]
         event: Box<thread::Array<Box<EventRecorder<B>>>>,
@@ -120,6 +119,20 @@ pub(crate) mod thread {
         memory: Box<thread::Array<Box<MemoryRecorder<B>>>>,
 
         _bracket: PhantomData<B>,
+    }
+
+    impl<B: size::Bracket> Default for Recorder<B> {
+        fn default() -> Self {
+            Self {
+                #[cfg(feature = "stat-event")]
+                event: Default::default(),
+
+                #[cfg(feature = "stat-memory")]
+                memory: Default::default(),
+
+                _bracket: Default::default(),
+            }
+        }
     }
 
     impl<B: size::Bracket> Recorder<B> {
@@ -163,7 +176,6 @@ pub(crate) mod thread {
         }
     }
 
-    #[derive(Default)]
     struct EventRecorder<B: size::Bracket> {
         bump: Counter,
         global_to_unsized: Counter,
@@ -176,6 +188,25 @@ pub(crate) mod thread {
         disown: size::Array<B, Counter>,
         attach: size::Array<B, Counter>,
         claim: size::Array<B, Counter>,
+    }
+
+    impl<B: size::Bracket> Default for EventRecorder<B> {
+        // Avoid requiring `B: Default`
+        fn default() -> Self {
+            Self {
+                bump: Default::default(),
+                global_to_unsized: Default::default(),
+                allocate: Default::default(),
+                unsized_to_sized: Default::default(),
+                free: Default::default(),
+                sized_to_unsized: Default::default(),
+                unsized_to_global: Default::default(),
+                detach: Default::default(),
+                disown: Default::default(),
+                attach: Default::default(),
+                claim: Default::default(),
+            }
+        }
     }
 
     impl<B: size::Bracket> EventRecorder<B> {
@@ -249,7 +280,6 @@ pub(crate) mod thread {
         }
     }
 
-    #[derive(Default)]
     struct MemoryRecorder<B: size::Bracket> {
         data: Sloppy,
         slab_local: Sloppy,
@@ -261,6 +291,22 @@ pub(crate) mod thread {
         local_sized: size::Array<B, Sloppy>,
         detached: size::Array<B, Sloppy>,
         disowned: size::Array<B, Sloppy>,
+    }
+
+    impl<B: size::Bracket> Default for MemoryRecorder<B> {
+        fn default() -> Self {
+            Self {
+                data: Default::default(),
+                slab_local: Default::default(),
+                slab_remote: Default::default(),
+                application: Default::default(),
+                global_unsized: Default::default(),
+                local_unsized: Default::default(),
+                local_sized: Default::default(),
+                detached: Default::default(),
+                disowned: Default::default(),
+            }
+        }
     }
 
     impl<B: size::Bracket> MemoryRecorder<B> {
@@ -302,7 +348,7 @@ pub(crate) mod thread {
 
                     if let Some(value) = update(
                         &self.slab_remote,
-                        mem::size_of::<slab::Remote<B>>() as i64 * batch,
+                        mem::size_of::<slab::Remote>() as i64 * batch,
                     ) {
                         apply("slab_remote", None, value);
                     }

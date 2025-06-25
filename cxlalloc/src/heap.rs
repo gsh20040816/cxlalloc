@@ -80,7 +80,7 @@ where
             locals: NonZeroUsize::new(slab::Slice::<B, slab::Local<B>>::layout(count)?.size())
                 .unwrap(),
             remotes: NonZeroUsize::new(
-                slab::Slice::<B, cas::Detectable<slab::Remote<B>>>::layout(count)?.size(),
+                slab::Slice::<B, cas::Detectable<slab::Remote>>::layout(count)?.size(),
             )
             .unwrap(),
             data: NonZeroUsize::new(Data::<B>::layout(count)?.size()).unwrap(),
@@ -149,7 +149,7 @@ where
         };
 
         let size_local = const { mem::size_of::<slab::Local<B>>() };
-        let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote<B>>>() };
+        let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote>>() };
         let size_slab = const { B::SIZE_SLAB };
 
         // Check if within either region
@@ -157,8 +157,8 @@ where
         let local_hi = local_lo.wrapping_byte_add(len as usize * size_local);
 
         let remote_lo = remote.address().as_ptr().cast::<ffi::c_void>();
-        let remote_hi = remote_lo
-            .wrapping_byte_add(len as usize * size_of::<cas::Detectable<slab::Remote<B>>>());
+        let remote_hi =
+            remote_lo.wrapping_byte_add(len as usize * size_of::<cas::Detectable<slab::Remote>>());
 
         let data_lo = data.address().as_ptr().cast::<ffi::c_void>();
         let data_hi = data_lo.wrapping_byte_add(len as usize * B::SIZE_SLAB);
@@ -199,7 +199,7 @@ where
 {
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
-        self.slabs.local(index).class.load()
+        self.slabs.local(index).class.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -296,16 +296,21 @@ where
             .record(context.id, stat::thread::Event::Detach { class });
 
         let remote = &self.slabs.remote(index);
-        let meta = remote.load(context);
+        let meta = remote.load(context, Ordering::Relaxed);
 
         if (meta.free() as u64) < class.count() {
             remote
-                .update(context, |meta, version| {
-                    Some((
-                        meta.with_owner(None),
-                        recover::Detach::new(index, version).into(),
-                    ))
-                })
+                .update(
+                    context,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                    |meta, version| {
+                        Some((
+                            meta.with_owner(None),
+                            recover::Detach::new(index, version).into(),
+                        ))
+                    },
+                )
                 .unwrap();
 
             self.stat
@@ -341,14 +346,14 @@ where
     #[inline]
     pub(crate) fn free(&mut self, context: &mut allocator::Context, offset: data::Offset<B>) {
         let index = slab::Index::from(offset);
-        let remote = self.slabs.remote(index).load(context);
+        let remote = self.slabs.remote(index).load(context, Ordering::Relaxed);
 
         if remote.owner() != Some(context.id) {
             return self.free_remote(context, index);
         }
 
         let local = self.slabs.local(index);
-        let class = local.class.load();
+        let class = local.class.load(Ordering::Relaxed);
         let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
 
@@ -369,7 +374,8 @@ where
             return;
         }
 
-        self.owned.sized_to_unsized(&self.slabs, class, index);
+        self.owned
+            .sized_to_unsized(context, &self.slabs, class, index);
 
         self.stat
             .record(context.id, stat::thread::Event::SizedToUnsized { class });
@@ -380,19 +386,24 @@ where
     #[cold]
     pub(crate) fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
         // FIXME: not correct to load in production, only for metrics
-        let class = self.slabs.local(index).class.load();
+        let class = self.slabs.local(index).class.load(Ordering::Relaxed);
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
 
         let remote = self.slabs.remote(index);
         let meta = remote
-            .update(context, |meta, version| {
-                let last = meta.free() as u64 == 1;
-                let next = meta.with_free(meta.free() - 1);
+            .update(
+                context,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+                |meta, version| {
+                    let last = meta.free() as u64 == 1;
+                    let next = meta.with_free(meta.free() - 1);
 
-                Some((next, recover::Remote::new(index, version, last).into()))
-            })
+                    Some((next, recover::Remote::new(index, version, last).into()))
+                },
+            )
             .unwrap();
 
         if meta.free() == 1 {
@@ -446,7 +457,7 @@ where
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap_or(head);
-        let next = self.slabs.local(tail).next.load();
+        let next = self.slabs.local(tail).next.load(Ordering::Relaxed);
 
         context.log(HeapState::from(UnsizedToGlobalSave::new(head)));
 
@@ -475,17 +486,22 @@ where
     State: From<HeapState<B>>,
 {
     fn len(&self, context: &allocator::Context) -> Option<slab::Index<B>> {
-        self.bump.load(context)
+        self.bump.load(context, Ordering::Relaxed)
     }
 
     fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
         let batch = BATCH_BUMP_POP.load(Ordering::Relaxed) as u32;
         let start = self
             .bump
-            .update(context, |old, version| {
-                let new = unsafe { old.unwrap_or(slab::Index::MIN).add(batch) };
-                Some((Some(new), BumpToUnsized::new(old, version).into()))
-            })
+            .update(
+                context,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+                |old, version| {
+                    let new = unsafe { old.unwrap_or(slab::Index::MIN).add(batch) };
+                    Some((Some(new), BumpToUnsized::new(old, version).into()))
+                },
+            )
             .unwrap();
 
         let start = start.unwrap_or(slab::Index::MIN);
@@ -543,7 +559,7 @@ where
         crash::define!(unsized_to_sized_pre_log);
 
         let local = slabs.local_mut(index).get();
-        let next = unsafe { (*core::ptr::addr_of!((*local).next)).load() };
+        let next = unsafe { (*core::ptr::addr_of!((*local).next)).load(Ordering::Relaxed) };
 
         context.log(HeapState::from(UnsizedToSized::new(next, class)));
 
@@ -557,6 +573,7 @@ where
         remote.store(
             context,
             slab::Remote::new(Some(context.id), class.count() as u16),
+            Ordering::Relaxed,
         );
 
         let count = self.r#unsized.len();
@@ -565,8 +582,14 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
-        let next = slabs.local(index).next.load();
+    pub(crate) fn sized_to_unsized(
+        &mut self,
+        context: &mut allocator::Context,
+        slabs: &Slab<B>,
+        class: B,
+        index: slab::Index<B>,
+    ) {
+        let next = slabs.local(index).next.load(Ordering::Relaxed);
 
         let mut walk = self.r#sized[class].peek().unwrap();
 
@@ -575,14 +598,18 @@ where
             self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
-                match slabs.local(walk).next.load() {
+                let slab = slabs.local(walk);
+
+                assert!(slab.owner.is(context.id));
+
+                match slabs.local(walk).next.load(Ordering::Relaxed) {
                     None => panic!("removing non-existent slab {} {:?}", index, class),
                     Some(next) if next == index => break slabs.local(walk),
                     Some(next) => walk = next,
                 }
             };
 
-            prev.next.store(next);
+            prev.next.store(next, Ordering::Relaxed);
             cache::flush(prev, cache::Invalidate::No);
         };
 

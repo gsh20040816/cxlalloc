@@ -32,7 +32,6 @@ use core::ops::Deref;
 use core::ops::DerefMut;
 use core::sync::atomic::AtomicUsize;
 
-pub use atomic::Atomic;
 pub(crate) use data::Data;
 pub use error::Error;
 pub(crate) use heap::Heap;

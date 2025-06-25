@@ -17,7 +17,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             log: &mut self.owned.state,
         };
 
-        let Some(state) = context.log else { return };
+        let Some(state) = context.log.load(Ordering::Relaxed) else {
+            return;
+        };
 
         match state.unpack() {
             StateUnpacked::Small(state) => Self::recover_heap(context, &mut self.small, state),
@@ -137,7 +139,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 let version = state.version();
 
                 let slab = heap.slabs.remote(index);
-                let class = heap.slabs.local(index).class.load();
+                let class = heap.slabs.local(index).class.load(Ordering::Relaxed);
 
                 if !slab.detect(context, version) {
                     heap.detach(context, class, index);
@@ -147,7 +149,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 }
 
-#[ribbit::pack(size = 64, nonzero, from)]
+#[ribbit::pack(size = 64, nonzero, from, debug)]
 pub(crate) enum State {
     #[ribbit(size = 60)]
     Small(HeapState<size::Small>),
@@ -155,9 +157,9 @@ pub(crate) enum State {
     Large(HeapState<size::Large>),
 }
 
-#[ribbit::pack(size = 60, from)]
+#[ribbit::pack(size = 60, from, debug)]
 pub(crate) enum HeapState<B> {
-    #[ribbit(size = 40, from)]
+    #[ribbit(size = 40, from, debug)]
     UnsizedToSized {
         #[ribbit(size = 32)]
         index: Option<slab::Index<B>>,
@@ -166,7 +168,7 @@ pub(crate) enum HeapState<B> {
         class: B,
     },
 
-    #[ribbit(size = 48, from)]
+    #[ribbit(size = 48, from, debug)]
     GlobalToUnsized {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -175,7 +177,7 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
-    #[ribbit(size = 48, from)]
+    #[ribbit(size = 48, from, debug)]
     BumpToUnsized {
         #[ribbit(size = 32)]
         start: Option<slab::Index<B>>,
@@ -184,13 +186,13 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
-    #[ribbit(size = 32, from)]
+    #[ribbit(size = 32, from, debug)]
     UnsizedToGlobalSave {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
     },
 
-    #[ribbit(size = 48, from)]
+    #[ribbit(size = 48, from, debug)]
     UnsizedToGlobal {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -199,7 +201,7 @@ pub(crate) enum HeapState<B> {
         version: Version,
     },
 
-    #[ribbit(size = 44, from)]
+    #[ribbit(size = 44, from, debug)]
     SizedToApplication {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -208,7 +210,7 @@ pub(crate) enum HeapState<B> {
         block: Bit,
     },
 
-    #[ribbit(size = 44, from)]
+    #[ribbit(size = 44, from, debug)]
     ApplicationToSized {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -217,7 +219,7 @@ pub(crate) enum HeapState<B> {
         block: Bit,
     },
 
-    #[ribbit(size = 49, from)]
+    #[ribbit(size = 49, from, debug)]
     Remote {
         #[ribbit(size = 32)]
         index: slab::Index<B>,
@@ -228,7 +230,7 @@ pub(crate) enum HeapState<B> {
         last: bool,
     },
 
-    #[ribbit(size = 56, from)]
+    #[ribbit(size = 56, from, debug)]
     Detach {
         #[ribbit(size = 32)]
         index: slab::Index<B>,

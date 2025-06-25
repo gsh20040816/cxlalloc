@@ -1908,7 +1908,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "ribbit"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/ribbit.git#159e0f5cfd79afbdf3c0c057706a43a080fa05fc"
+source = "git+https://github.com/nwtnni/ribbit.git#b5a5e5df5d954ccc7bec580af171a3fce4655566"
 dependencies = [
  "arbitrary-int",
  "const_panic",
@@ -1919,7 +1919,7 @@ dependencies = [
 [[package]]
 name = "ribbit-derive"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/ribbit.git#159e0f5cfd79afbdf3c0c057706a43a080fa05fc"
+source = "git+https://github.com/nwtnni/ribbit.git#b5a5e5df5d954ccc7bec580af171a3fce4655566"
 dependencies = [
  "bitvec",
  "darling",

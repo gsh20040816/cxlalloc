@@ -1,15 +1,15 @@
 use core::sync::atomic::Ordering;
 
+use ribbit::atomic::Atomic64;
+
 use crate::allocator;
-use crate::atomic::Convert64;
 use crate::atomic::Version;
 use crate::cache;
 use crate::recover;
 use crate::recover::HeapState;
 use crate::thread;
-use crate::Atomic;
 
-pub(crate) struct Detectable<T>(Atomic<State<T>>);
+pub(crate) struct Detectable<T>(Atomic64<State<T>>);
 
 #[ribbit::pack(size = 64, debug)]
 pub(crate) struct State<T> {
@@ -23,9 +23,9 @@ pub(crate) struct State<T> {
     inner: T,
 }
 
-impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
-    pub(crate) fn load(&self, context: &allocator::Context) -> T {
-        let old = self.0.load();
+impl<T: ribbit::Pack> Detectable<T> {
+    pub(crate) fn load(&self, context: &allocator::Context, ordering: Ordering) -> T {
+        let old = self.0.load(ordering);
 
         cache::flush(&self.0, cache::Invalidate::No);
         cache::fence();
@@ -34,17 +34,25 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
         old.inner()
     }
 
-    pub(crate) fn store(&self, context: &mut allocator::Context, value: T) {
-        let old = self.0.load();
+    pub(crate) fn store(&self, context: &mut allocator::Context, value: T, ordering: Ordering) {
+        let old = self.0.load(Ordering::Relaxed);
         self.help(context, old);
-        self.0
-            .store(State::new(Some(context.id), Version::default(), value));
+        self.0.store(
+            State::new(Some(context.id), Version::default(), value),
+            ordering,
+        );
 
         cache::flush(&self.0, cache::Invalidate::No);
         cache::fence();
     }
 
-    pub(crate) fn update<F, B>(&self, context: &mut allocator::Context, mut next: F) -> Option<T>
+    pub(crate) fn update<F, B>(
+        &self,
+        context: &mut allocator::Context,
+        success: Ordering,
+        failure: Ordering,
+        mut next: F,
+    ) -> Option<T>
     where
         F: FnMut(T, Version) -> Option<(T, HeapState<B>)>,
         recover::State: From<HeapState<B>>,
@@ -55,7 +63,14 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
             context.help.store(context.id, context.id, version);
         }
 
-        let mut old = self.0.load();
+        // Relaxed semantics are sufficient for helping, but the
+        // data structure might need `Acquire` if following a pointer.
+        let mut old = self.0.load(match success {
+            Ordering::Acquire | Ordering::AcqRel => Ordering::Acquire,
+            Ordering::Relaxed => Ordering::Relaxed,
+            Ordering::Release | Ordering::SeqCst | _ => unreachable!(),
+        });
+
         loop {
             self.help(context, old);
 
@@ -64,10 +79,12 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
             // Unsync because following compare-exchange is serializing
             context.log_unsync(log);
 
-            match self
-                .0
-                .compare_exchange(old, State::new(Some(context.id), version, new))
-            {
+            match self.0.compare_exchange(
+                old,
+                State::new(Some(context.id), version, new),
+                success,
+                failure,
+            ) {
                 Err(next) => old = next,
                 Ok(_) => {
                     cache::flush(&self.0, cache::Invalidate::No);
@@ -81,7 +98,8 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
     pub(crate) fn detect(&self, context: &mut allocator::Context, version: Version) -> bool {
         assert_eq!(context.help.load(context.id, context.id), version);
 
-        let state = self.0.load();
+        // Ensure stores to help array are visible
+        let state = self.0.load(Ordering::Acquire);
 
         // State hasn't been updated yet
         state.id() == Some(context.id) && state.version() == version
@@ -91,7 +109,7 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
                 .0
                 .iter()
                 .map(|view| view[u16::from(context.id) as usize].load(Ordering::Relaxed))
-                .filter(|observed| *observed == ribbit::private::pack(version))
+                .filter(|observed| *observed == version)
                 .count()
                 > 1
     }
@@ -108,25 +126,27 @@ impl<T: ribbit::Pack<Loose = L>, L: Convert64> Detectable<T> {
 }
 
 pub(crate) mod help {
-    use core::sync::atomic::AtomicU16;
     use core::sync::atomic::Ordering;
+
+    use ribbit::atomic::Atomic16;
 
     use crate::atomic::Version;
     use crate::cache;
     use crate::thread;
 
-    pub(crate) struct Array(pub(super) crate::thread::Array<[AtomicU16; crate::COUNT_THREAD]>);
+    pub(crate) struct Array(
+        pub(super) crate::thread::Array<[Atomic16<Version>; crate::COUNT_THREAD]>,
+    );
 
     impl Array {
         pub(super) fn load(&self, i: thread::Id, j: thread::Id) -> Version {
-            let version = self.0[i][u16::from(j) as usize].load(Ordering::Relaxed);
-            Version::new(version)
+            self.0[i][u16::from(j) as usize].load(Ordering::Relaxed)
         }
 
         pub(super) fn store(&self, i: thread::Id, j: thread::Id, new: Version) {
             let version = &self.0[i][u16::from(j) as usize];
 
-            version.store(ribbit::private::pack(new), Ordering::Relaxed);
+            version.store(new, Ordering::Relaxed);
 
             cache::flush(version, cache::Invalidate::No);
             cache::fence();
