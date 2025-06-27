@@ -264,7 +264,7 @@ def update(
             if col.name not in filtered.columns:
                 cols.append(col.selector.first().alias(col.name))
 
-        filtered = filtered.group_by(cs.exclude("output")).agg(cols).sort(sorts)
+        filtered = filtered.group_by(cs.exclude("output", "date")).agg(cols).sort(sorts)
 
         fig = px.line(
             filtered,
