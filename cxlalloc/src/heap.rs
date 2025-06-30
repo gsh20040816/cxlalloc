@@ -7,6 +7,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 
 use crate::allocator;
+use crate::bitset::Bit;
 use crate::bitset::Interface as _;
 use crate::cache;
 use crate::cas;
@@ -18,7 +19,6 @@ use crate::recover;
 use crate::recover::ApplicationToSized;
 use crate::recover::BumpToUnsized;
 use crate::recover::HeapState;
-use crate::recover::SizedToApplication;
 use crate::recover::State;
 use crate::recover::UnsizedToGlobalSave;
 use crate::recover::UnsizedToSized;
@@ -209,16 +209,14 @@ where
         context: &mut allocator::Context,
         class: B,
         index: slab::Index<B>,
+        block: Bit,
     ) -> *mut ffi::c_void {
-        let free = unsafe { &mut self.slabs.local(index).get_mut().free };
-        let block = unsafe { free.peek_unchecked() };
-
         self.stat.record(
             context.id,
             stat::thread::Event::Allocate { size: class.size() },
         );
-        context.log(HeapState::from(SizedToApplication::new(index, block)));
 
+        let free = unsafe { &mut self.slabs.local(index).get_mut().free };
         free.unset(block);
 
         if free.is_empty() {
@@ -226,7 +224,7 @@ where
             self.detach(context, class, index);
         }
 
-        let offset = data::Offset::from_block(index, class, block);
+        let offset = data::Offset::from_block(class, index, block);
         self.data.offset_to_pointer::<ffi::c_void>(offset).as_ptr()
     }
 
@@ -235,12 +233,14 @@ where
         &mut self,
         context: &mut allocator::Context,
         class: B,
-    ) -> Option<slab::Index<B>> {
-        if let Some(index) = self.owned.r#sized[class].peek() {
-            return Some(index);
-        };
+    ) -> Option<(slab::Index<B>, Bit)> {
+        let index = self.owned.r#sized[class]
+            .peek()
+            .or_else(|| self.allocate(context, class))?;
 
-        self.allocate(context, class)
+        let free = unsafe { &mut self.slabs.local(index).get_mut().free };
+        let block = unsafe { free.peek_unchecked() };
+        Some((index, block))
     }
 
     #[cold]

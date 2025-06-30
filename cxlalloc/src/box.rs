@@ -10,7 +10,7 @@ pub struct Box<T> {
 }
 
 impl<T> Box<T> {
-    pub unsafe fn link(pointer: &mut Option<Box<T>>, pointee: Option<&T>) {
+    pub fn link(pointer: &mut Option<Box<T>>, pointee: Option<&T>) {
         let Some(pointee) = pointee else {
             *pointer = None;
             return;

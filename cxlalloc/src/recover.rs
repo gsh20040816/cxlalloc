@@ -14,10 +14,10 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let context = &mut Context {
             id: self.id,
             help: &self.shared.help,
-            log: &self.owned.state,
+            owned: &mut self.owned,
         };
 
-        let Some(state) = context.log.load(Ordering::Relaxed) else {
+        let Some(state) = context.owned.state.load(Ordering::Relaxed) else {
             return;
         };
 

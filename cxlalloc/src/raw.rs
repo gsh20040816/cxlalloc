@@ -263,7 +263,7 @@ impl Raw {
         let context = crate::allocator::Context {
             id,
             help: &allocator.shared.help,
-            log: &allocator.owned.state,
+            owned: allocator.owned,
         };
 
         match allocator.small.try_map(
@@ -328,7 +328,7 @@ impl Raw {
                     .unwrap(),
                 owned
                     .wrapping_byte_add(owned_offsets[0])
-                    .cast::<thread::Array<UnsafeCell<allocator::Owned<O>>>>()
+                    .cast::<thread::Array<UnsafeCell<allocator::Owned>>>()
                     .as_ref()
                     .unwrap(),
                 Heap::<view::Unfocus, size::Small>::new(
@@ -399,7 +399,7 @@ impl Raw {
 
     pub(crate) fn owned() -> (NonZeroUsize, Vec<usize>) {
         layout!(
-            thread::Array<UnsafeCell<allocator::Owned<()>>>,
+            thread::Array<UnsafeCell<allocator::Owned>>,
             thread::Array<UnsafeCell<heap::Owned<size::Small>>>,
             thread::Array<UnsafeCell<heap::Owned<size::Large>>>,
             thread::Array<huge::Owned>,

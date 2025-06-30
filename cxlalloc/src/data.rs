@@ -10,6 +10,7 @@ use crate::raw::Page;
 use crate::size;
 use crate::slab;
 
+#[derive(Clone)]
 pub(crate) struct Data<'raw, B> {
     pub(crate) base: NonNull<Page>,
     _raw: PhantomData<&'raw ()>,
@@ -69,7 +70,7 @@ pub(crate) struct Offset<B> {
 }
 
 impl<B: size::Bracket> Offset<B> {
-    pub(crate) fn from_block(slab: slab::Index<B>, class: B, block: Bit) -> Self {
+    pub(crate) fn from_block(class: B, slab: slab::Index<B>, block: Bit) -> Self {
         debug_assert!(
             u64::from(block) <= class.count(),
             "{:?} {:?} {} {}",
