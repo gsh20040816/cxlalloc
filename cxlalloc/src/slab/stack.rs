@@ -1,5 +1,8 @@
+use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
+
+use ribbit::atomic::Atomic32;
 
 use crate::allocator;
 use crate::cache;
@@ -151,4 +154,24 @@ struct Head<B> {
 
     #[ribbit(size = 32)]
     index: Option<Index<B>>,
+}
+
+pub struct Link<B, T> {
+    next: Atomic32<Option<Index<B>>>,
+    data: UnsafeCell<T>,
+}
+
+impl<B: size::Bracket, T> Link<B, T> {
+    pub fn next(&self) -> &Atomic32<Option<Index<B>>> {
+        &self.next
+    }
+
+    pub fn get(&self) -> &T {
+        unsafe { &*self.data.get() }
+    }
+
+    #[expect(clippy::mut_from_ref)]
+    pub unsafe fn get_mut(&self) -> &mut T {
+        unsafe { &mut *self.data.get() }
+    }
 }

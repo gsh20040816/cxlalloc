@@ -7,7 +7,6 @@ pub(crate) use remote::Remote;
 
 use core::alloc::Layout;
 use core::alloc::LayoutError;
-use core::cell::UnsafeCell;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Display;
@@ -27,25 +26,20 @@ use crate::size;
 use crate::thread;
 
 pub(crate) struct Slab<'raw, B: size::Bracket> {
-    locals: Slice<'raw, B, UnsafeCell<Local<B>>>,
+    locals: Slice<'raw, B, stack::Link<B, Local<B>>>,
     remotes: Slice<'raw, B, Detectable<Remote>>,
 }
 
 impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn new(
-        locals: Slice<'raw, B, UnsafeCell<Local<B>>>,
+        locals: Slice<'raw, B, stack::Link<B, Local<B>>>,
         remotes: Slice<'raw, B, Detectable<Remote>>,
     ) -> Self {
         Self { locals, remotes }
     }
 
     #[inline]
-    pub(crate) fn local(&self, index: Index<B>) -> &Local<B> {
-        unsafe { &*self.locals[index].get() }
-    }
-
-    #[inline]
-    pub(crate) fn local_mut(&self, index: Index<B>) -> &UnsafeCell<Local<B>> {
+    pub(crate) fn local(&self, index: Index<B>) -> &stack::Link<B, Local<B>> {
         &self.locals[index]
     }
 
@@ -68,7 +62,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            let next = &self.local(i).next;
+            let next = self.local(i).next();
             next.store(j, Ordering::Relaxed);
             cache::flush(next, cache::Invalidate::No);
         }
@@ -77,7 +71,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
         iter::from_fn(move || {
             let next = head?;
-            head = self.local(next).next.load(Ordering::Relaxed);
+            head = self.local(next).next().load(Ordering::Relaxed);
             Some(next)
         })
     }
@@ -99,7 +93,7 @@ where
             return;
         }
 
-        let Err(actual) = self.local(index).owner.transfer(old, new) else {
+        let Err(actual) = self.local(index).get().owner.transfer(old, new) else {
             return;
         };
 
@@ -114,7 +108,7 @@ where
             remote = {:?}, \
             local = {:?}",
             remote,
-            unsafe { &*local.free.get() },
+            local.get().free,
         );
     }
 

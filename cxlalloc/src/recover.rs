@@ -35,6 +35,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         state: HeapState<B>,
     ) where
         B: size::Bracket,
+        slab::Local<B>: slab::local::Cache<B>,
         State: From<HeapState<B>>,
     {
         match state.unpack() {
@@ -141,7 +142,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 let version = state.version();
 
                 let slab = heap.slabs.remote(index);
-                let class = heap.slabs.local(index).class.load(Ordering::Relaxed);
+                let class = heap.slabs.local(index).get().class;
 
                 if !slab.detect(context, version) {
                     heap.detach(context, class, index);

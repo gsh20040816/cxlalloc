@@ -194,11 +194,13 @@ where
 impl<B> Heap<'_, view::Focus, B>
 where
     B: size::Bracket,
+    slab::Local<B>: slab::local::Cache<B>,
     recover::State: From<HeapState<B>>,
 {
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
-        self.slabs.local(index).class.load(Ordering::Relaxed)
+        // FIXME: not currently possible to do safely
+        self.slabs.local(index).get().class
     }
 
     #[inline]
@@ -208,7 +210,7 @@ where
         class: B,
         index: slab::Index<B>,
     ) -> *mut ffi::c_void {
-        let free = unsafe { &mut *self.slabs.local(index).free.get() };
+        let free = unsafe { &mut self.slabs.local(index).get_mut().free };
         let block = unsafe { free.peek_unchecked() };
 
         self.stat.record(
@@ -351,10 +353,10 @@ where
             return self.free_remote(context, index);
         }
 
-        let local = self.slabs.local(index);
-        let class = local.class.load(Ordering::Relaxed);
+        let local = unsafe { self.slabs.local(index).get_mut() };
+        let class = local.class;
         let block = offset.into_block(class);
-        let free = unsafe { &mut *local.free.get() };
+        let free = &mut local.free;
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
@@ -385,7 +387,7 @@ where
     #[cold]
     pub(crate) fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
         // FIXME: not correct to load in production, only for metrics
-        let class = self.slabs.local(index).class.load(Ordering::Relaxed);
+        let class = self.slabs.local(index).get().class;
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
@@ -456,7 +458,7 @@ where
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap_or(head);
-        let next = self.slabs.local(tail).next.load(Ordering::Relaxed);
+        let next = self.slabs.local(tail).next().load(Ordering::Relaxed);
 
         context.log(HeapState::from(UnsizedToGlobalSave::new(head)));
 
@@ -551,6 +553,7 @@ pub(crate) struct Owned<B: size::Bracket> {
 impl<B> Owned<B>
 where
     B: size::Bracket,
+    slab::Local<B>: slab::local::Cache<B>,
     State: From<HeapState<B>>,
 {
     pub(crate) fn unsized_to_sized(
@@ -565,12 +568,14 @@ where
 
         crash::define!(unsized_to_sized_pre_log);
 
-        let local = slabs.local_mut(index).get();
-        let next = unsafe { (*core::ptr::addr_of!((*local).next)).load(Ordering::Relaxed) };
+        let local = slabs.local(index);
+        let next = local.next().load(Ordering::Relaxed);
 
         context.log(HeapState::from(UnsizedToSized::new(next, class)));
 
-        slab::Local::initialize(local, class);
+        unsafe {
+            local.get_mut().initialize(class);
+        }
 
         cache::flush(local, cache::Invalidate::No);
 
@@ -596,7 +601,7 @@ where
         class: B,
         index: slab::Index<B>,
     ) {
-        let next = slabs.local(index).next.load(Ordering::Relaxed);
+        let next = slabs.local(index).next().load(Ordering::Relaxed);
 
         let mut walk = self.r#sized[class].peek().unwrap();
 
@@ -607,16 +612,16 @@ where
             let prev = loop {
                 let slab = slabs.local(walk);
 
-                assert!(slab.owner.is(context.id));
+                assert!(slab.get().owner.is(context.id));
 
-                match slabs.local(walk).next.load(Ordering::Relaxed) {
+                match slabs.local(walk).next().load(Ordering::Relaxed) {
                     None => panic!("removing non-existent slab {} {:?}", index, class),
                     Some(next) if next == index => break slabs.local(walk),
                     Some(next) => walk = next,
                 }
             };
 
-            prev.next.store(next, Ordering::Relaxed);
+            prev.next().store(next, Ordering::Relaxed);
             cache::flush(prev, cache::Invalidate::No);
         };
 

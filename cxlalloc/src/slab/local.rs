@@ -1,77 +1,70 @@
-use core::cell::UnsafeCell;
 use core::mem;
-
-use ribbit::atomic::Atomic32;
 
 use crate::bitset::BitSet;
 use crate::size;
 use crate::size::Bracket as _;
-use crate::slab;
 
 pub(crate) const SIZE_METADATA: usize = mem::size_of::<u64>() + mem::size_of::<Owner>();
 
-#[repr(C, align(64))]
+#[repr(C)]
 pub(crate) struct Local<B: size::Bracket> {
-    pub(crate) next: Atomic32<Option<slab::Index<B>>>,
-    pub(crate) class: Atomic32<B>,
+    pub(crate) class: B,
     pub(crate) owner: Owner,
-    pub(crate) free: UnsafeCell<B::BitSet>,
+    pub(crate) free: B::BitSet,
 }
 
 unsafe impl<B: size::Bracket> Sync for Local<B> {}
 
-impl<B: size::Bracket> Local<B> {
-    pub(crate) fn initialize(local: *mut Self, class: B) {
-        let index =
-            ribbit::convert::loose_to_loose::<_, u64>(ribbit::convert::packed_to_loose(class))
-                as usize;
-        let owner = unsafe { (*core::ptr::addr_of!((*local).owner)).load() };
+impl<B: size::Bracket> Local<B>
+where
+    Local<B>: Cache<B>,
+{
+    pub(crate) fn initialize(&mut self, class: B) {
+        let owner = self.owner.load();
 
-        static SMALL: [Local<size::Small>; size::Small::COUNT] = cache_small();
-        static LARGE: [Local<size::Large>; size::Large::COUNT] = cache_large();
-
-        match std::any::TypeId::of::<B>() {
-            id if id == std::any::TypeId::of::<size::Small>() => unsafe {
-                local.cast::<u8>().copy_from_nonoverlapping(
-                    &SMALL[index] as *const _ as *const u8,
-                    mem::size_of::<Local<size::Small>>(),
-                )
-            },
-            id if id == std::any::TypeId::of::<size::Large>() => unsafe {
-                local.cast::<u8>().copy_from_nonoverlapping(
-                    &LARGE[index] as *const _ as *const u8,
-                    mem::size_of::<Local<size::Large>>(),
-                )
-            },
-            _ => unreachable!(),
+        unsafe {
+            (self as *mut Self).copy_from_nonoverlapping(&<Self as Cache<B>>::CACHE[class], 1);
         }
 
-        unsafe { (*core::ptr::addr_of!((*local).owner)).store(owner) };
+        self.owner.store(owner);
     }
+}
+
+pub(crate) trait Cache<B: size::Bracket>: Sized + 'static {
+    const CACHE: &'static size::Array<B, Self>;
+}
+
+static SMALL: size::Array<size::Small, Local<size::Small>> = cache_small();
+impl Cache<size::Small> for Local<size::Small> {
+    const CACHE: &'static size::Array<size::Small, Self> = &SMALL;
+}
+
+static LARGE: size::Array<size::Large, Local<size::Large>> = cache_large();
+impl Cache<size::Large> for Local<size::Large> {
+    const CACHE: &'static size::Array<size::Large, Self> = &LARGE;
 }
 
 macro_rules! generate {
     ($cache:ident, $new:ident, $ty:path) => {
-        const fn $cache() -> [Local<$ty>; <$ty>::COUNT] {
+        const fn $cache() -> size::Array<$ty, Local<$ty>> {
             let mut locals = [const { $new() }; <$ty>::COUNT];
             let bit_sets = <$ty>::bit_sets();
 
             let mut i = 0;
             while i < locals.len() {
-                locals[i].class = Atomic32::new(<$ty>::from_index(i as u8));
-                locals[i].free = UnsafeCell::new(bit_sets[i]);
+                locals[i].class = <$ty>::from_index(i as u8);
+                locals[i].free = bit_sets[i];
                 i += 1
             }
 
-            locals
+            unsafe { core::mem::transmute(locals) }
         }
 
         const fn $new() -> Local<$ty> {
             Local {
-                next: Atomic32::new(None),
-                class: Atomic32::new(<$ty>::from_index(0)),
+                class: <$ty>::from_index(0),
                 owner: Owner::new(),
-                free: UnsafeCell::new(BitSet::new()),
+                free: BitSet::new(),
             }
         }
     };
@@ -90,6 +83,7 @@ pub(crate) type Owner = assume::Owner;
 mod assume {
     use crate::thread;
 
+    #[derive(Clone)]
     pub(crate) struct Owner;
 
     impl Owner {

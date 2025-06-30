@@ -297,7 +297,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             Some(offset) => (offset, None),
             None => {
                 let index = self.small.peek(context, huge::Descriptor::CLASS).unwrap();
-                let free = unsafe { &mut *self.small.slabs.local(index).free.get() };
+                let free = unsafe { &mut self.small.slabs.local(index).get_mut().free };
                 let block = unsafe { free.peek_unchecked() };
                 (
                     data::Offset::from_block(index, huge::Descriptor::CLASS, block),
