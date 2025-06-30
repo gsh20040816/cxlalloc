@@ -12,30 +12,49 @@ use core::ops;
 
 use crate::bitset;
 
-pub(crate) trait Bracket: ribbit::Pack + Debug + 'static {
+/// A set of size classes that share the same slab size and
+/// in-memory representation.
+pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Debug + 'static {
+    /// Name of this size bracket (for logging and statistics).
     const NAME: &'static str;
 
+    /// Size of the associated slab for this size bracket in bytes.
     const SIZE_SLAB: usize;
+
+    /// Smallest size class in this bracket in bytes.
     const SIZE_MIN: usize;
+
+    /// Largest size class in this bracket in bytes.
     const SIZE_MAX: usize;
+
+    /// Number of size classes in this bracket.
     const COUNT: usize;
 
+    /// Workaround for not being able to use associated const as
+    /// a const generic (for `[T; B::COUNT]` in `struct Array` below).
     type Array<T>: AsRef<[T]> + AsMut<[T]>;
+
+    /// Workaround for not being able to use associated const as
+    /// a const generic (for `BitSet<{ SIZE_SLAB / SIZE_MIN }`).
     type BitSet: bitset::Interface;
 
+    /// Bin `size` into the nearest size class in this bracket.
     fn new(size: usize) -> Option<Self>;
 
-    fn from_index(index: usize) -> Option<Self>;
-
-    fn array<T: Default>() -> Self::Array<T>;
-
-    fn pack(self) -> u8;
-
+    /// Check if this size class corresponds to zero bytes.
     fn is_zero(&self) -> bool;
 
+    /// Size of this size class in bytes.
     fn size(&self) -> u64;
 
+    /// Number of blocks of this size class per slab.
     fn count(&self) -> u64;
+
+    /// Private: construct size class from index.
+    fn from_index(index: usize) -> Option<Self>;
+
+    /// Private: create default-initialized array.
+    fn array<T: Default>() -> Self::Array<T>;
 }
 
 #[repr(transparent)]
@@ -72,13 +91,15 @@ impl<B: Bracket, T> ops::Index<B> for Array<B, T> {
     type Output = T;
 
     fn index(&self, class: B) -> &Self::Output {
-        unsafe { self.inner.as_ref().get_unchecked(class.pack() as usize) }
+        let index = ribbit::convert::packed_to_loose(class) as usize;
+        unsafe { self.inner.as_ref().get_unchecked(index) }
     }
 }
 
 impl<B: Bracket, T> ops::IndexMut<B> for Array<B, T> {
     fn index_mut(&mut self, class: B) -> &mut Self::Output {
-        unsafe { self.inner.as_mut().get_unchecked_mut(class.pack() as usize) }
+        let index = ribbit::convert::packed_to_loose(class) as usize;
+        unsafe { self.inner.as_mut().get_unchecked_mut(index) }
     }
 }
 

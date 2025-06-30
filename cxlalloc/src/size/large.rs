@@ -90,11 +90,6 @@ impl size::Bracket for Large {
     }
 
     #[inline]
-    fn pack(self) -> u8 {
-        self._0().value()
-    }
-
-    #[inline]
     fn is_zero(&self) -> bool {
         false
     }

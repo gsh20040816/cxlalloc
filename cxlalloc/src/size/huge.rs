@@ -38,10 +38,6 @@ impl size::Bracket for Huge {
         [T::default()]
     }
 
-    fn pack(self) -> u8 {
-        0
-    }
-
     #[inline]
     fn is_zero(&self) -> bool {
         false
