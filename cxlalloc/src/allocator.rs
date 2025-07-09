@@ -2,10 +2,10 @@ use core::ffi;
 use core::marker::PhantomData;
 use core::mem;
 use core::mem::MaybeUninit;
-use core::num::NonZeroU64;
 use core::num::NonZeroUsize;
 use core::ptr;
 use core::ptr::NonNull;
+use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
 use ribbit::atomic::Atomic64;
@@ -98,9 +98,10 @@ pub(crate) struct Shared<R> {
 
 #[repr(C, align(64))]
 pub(crate) struct Owned {
-    root: Atomic64<Option<NonZeroU64>>,
+    root: AtomicU64,
 
     pub(crate) link: Atomic64<Option<data::Offset<size::Small>>>,
+    pub(crate) free: Atomic64<Option<data::Offset<size::Small>>>,
     pub(crate) state: Atomic64<Option<recover::State>>,
 }
 
@@ -157,14 +158,14 @@ where
     }
 
     pub fn root_owned(&self) -> Option<&'raw O> {
-        let offset = self.owned.root.load(Ordering::Relaxed)?;
-        let offset = self.small.data.offset_to_offset(offset.get() as usize);
+        let offset = self.owned.root.load(Ordering::Relaxed);
+        let offset = self.small.data.offset_to_offset(offset as usize);
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_ref()) }
     }
 
     pub fn root_owned_mut(&mut self) -> Option<&'raw mut O> {
-        let offset = self.owned.root.load(Ordering::Relaxed)?;
-        let offset = self.small.data.offset_to_offset(offset.get() as usize);
+        let offset = self.owned.root.load(Ordering::Relaxed);
+        let offset = self.small.data.offset_to_offset(offset as usize);
         unsafe { Some(self.small.data.offset_to_pointer(offset).as_mut()) }
     }
 
@@ -284,7 +285,7 @@ where
                 context
                     .owned
                     .root
-                    .store(Some(NonZeroU64::from(offset)), Ordering::Relaxed);
+                    .store(u64::from(offset), Ordering::Relaxed);
                 cache::flush(&context.owned.root, cache::Invalidate::No);
             }
             Some(link) => {
@@ -294,7 +295,82 @@ where
         }
 
         heap.pop(context, class, index, block);
+
         Some(allocation)
+    }
+
+    pub fn free<'link, T: Default>(&mut self, link: Option<&'link mut Option<crate::Box<T>>>) {
+        let size = mem::size_of::<T>();
+
+        let Some(_) = size::Small::new(size) else {
+            return self.free_large_checked(size, link);
+        };
+
+        let context = &mut Context {
+            id: self.id,
+            help: &self.shared.help,
+            owned: self.owned,
+        };
+
+        Self::free_heap(context, self.small.data.clone(), &mut self.small, link)
+    }
+
+    fn free_large_checked<'link, T: Default>(
+        &mut self,
+        size: usize,
+        link: Option<&'link mut Option<crate::Box<T>>>,
+    ) {
+        let Some(_) = size::Large::new(size) else {
+            todo!()
+        };
+
+        let context = &mut Context {
+            id: self.id,
+            help: &self.shared.help,
+            owned: self.owned,
+        };
+
+        Self::free_heap(context, self.small.data.clone(), &mut self.large, link)
+    }
+
+    fn free_heap<B: size::Bracket, T>(
+        context: &mut Context,
+        base: Data<size::Small>,
+        heap: &mut Heap<'raw, view::Focus, B>,
+        mut link: Option<&mut Option<crate::Box<T>>>,
+    ) where
+        slab::Local<B>: slab::local::Cache<B>,
+        recover::State: From<recover::HeapState<B>>,
+    {
+        #[cfg(feature = "recover-log")]
+        let offset = match link.as_mut() {
+            None => {
+                context.owned.free.store(None, Ordering::Relaxed);
+
+                let offset = context.owned.root.load(Ordering::Relaxed);
+                heap.data.offset_to_offset(offset as usize)
+            }
+            Some(link) => {
+                let offset = base.pointer_to_offset(NonNull::from(&mut *link)).unwrap();
+                context.owned.free.store(Some(offset), Ordering::Relaxed);
+
+                let offset = heap
+                    .checked_pointer_to_offset(NonNull::from(link.as_mut().unwrap()).cast())
+                    .unwrap();
+                offset
+            }
+        };
+
+        heap.free(context, offset);
+
+        match link {
+            None => context.owned.root.store(0, Ordering::Relaxed),
+            Some(link) => {
+                *link = None;
+            }
+        }
+
+        context.owned.state.store(None, Ordering::Relaxed);
     }
 }
 
