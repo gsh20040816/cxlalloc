@@ -1,4 +1,5 @@
 use core::mem;
+use core::ptr::NonNull;
 
 use crate::bitset::BitSet;
 use crate::size;
@@ -23,7 +24,8 @@ where
         let owner = self.owner.load();
 
         unsafe {
-            (self as *mut Self).copy_from_nonoverlapping(&<Self as Cache<B>>::CACHE[class], 1);
+            (self as *mut Self)
+                .copy_from_nonoverlapping(&<Self as Cache<B>>::CACHE.as_ref()[class], 1);
         }
 
         self.owner.store(owner);
@@ -31,17 +33,19 @@ where
 }
 
 pub(crate) trait Cache<B: size::Bracket>: Sized + 'static {
-    const CACHE: &'static size::Array<B, Self>;
+    const CACHE: NonNull<size::Array<B, Self>>;
 }
 
 static SMALL: size::Array<size::Small, Local<size::Small>> = cache_small();
 impl Cache<size::Small> for Local<size::Small> {
-    const CACHE: &'static size::Array<size::Small, Self> = &SMALL;
+    const CACHE: NonNull<size::Array<size::Small, Self>> =
+        unsafe { NonNull::new_unchecked(&SMALL as *const _ as *mut _) };
 }
 
 static LARGE: size::Array<size::Large, Local<size::Large>> = cache_large();
 impl Cache<size::Large> for Local<size::Large> {
-    const CACHE: &'static size::Array<size::Large, Self> = &LARGE;
+    const CACHE: NonNull<size::Array<size::Large, Self>> =
+        unsafe { NonNull::new_unchecked(&LARGE as *const _ as *mut _) };
 }
 
 macro_rules! generate {
