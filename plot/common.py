@@ -17,7 +17,7 @@ THREAD_COUNT = "Thread Count"
 PROCESS_COUNT = "Process Count"
 WORKLOAD = "workload"
 THROUGHPUT = "Throughput (ops/sec)"
-MAX_RSS = "Avg. Max RSS (GiB)"
+MAX_RSS = "PSS (GiB)"
 METRICS = [THROUGHPUT, MAX_RSS]
 
 
@@ -76,13 +76,13 @@ class Workload(enum.StrEnum):
 _NAME = pl.col("benchmark").struct["name"]
 WORKLOADS = {
     # memcached
-    Workload.MC_12: (_NAME == "mc")
+    Workload.MC_12: (_NAME == "memcached")
     & pl.col("benchmark").struct["trace"].str.contains("12"),
-    Workload.MC_15: (_NAME == "mc")
+    Workload.MC_15: (_NAME == "memcached")
     & pl.col("benchmark").struct["trace"].str.contains("15"),
-    Workload.MC_31: (_NAME == "mc")
+    Workload.MC_31: (_NAME == "memcached")
     & pl.col("benchmark").struct["trace"].str.contains("31"),
-    Workload.MC_37: (_NAME == "mc")
+    Workload.MC_37: (_NAME == "memcached")
     & pl.col("benchmark").struct["trace"].str.contains("37"),
     # ycsb
     Workload.YCSB_LOAD: _NAME == "ycsb-load",
@@ -284,9 +284,9 @@ def collapse(
             .alias(THROUGHPUT),
             pl.col("output")
             .struct["process"]
-            .struct["resource_usage"]
-            .struct["max_rss"]
-            .mean()
+            .struct["memory"]
+            .struct["pss"]
+            .sum()
             .truediv(2**30)
             .alias(MAX_RSS),
             *agg,
