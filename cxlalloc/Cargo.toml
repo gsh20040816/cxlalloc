@@ -29,6 +29,8 @@ stat-event = ["dep:serde"]
 stat-memory = []
 stat-size = ["dep:hdrhistogram"]
 
+opt-memcpy = []
+
 validate = []
 
 [dependencies]

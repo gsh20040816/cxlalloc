@@ -23,9 +23,17 @@ where
     pub(crate) fn initialize(&mut self, class: B) {
         let owner = self.owner.load();
 
+        #[cfg(feature = "opt-memcpy")]
         unsafe {
             (self as *mut Self)
                 .copy_from_nonoverlapping(&<Self as Cache<B>>::CACHE.as_ref()[class], 1);
+        }
+
+        #[cfg(not(feature = "opt-memcpy"))]
+        {
+            use crate::bitset::Interface as _;
+            self.class = class;
+            self.free.fill(class.count());
         }
 
         self.owner.store(owner);
