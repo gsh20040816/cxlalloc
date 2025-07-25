@@ -7,8 +7,8 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
-readonly cxl_numa_node=${CXL_NUMA_NODE}
-readonly cpu_numa_node=${CPU_NUMA_NODE}
+# readonly cxl_numa_node=${CXL_NUMA_NODE}
+# readonly cpu_numa_node=${CPU_NUMA_NODE}
 
 readonly kernel="/proc/sys/kernel";
 
@@ -48,12 +48,12 @@ echo "performance" | sudo tee $cpu/cpu*{0..9}/cpufreq/scaling_governor
 
 # Disable SMT
 # https://en.wikipedia.org/wiki/Simultaneous_multithreading
-if test -d "$cpu/smt"; then
-    echo off | sudo tee $cpu/smt/control >/dev/null 2>&1
-fi
+# if test -d "$cpu/smt"; then
+#     echo off | sudo tee $cpu/smt/control >/dev/null 2>&1
+# fi
 
 # Disable CPUs on NUMA node 0
-echo 0 | sudo tee ${system}/node/node${cxl_numa_node}/cpu*{0..9}*/online
+# echo 0 | sudo tee ${system}/node/node${cxl_numa_node}/cpu*{0..9}*/online
 
 # Set up CXL device
 if [[ $(daxctl list) ]]; then
