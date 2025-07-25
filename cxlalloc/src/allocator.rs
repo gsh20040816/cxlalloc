@@ -342,9 +342,9 @@ where
         slab::Local<B>: slab::local::Cache<B>,
         recover::State: From<recover::HeapState<B>>,
     {
-        #[cfg(feature = "recover-log")]
         let offset = match link.as_mut() {
             None => {
+                #[cfg(feature = "recover-log")]
                 context.owned.free.store(None, Ordering::Relaxed);
 
                 let offset = context.owned.root.load(Ordering::Relaxed);
@@ -352,6 +352,8 @@ where
             }
             Some(link) => {
                 let offset = base.pointer_to_offset(NonNull::from(&mut *link)).unwrap();
+
+                #[cfg(feature = "recover-log")]
                 context.owned.free.store(Some(offset), Ordering::Relaxed);
 
                 let offset = heap
