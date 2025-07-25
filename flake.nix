@@ -44,9 +44,11 @@
 
           buildInputs = [
             (python3.withPackages (python-pkgs: with python-pkgs; [
-              matplotlib
+              dash
+              dash-bootstrap-components
               plotly
               polars
+              pyarrow
               python-lsp-ruff
               python-lsp-server
             ]))
