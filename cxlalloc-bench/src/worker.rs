@@ -88,37 +88,38 @@ impl Config {
     }
 
     fn specialize_benchmark<B: shm_bench::allocator::Backend>(&self) -> anyhow::Result<()> {
+        type Measure<B> = shm_bench::measure::time::Backend<B>;
+
         // FIXME: figure out how to conditionally specialize index
         match self.benchmark.clone() {
             benchmark::Config::Memcached(memcached) => {
                 assert_eq!(memcached.index.name, "linked");
-                self.run_benchmark::<shm_bench::measure::time::Backend<B>, _>(
-                    shm_bench::index::Capture::<_, index::LinkedHashMap<_>>::new(memcached),
-                )
+                self.run_benchmark::<Measure<B>, _>(shm_bench::index::Capture::<
+                    _,
+                    index::LinkedHashMap<_>,
+                >::new(memcached))
             }
-            benchmark::Config::Mstress(mstress) => {
-                self.run_benchmark::<shm_bench::measure::time::Backend<B>, _>(mstress)
-            }
+            benchmark::Config::Mstress(mstress) => self.run_benchmark::<Measure<B>, _>(mstress),
             benchmark::Config::ThreadTest(thread_test) => {
-                self.run_benchmark::<shm_bench::measure::time::Backend<B>, _>(thread_test)
+                self.run_benchmark::<Measure<B>, _>(thread_test)
             }
             benchmark::Config::YcsbRun(ycsb) => {
                 assert_eq!(ycsb.index.name, "linked");
-                self.run_benchmark::<shm_bench::measure::time::Backend<B>, _>(
-                    shm_bench::index::Capture::<_, index::LinkedHashMap<_>>::new(ycsb),
-                )
+                self.run_benchmark::<Measure<B>, _>(shm_bench::index::Capture::<
+                    _,
+                    index::LinkedHashMap<_>,
+                >::new(ycsb))
             }
             benchmark::Config::YcsbLoad(ycsb) => {
                 assert_eq!(ycsb.index.name, "linked");
-                self.run_benchmark::<shm_bench::measure::time::Backend<B>, _>(
-                    shm_bench::index::Capture::<_, index::LinkedHashMap<_>>::new(
-                        shm_bench::benchmark::ycsb_load::Config(ycsb),
-                    ),
-                )
+                self.run_benchmark::<Measure<B>, _>(shm_bench::index::Capture::<
+                    _,
+                    index::LinkedHashMap<_>,
+                >::new(
+                    shm_bench::benchmark::ycsb_load::Config(ycsb)
+                ))
             }
-            benchmark::Config::Xmalloc(xmalloc) => {
-                self.run_benchmark::<shm_bench::measure::time::Backend<B>, _>(xmalloc)
-            }
+            benchmark::Config::Xmalloc(xmalloc) => self.run_benchmark::<Measure<B>, _>(xmalloc),
         }
     }
 
