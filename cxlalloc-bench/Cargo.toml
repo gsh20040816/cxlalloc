@@ -20,6 +20,7 @@ default = [
     "allocator-boost",
     "allocator-lightning",
     "allocator-ralloc",
+    "recover-shm",
 ]
 consistency-sfence = [
     "cxlalloc-global/recover",
