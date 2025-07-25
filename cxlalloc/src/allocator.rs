@@ -351,10 +351,11 @@ where
                 heap.data.offset_to_offset(offset as usize)
             }
             Some(link) => {
-                let offset = base.pointer_to_offset(NonNull::from(&mut *link)).unwrap();
-
                 #[cfg(feature = "recover-log")]
-                context.owned.free.store(Some(offset), Ordering::Relaxed);
+                {
+                    let offset = base.pointer_to_offset(NonNull::from(&mut **link)).unwrap();
+                    context.owned.free.store(Some(offset), Ordering::Relaxed);
+                }
 
                 let offset = heap
                     .checked_pointer_to_offset(NonNull::from(link.as_mut().unwrap()).cast())
