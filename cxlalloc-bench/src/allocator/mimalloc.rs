@@ -119,11 +119,10 @@ impl shm_bench::allocator::Backend for Backend {
         Ok(())
     }
 
-    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
-        match &self.raw {
-            Some(shm) => mapping.start == shm.address().as_ptr().addr(),
-            None => false,
-        }
+    fn categorize(&self, mapping: &shm_bench::Mapping) -> Option<shm_bench::allocator::Memory> {
+        let shm = self.raw.as_ref()?;
+        (mapping.start == shm.address().as_ptr().addr())
+            .then_some(shm_bench::allocator::Memory::Hwcc)
     }
 }
 

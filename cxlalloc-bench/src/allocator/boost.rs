@@ -71,8 +71,9 @@ impl shm_bench::allocator::Backend for Backend {
         }
     }
 
-    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
-        mapping.start == self.shm.address().as_ptr().addr()
+    fn categorize(&self, mapping: &shm_bench::Mapping) -> Option<shm_bench::allocator::Memory> {
+        (mapping.start == self.shm.address().as_ptr().addr())
+            .then_some(shm_bench::allocator::Memory::Hwcc)
     }
 
     fn unlink(mut self) -> anyhow::Result<()> {

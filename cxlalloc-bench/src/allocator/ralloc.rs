@@ -54,12 +54,23 @@ impl shm_bench::allocator::Backend for Backend {
         Ok(())
     }
 
-    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
-        mapping.path.as_ref().is_some_and(|path| {
-            Path::new(&path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(&self.0))
+    fn categorize(&self, mapping: &shm_bench::Mapping) -> Option<shm_bench::allocator::Memory> {
+        let name = mapping
+            .path
+            .as_ref()
+            .map(Path::new)
+            .and_then(Path::file_name)
+            .and_then(OsStr::to_str)?;
+
+        if name.starts_with(&self.0) {
+            return None;
+        }
+
+        Some(if name.ends_with("desc") || name.ends_with("basemd") {
+            shm_bench::allocator::Memory::Hwcc
+        } else {
+            assert!(name.ends_with("sb"));
+            shm_bench::allocator::Memory::Swcc
         })
     }
 }

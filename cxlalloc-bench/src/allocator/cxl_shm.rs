@@ -37,8 +37,9 @@ impl shm_bench::allocator::Backend for Backend {
             .map_err(anyhow::Error::from)
     }
 
-    fn contains(&self, mapping: &shm_bench::Mapping) -> bool {
-        mapping.start == self.0.address().as_ptr().addr()
+    fn categorize(&self, mapping: &shm_bench::Mapping) -> Option<shm_bench::allocator::Memory> {
+        (mapping.start == self.0.address().as_ptr().addr())
+            .then_some(shm_bench::allocator::Memory::Hwcc)
     }
 
     fn unlink(mut self) -> anyhow::Result<()> {

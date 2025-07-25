@@ -164,7 +164,7 @@ impl Raw {
         let local_small_reservation = Reservation::new()?;
         let local_small = region::Sequential::new(
             &backend,
-            id.with_suffix("ls"),
+            id.with_suffix("local-small"),
             local_small_reservation,
             small.locals,
             small_lazy,
@@ -173,7 +173,7 @@ impl Raw {
         let remote_small_reservation = Reservation::new()?;
         let remote_small = region::Sequential::new(
             &backend,
-            id.with_suffix("rs"),
+            id.with_suffix("remote-small"),
             remote_small_reservation,
             small.remotes,
             small_lazy,
@@ -191,7 +191,7 @@ impl Raw {
         let local_large_reservation = Reservation::new()?;
         let local_large = region::Sequential::new(
             &backend,
-            id.with_suffix("ll"),
+            id.with_suffix("local-large"),
             local_large_reservation,
             large.locals,
             large_lazy,
@@ -200,7 +200,7 @@ impl Raw {
         let remote_large_reservation = Reservation::new()?;
         let remote_large = region::Sequential::new(
             &backend,
-            id.with_suffix("rl"),
+            id.with_suffix("remote-large"),
             remote_large_reservation,
             large.remotes,
             large_lazy,
@@ -211,7 +211,7 @@ impl Raw {
 
         let data_small = region::Sequential::new(
             &backend,
-            id.with_suffix("ds"),
+            id.with_suffix("data-small"),
             data_small_reservation,
             small.data,
             small_lazy,
@@ -219,13 +219,13 @@ impl Raw {
 
         let data_large = region::Sequential::new(
             &backend,
-            id.with_suffix("dl"),
+            id.with_suffix("data-large"),
             data_large_reservation,
             large.data,
             large_lazy,
         )?;
 
-        let data_huge = region::Random::new(id.with_suffix("dh"), data_huge_reservation)?;
+        let data_huge = region::Random::new(id.with_suffix("data-huge"), data_huge_reservation)?;
 
         Ok(Self {
             backend,
