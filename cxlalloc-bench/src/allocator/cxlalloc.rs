@@ -77,11 +77,11 @@ impl shm_bench::allocator::Backend for Backend {
             return None;
         }
 
-        if name.contains("remote") || name.contains("shared") {
-            Some(allocator::Memory::Hwcc)
+        Some(if name.contains("remote") || name.contains("shared") {
+            allocator::Memory::Hwcc
         } else {
-            Some(allocator::Memory::Swcc)
-        }
+            allocator::Memory::Swcc
+        })
     }
 
     #[cfg(feature = "stat-event")]

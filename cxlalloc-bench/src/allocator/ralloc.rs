@@ -69,7 +69,6 @@ impl shm_bench::allocator::Backend for Backend {
         Some(if name.ends_with("desc") || name.ends_with("basemd") {
             shm_bench::allocator::Memory::Hwcc
         } else {
-            assert!(name.ends_with("sb"));
             shm_bench::allocator::Memory::Swcc
         })
     }
