@@ -9,3 +9,6 @@ echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
 git clone git@github.com:nwtnni/cxlalloc.git
 cd cxlalloc
 git submodule update --init --recursive
+
+echo "use flake" > .envrc
+direnv allow .
