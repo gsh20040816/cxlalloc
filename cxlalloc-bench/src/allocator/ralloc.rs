@@ -62,7 +62,7 @@ impl shm_bench::allocator::Backend for Backend {
             .and_then(Path::file_name)
             .and_then(OsStr::to_str)?;
 
-        if name.starts_with(&self.0) {
+        if !name.starts_with(&self.0) {
             return None;
         }
 
