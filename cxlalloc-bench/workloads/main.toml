@@ -13,7 +13,7 @@ numa = [{ policy = "bind", node = 0 }]
 kind = "thread_test"
 iteration_count = [84000]
 operation_count = [10000]
-object_size = [8, 32768]
+object_size = [8]
 
 [[experiment.benchmark]]
 kind = "xmalloc"
@@ -76,7 +76,7 @@ numa = [{ policy = "bind", node = 0 }]
 kind = "thread_test"
 iteration_count = [84000]
 operation_count = [10000]
-object_size = [8, 32768]
+object_size = [8]
 
 [[experiment.benchmark]]
 kind = "xmalloc"
