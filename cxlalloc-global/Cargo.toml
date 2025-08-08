@@ -24,6 +24,8 @@ cxl-mcas = ["cxlalloc/cxl-mcas"]
 stat-event = ["cxlalloc/stat-event"]
 stat-memory = ["cxlalloc/stat-memory"]
 
+opt-memcpy = ["cxlalloc/opt-memcpy"]
+
 validate = ["cxlalloc/validate"]
 
 [dependencies]

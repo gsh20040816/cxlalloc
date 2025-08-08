@@ -47,6 +47,7 @@ cxl-mcas = [
 ]
 recover-shm = ["cxlalloc-global/recover-shm"]
 validate = ["cxlalloc-global/validate"]
+opt-memcpy = ["cxlalloc-global/opt-memcpy"]
 
 allocator-cxlalloc = ["dep:cxlalloc-global"]
 allocator-mimalloc = []
