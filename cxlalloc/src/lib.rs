@@ -7,6 +7,7 @@ mod data;
 mod error;
 mod heap;
 mod huge;
+mod mcas;
 pub mod raw;
 mod recover;
 mod size;

@@ -63,6 +63,8 @@ impl<'raw, L: view::Lens, S, O> Allocator<'raw, L, S, O> {
     pub(crate) unsafe fn focus(mut self, id: thread::Id) -> Allocator<'raw, view::Focus, S, O> {
         self.huge.focus(&self.small.data, id);
 
+        crate::mcas::THREAD_ID.with(|save| save.store(u16::from(id), Ordering::Relaxed));
+
         let mut allocator = Allocator {
             id,
             shared: self.shared,
