@@ -2092,7 +2092,7 @@ dependencies = [
 [[package]]
 name = "shm-bench"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/shm-bench.git#b81dd86dafe857e2539ea873bddeb755102b8301"
+source = "git+https://github.com/nwtnni/shm-bench.git#f1552b7f69ee9628b35738bb7ef0532d96c855e5"
 dependencies = [
  "anyhow",
  "arrow-array",
