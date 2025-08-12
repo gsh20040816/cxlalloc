@@ -65,7 +65,14 @@ impl<T: ribbit::Pack> Atomic<T> {
 pub(crate) fn init() -> &'static Mcas {
     crate::mcas::MCAS.get_or_init(|| {
         let mut csr = Csr::new().unwrap();
-        Mcas::new(&mut csr).unwrap()
+        let mcas = Mcas::new(&mut csr).unwrap();
+
+        // FIXME: assumes single process
+        unsafe {
+            libc::memset(mcas.target.virt, 0, 1 << 16);
+        }
+
+        mcas
     })
 }
 
