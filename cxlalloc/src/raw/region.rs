@@ -58,11 +58,19 @@ pub(crate) struct Fixed {
     size: NonZeroUsize,
 }
 
-pub(crate) struct Sequential {
-    id: Id,
-    create: bool,
-    reservation: Reservation,
-    size: NonZeroUsize,
+pub(crate) enum Sequential {
+    Normal {
+        id: Id,
+        create: bool,
+        reservation: Reservation,
+        size: NonZeroUsize,
+    },
+
+    Mcas {
+        id: Id,
+        address: NonNull<Page>,
+        size: NonZeroUsize,
+    },
 }
 
 pub(crate) struct Random {
@@ -85,6 +93,17 @@ impl Fixed {
             id,
             address,
             create,
+            size,
+        })
+    }
+
+    pub(super) fn new_mcas(id: Id, size: NonZeroUsize) -> crate::Result<Self> {
+        let mcas = crate::mcas::init();
+
+        Ok(Fixed {
+            id,
+            create: true,
+            address: NonNull::new(mcas.target.virt.cast()).expect("Target buffer is null"),
             size,
         })
     }
@@ -133,7 +152,7 @@ impl Sequential {
             }
         };
 
-        Ok(Sequential {
+        Ok(Sequential::Normal {
             id,
             create,
             reservation,
@@ -141,16 +160,54 @@ impl Sequential {
         })
     }
 
+    pub(super) fn new_mcas(id: Id, size: NonZeroUsize) -> crate::Result<Self> {
+        let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
+
+        Ok(Sequential::Mcas {
+            id,
+            address: unsafe {
+                NonNull::new(crate::mcas::init().target.virt.cast())
+                    .unwrap()
+                    .byte_add(1 << 14)
+            },
+            size,
+        })
+    }
+
+    fn size(&self) -> &NonZeroUsize {
+        match self {
+            Sequential::Normal { size, .. } => size,
+            Sequential::Mcas { size, .. } => size,
+        }
+    }
+
+    fn id(&self) -> &Id {
+        match self {
+            Sequential::Normal { id, .. } => id,
+            Sequential::Mcas { id, .. } => id,
+        }
+    }
+
     pub(crate) fn map(&self, backend: &Backend, offset: usize) -> crate::Result<()> {
-        let index = offset / self.size.get();
-        unsafe {
-            backend
-                .open(self.id.with_suffix(index).as_str(), self.size)?
-                .map()
-                .address(self.reservation.start().byte_add(self.size.get() * index))
-                .maybe_numa(backend.numa().cloned())
-                .maybe_populate(backend.populate())
-                .call()?;
+        let index = offset / self.size().get();
+
+        match self {
+            Sequential::Normal {
+                id,
+                create: _,
+                reservation,
+                size,
+            } => unsafe {
+                backend
+                    .open(id.with_suffix(index).as_str(), *size)?
+                    .map()
+                    .address(reservation.start().byte_add(self.size().get() * index))
+                    .maybe_numa(backend.numa().cloned())
+                    .maybe_populate(backend.populate())
+                    .call()?;
+            },
+
+            Sequential::Mcas { .. } => unreachable!(),
         }
 
         Ok(())
@@ -159,20 +216,30 @@ impl Sequential {
 
 impl Region for Sequential {
     fn address(&self) -> NonNull<Page> {
-        self.reservation.start()
+        match self {
+            Sequential::Normal { reservation, .. } => reservation.start(),
+            Sequential::Mcas { address, .. } => *address,
+        }
     }
 
     fn is_clean(&self) -> bool {
-        self.create
+        match self {
+            Sequential::Normal { create, .. } => *create,
+            Sequential::Mcas { .. } => false,
+        }
     }
 
     fn id(&self) -> &str {
-        self.id.as_str()
+        self.id().as_str()
     }
 
     /// Remove all virtual address space mappings for this region.
     fn unmap(&self) -> crate::Result<()> {
-        self.reservation.unmap()?;
+        match self {
+            Sequential::Normal { reservation, .. } => reservation.unmap()?,
+            Sequential::Mcas { .. } => (),
+        }
+
         Ok(())
     }
 }

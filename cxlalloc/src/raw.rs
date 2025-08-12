@@ -147,7 +147,12 @@ impl Raw {
 
         let (shared_size, _) = Self::shared();
         // FIXME: support extension for huge allocation region?
-        let shared = region::Fixed::new(&backend, id.with_suffix("shared"), shared_size)?;
+
+        let shared = if cfg!(feature = "cxl-mcas") {
+            region::Fixed::new_mcas(id.with_suffix("shared"), shared_size)
+        } else {
+            region::Fixed::new(&backend, id.with_suffix("shared"), shared_size)
+        }?;
 
         let (owned_size, _) = Self::owned();
         let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
@@ -170,14 +175,17 @@ impl Raw {
             small_lazy,
         )?;
 
-        let remote_small_reservation = Reservation::new()?;
-        let remote_small = region::Sequential::new(
-            &backend,
-            id.with_suffix("remote-small"),
-            remote_small_reservation,
-            small.remotes,
-            small_lazy,
-        )?;
+        let remote_small = if cfg!(feature = "cxl-mcas") {
+            region::Sequential::new_mcas(id.with_suffix("remote-small"), small.remotes)
+        } else {
+            region::Sequential::new(
+                &backend,
+                id.with_suffix("remote-small"),
+                Reservation::new()?,
+                small.remotes,
+                small_lazy,
+            )
+        }?;
 
         let (large_lazy, large) = match NonZeroUsize::new(
             size_large.next_multiple_of(size::Large::SIZE_SLAB) / size::Large::SIZE_SLAB,

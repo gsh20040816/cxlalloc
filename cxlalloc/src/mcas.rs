@@ -14,7 +14,6 @@ use std::os::fd::OwnedFd;
 use std::sync::OnceLock;
 
 pub(crate) static MCAS: OnceLock<Mcas> = OnceLock::new();
-pub(crate) static TARGET: OnceLock<Buffer> = OnceLock::new();
 
 thread_local! {
     pub(crate) static THREAD_ID: AtomicU16 = const { AtomicU16::new(0) };
@@ -33,6 +32,13 @@ impl<T: ribbit::Pack> Atomic<T> {
                 self.data.load(ordering),
             ))
         }
+    }
+
+    pub fn store(&self, value: T, ordering: Ordering) {
+        self.data.store(
+            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(value)),
+            ordering,
+        )
     }
 
     pub fn compare_exchange(
@@ -56,26 +62,32 @@ impl<T: ribbit::Pack> Atomic<T> {
     }
 }
 
+pub(crate) fn init() -> &'static Mcas {
+    crate::mcas::MCAS.get_or_init(|| {
+        let mut csr = Csr::new().unwrap();
+        Mcas::new(&mut csr).unwrap()
+    })
+}
+
 fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
     let mcas = MCAS.get().unwrap();
 
-    let target = TARGET.get().unwrap();
-    let phys = target.virt_to_phys(address);
+    let phys = mcas.target.virt_to_phys(address);
     let id = THREAD_ID.with(|id| id.load(Ordering::Relaxed) as u64);
 
     log::warn!(
         "{} {:?} {:?} mcas: v{:x?} p{:x?} o{} n{}",
         id,
         mcas,
-        target,
+        mcas.target,
         address,
         phys,
         old,
         new
     );
 
-    let wr = mcas.write.address_virt.cast::<u64>();
-    let rd = mcas.read.address_virt.cast::<u64>();
+    let wr = mcas.write.virt.cast::<u64>();
+    let rd = mcas.read.virt.cast::<u64>();
 
     unsafe {
         let mut buffer: Aligned = Aligned([old, new, phys, id * 2, 0, 0, 0, 0]);
@@ -120,7 +132,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
 #[repr(C, align(64))]
 struct Aligned([u64; 8]);
 
-const CXL_PCIE_BAR_PATH: &CStr = c"/sys/devices/pci0000:27/0000:27:00.1/resource2";
+const CXL_PCIE_BAR_PATH: &CStr = c"/sys/devices/pci0000:ab/0000:ab:00.1/resource2";
 const PAGE_SIZE: usize = 1 << 12;
 
 #[derive(Debug)]
@@ -160,10 +172,15 @@ impl Csr {
     }
 }
 
+impl Drop for Csr {
+    fn drop(&mut self) {}
+}
+
 #[derive(Debug)]
 pub struct Mcas {
-    read: Buffer,
-    write: Buffer,
+    pub(crate) read: Buffer,
+    pub(crate) write: Buffer,
+    pub(crate) target: Buffer,
 }
 
 unsafe impl Sync for Mcas {}
@@ -174,14 +191,15 @@ impl Mcas {
         Ok(Self {
             read: Buffer::read(csr)?,
             write: Buffer::write(csr)?,
+            target: Buffer::target(csr)?,
         })
     }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct Buffer {
-    address_phys: *mut libc::c_void,
-    address_virt: *mut libc::c_void,
+    pub(crate) phys: *mut libc::c_void,
+    pub(crate) virt: *mut libc::c_void,
 }
 
 unsafe impl Sync for Buffer {}
@@ -207,20 +225,11 @@ impl Buffer {
     }
 
     pub fn target(csr: &mut Csr) -> io::Result<Self> {
-        let buffer = Self::map(csr, None, c"/proc/mcas_target_buff", PAGE_SIZE * 16)?;
-
-        unsafe {
-            libc::memset(buffer.address_virt.cast(), 0, PAGE_SIZE * 16);
-        }
-
-        Ok(buffer)
+        Self::map(csr, None, c"/proc/mcas_target_buff", PAGE_SIZE * 16)
     }
 
     fn virt_to_phys(&self, address: *mut u64) -> u64 {
-        (address as u64)
-            .checked_sub(self.address_virt as u64)
-            .unwrap()
-            + self.address_phys as u64
+        (address as u64).checked_sub(self.virt as u64).unwrap() + self.phys as u64
     }
 
     fn map(csr: &mut Csr, index: Option<usize>, name: &CStr, size: usize) -> io::Result<Self> {
@@ -258,8 +267,8 @@ impl Buffer {
             };
 
             Ok(Self {
-                address_phys: address_phys as *mut _,
-                address_virt,
+                phys: address_phys as *mut _,
+                virt: address_virt,
             })
         }
     }

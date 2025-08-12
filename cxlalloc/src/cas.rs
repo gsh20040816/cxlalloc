@@ -1,14 +1,18 @@
 use core::sync::atomic::Ordering;
 
-use ribbit::atomic::Atomic64;
-
 use crate::allocator;
 use crate::cache;
 use crate::recover;
 use crate::recover::HeapState;
 use crate::thread;
 
-pub(crate) struct Detectable<T>(Atomic64<State<T>>);
+#[cfg(feature = "cxl-mcas")]
+type Atomic<T> = crate::mcas::Atomic<T>;
+
+#[cfg(not(feature = "cxl-mcas"))]
+type Atomic<T> = ribbit::atomic::Atomic64<T>;
+
+pub(crate) struct Detectable<T>(Atomic<State<T>>);
 
 #[ribbit::pack(size = 64, debug)]
 pub(crate) struct State<T> {
