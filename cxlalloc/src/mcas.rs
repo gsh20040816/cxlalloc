@@ -121,7 +121,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
             "movdqu xmm0, [{input}]",
             "movdqu [{output}], xmm0",
             input = in(reg) rd,
-            output = in(reg) out.as_ptr(),
+            output = in(reg) &mut out,
         }
 
         let result = out[0];
