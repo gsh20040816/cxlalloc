@@ -17,7 +17,7 @@ pub(crate) struct Id {
 }
 
 impl Id {
-    pub(crate) const SIZE: usize = 32;
+    pub(crate) const SIZE: usize = 64;
 
     pub(crate) fn new(inner: &str) -> Self {
         let mut buffer = [0u8; Self::SIZE];
