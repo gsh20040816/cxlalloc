@@ -277,16 +277,29 @@ def collapse(
                 .struct["thread"]
                 .list.explode()
                 .struct["operation_count"]
-                / pl.col("output").struct["thread"].list.explode().struct["time"]
+                / pl.col("output")
+                .struct["thread"]
+                .list.explode()
+                .struct["time"]
+                .struct["total"]
                 * 1e9
             )
             .sum()
             .alias(THROUGHPUT),
-            pl.col("output")
-            .struct["process"]
-            .struct["memory"]
-            .struct["pss"]
-            .sum()
+            (
+                pl.col("output")
+                .struct["process"]
+                .struct["memory"]
+                .struct["swcc"]
+                .struct["pss"]
+                .sum()
+                + pl.col("output")
+                .struct["process"]
+                .struct["memory"]
+                .struct["hwcc"]
+                .struct["pss"]
+                .sum()
+            )
             .truediv(2**30)
             .alias(MAX_RSS),
             *agg,
