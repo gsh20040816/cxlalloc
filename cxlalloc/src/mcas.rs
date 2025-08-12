@@ -114,7 +114,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
         core::arch::x86_64::_mm_clflush(rd.cast());
         core::arch::x86_64::_mm_mfence();
 
-        let rd = rd.byte_add(id as usize * 64);
+        let rd = rd.byte_add(id as usize * 2 * 8);
         let mut out = [0u64; 2];
 
         core::arch::asm! {
