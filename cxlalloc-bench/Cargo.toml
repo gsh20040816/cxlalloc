@@ -49,6 +49,8 @@ recover-shm = ["cxlalloc-global/recover-shm"]
 validate = ["cxlalloc-global/validate"]
 opt-memcpy = ["cxlalloc-global/opt-memcpy"]
 
+uiuc = ["allocator-cxlalloc", "recover-shm", "cxl-mcas"]
+
 allocator-cxlalloc = ["dep:cxlalloc-global"]
 allocator-mimalloc = []
 allocator-cxl-shm = []
