@@ -36,11 +36,8 @@ void cxlalloc_set_log(const char *level);
  *
  * Defaults to the mmap driver if `cxlalloc_init_backend` was not called.
  */
-void cxlalloc_init(const char *name,
-                   size_t size,
-                   uint8_t thread_id,
-                   uint8_t thread_count,
-                   uint8_t process_id,
+void cxlalloc_init(const char *name, size_t size, uint8_t thread_id,
+                   uint8_t thread_count, uint8_t process_id,
                    uint8_t process_count);
 
 bool cxlalloc_is_clean(void);
@@ -49,11 +46,7 @@ void cxlalloc_init_thread(size_t thread_id);
 
 void *cxlalloc_malloc(size_t size);
 
-void cxlalloc_link(void *pointer);
-
 void cxlalloc_free(void *pointer);
-
-void cxlalloc_unlink(void *pointer);
 
 void *cxlalloc_realloc(void *pointer, size_t size);
 

@@ -3,11 +3,9 @@
 use core::mem;
 use core::ops::Deref;
 use core::ptr;
-use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::alloc::Layout;
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::env;
 use std::ffi;
@@ -38,6 +36,7 @@ fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::
 enum Backend {
     Mmap,
     Shm,
+    Ivshmem,
 }
 
 impl Backend {
@@ -45,6 +44,7 @@ impl Backend {
         match name {
             "mmap" => Backend::Mmap,
             "shm" => Backend::Shm,
+            "ivshmem" => Backend::Ivshmem,
             unknown => panic!("Expected one of [mmap, shm], but got {}", unknown),
         }
     }
@@ -60,6 +60,9 @@ impl Backend {
         match self {
             Backend::Mmap => builder.backend(raw::backend::Mmap).build(),
             Backend::Shm => builder.backend(raw::backend::Shm).build(),
+            Backend::Ivshmem => builder
+                .backend(shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"))
+                .build(),
         }
     }
 }
@@ -263,28 +266,13 @@ pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: usize) {
     }));
 }
 
-thread_local! {
-    static SAVE: Cell<Option<*mut ffi::c_void>> = const { Cell::new(None) };
-}
-
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
-    let allocation = ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size));
-    SAVE.replace(Some(allocation));
-    allocation
+    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_link(pointer: *mut ffi::c_void) {
-    let saved = SAVE.take().expect("Called link without previous malloc");
-    let offset = saved as isize - pointer as isize;
-    pointer
-        .cast::<AtomicIsize>()
-        .as_ref()
-        .unwrap()
-        .store(offset, Ordering::Release);
-}
-
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
     let Some(pointer) = NonNull::new(pointer) else {
@@ -297,19 +285,7 @@ pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_unlink(pointer: *mut ffi::c_void) {
-    cxlalloc_free(pointer);
-
-    // Boost uses 1 as their null pointer:
-    // https://www.boost.org/doc/libs/1_35_0/doc/html/interprocess/offset_ptr.html
-    pointer
-        .cast::<AtomicIsize>()
-        .as_ref()
-        .unwrap()
-        .store(1, Ordering::Release);
-}
-
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_realloc(
     pointer: *mut ffi::c_void,
@@ -323,12 +299,14 @@ pub unsafe extern "C" fn cxlalloc_realloc(
     ALLOCATOR.with_borrow_mut(|allocator| allocator.realloc_untyped(block, size))
 }
 
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mut ffi::c_void {
     let layout = Layout::from_size_align(size, alignment).expect("Invalid size and alignment");
     ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
 }
 
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
     ALLOCATOR.with_borrow(|allocator| {
@@ -339,14 +317,17 @@ pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
     })
 }
 
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_set_root(index: usize, pointer: *mut ffi::c_void) {
     ALLOCATOR.with_borrow(|allocator| allocator.set_root_untyped(index, pointer))
 }
 
+#[inline]
 #[no_mangle]
 pub extern "C" fn cxlalloc_close() {}
 
+#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     pointer: *const ffi::c_void,
@@ -364,16 +345,19 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
 }
 
 /// Convert a persistent offset into a pointer in this process address space.
+#[inline]
 #[no_mangle]
 pub extern "C" fn cxlalloc_offset_to_pointer(offset: u64) -> *mut ffi::c_void {
     ALLOCATOR.with_borrow(|allocator| allocator.offset_to_pointer(offset as usize).as_ptr())
 }
 
+#[inline]
 fn raw() -> &'static raw::Raw {
     RAW.get()
         .expect("Uninitialized heap: was cxlalloc_init called?")
 }
 
+#[inline]
 fn thread_id() -> cxlalloc::thread::Id {
     THREAD_ID.with(|id| {
         id.borrow()

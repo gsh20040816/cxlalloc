@@ -19,3 +19,4 @@ cxlalloc = { path = "../cxlalloc", default-features = false }
 env_logger.workspace = true
 libc.workspace = true
 log.workspace = true
+shm = { git = "https://github.com/nwtnni/shm.git", features = ["ivshmem"] }
