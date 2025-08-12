@@ -46,8 +46,8 @@ def main():
     for col, workload in enumerate(common.MACRO_WORKLOADS):
         data = (
             df.filter(pl.col(WORKLOAD) == workload)
-            .select(common.MAX_RSS)
-            .sort(common.MAX_RSS)
+            .select(common.PSS)
+            .sort(common.PSS)
             .collect()
             .head(-9)
             .to_series()

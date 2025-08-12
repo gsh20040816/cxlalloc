@@ -15,10 +15,12 @@ DATE = "date"
 ALLOCATOR = "Allocator"
 THREAD_COUNT = "Thread Count"
 PROCESS_COUNT = "Process Count"
-WORKLOAD = "workload"
+WORKLOAD = "Workload"
 THROUGHPUT = "Throughput (ops/sec)"
-MAX_RSS = "PSS (GiB)"
-METRICS = [THROUGHPUT, MAX_RSS]
+PSS = "PSS (GiB)"
+SWCC = "SWcc (GiB)"
+HWCC = "HWcc (GiB)"
+METRICS = [THROUGHPUT, PSS]
 
 
 class Allocator(enum.StrEnum):
@@ -283,33 +285,37 @@ def collapse(
             )
             .sum()
             .alias(THROUGHPUT),
-            (
-                pl.col("output")
-                .struct["process"]
-                .struct["memory"]
-                .struct["swcc"]
-                .struct["pss"]
-                .sum()
-                + pl.col("output")
-                .struct["process"]
-                .struct["memory"]
-                .struct["hwcc"]
-                .struct["pss"]
-                .sum()
-            )
+            pl.col("output")
+            .struct["process"]
+            .struct["memory"]
+            .struct["swcc"]
+            .struct["pss"]
+            .sum()
             .truediv(2**30)
-            .alias(MAX_RSS),
+            .alias(SWCC),
+            pl.col("output")
+            .struct["process"]
+            .struct["memory"]
+            .struct["hwcc"]
+            .struct["pss"]
+            .sum()
+            .truediv(2**30)
+            .alias(HWCC),
             *agg,
         )
         .filter(pl.col(ALLOCATOR).is_in(allocators))
-        .filter(pl.col(WORKLOAD) == pl.col(WORKLOAD))
+        .filter(pl.col(WORKLOAD).is_in(workloads))
         .drop(DATE)
-        .group_by(cs.exclude(THROUGHPUT, MAX_RSS))
+        .group_by(cs.exclude(THROUGHPUT, SWCC, HWCC))
         .agg(
             pl.col(THROUGHPUT).mean().alias(THROUGHPUT),
             pl.col(THROUGHPUT).std().alias(THROUGHPUT + "_std"),
-            pl.col(MAX_RSS).mean().alias(MAX_RSS),
-            pl.col(MAX_RSS).std().alias(MAX_RSS + "_std"),
+            pl.col(SWCC).mean().alias(SWCC),
+            pl.col(SWCC).std().alias(SWCC + "_std"),
+            pl.col(HWCC).mean().alias(HWCC),
+            pl.col(HWCC).std().alias(HWCC + "_std"),
+            (pl.col(SWCC) + pl.col(HWCC)).mean().alias(PSS),
+            (pl.col(SWCC) + pl.col(HWCC)).std().alias(PSS + "_std"),
         )
         # cxl-shm doesn't support allocations >= 1KiB
         .filter(

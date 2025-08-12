@@ -1,5 +1,5 @@
 import common
-from common import ALLOCATOR, THROUGHPUT, MAX_RSS, THREAD_COUNT, WORKLOAD
+from common import ALLOCATOR, THROUGHPUT, PSS, THREAD_COUNT, WORKLOAD
 import sys
 import polars as pl
 import polars.selectors as cs
@@ -16,15 +16,13 @@ def main():
             pl.col("allocator").struct["numa"].struct["policy"].first(),
         )
         .collect()
-        .pivot("policy", values=cs.by_name("date", THROUGHPUT, MAX_RSS))
+        .pivot("policy", values=cs.by_name("date", THROUGHPUT, PSS))
         .select(
-            ~(cs.starts_with(THROUGHPUT, MAX_RSS, "date")),
+            ~(cs.starts_with(THROUGHPUT, PSS, "date")),
             (pl.col(THROUGHPUT + "_bind") / pl.col(THROUGHPUT + "_interleave")).alias(
                 THROUGHPUT
             ),
-            (pl.col(MAX_RSS + "_bind") / pl.col(MAX_RSS + "_interleave")).alias(
-                MAX_RSS
-            ),
+            (pl.col(PSS + "_bind") / pl.col(PSS + "_interleave")).alias(PSS),
         )
     )
 

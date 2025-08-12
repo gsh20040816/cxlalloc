@@ -1,5 +1,5 @@
 import common
-from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, MAX_RSS
+from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, PSS
 import polars as pl
 import plotly.graph_objects as go
 import plotly.subplots as sp
@@ -51,8 +51,8 @@ def main():
     for col, workload in enumerate(common.MICRO_WORKLOADS):
         data = (
             df.filter(pl.col(WORKLOAD) == workload)
-            .select(MAX_RSS)
-            .sort(MAX_RSS)
+            .select(PSS)
+            .sort(PSS)
             .collect()
             .head(-len(thread_counts))
             .to_series()
