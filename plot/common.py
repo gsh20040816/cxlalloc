@@ -22,11 +22,11 @@ METRICS = [THROUGHPUT, MAX_RSS]
 
 
 class Allocator(enum.StrEnum):
-    SHMALLOC = "shmalloc"
-    SHMALLOC_CXL = "shmalloc-cxl"
-    SHMALLOC_SFENCE = "shmalloc-hwcc-gpf"
-    SHMALLOC_CLFLUSHOPT = "shmalloc-hwcc"
-    SHMALLOC_FLUSH_CAS = "shmalloc-flush-cas"
+    CXLALLOC = "cxlalloc"
+    CXLALLOC_CXL = "cxlalloc-cxl"
+    CXLALLOC_SFENCE = "cxlalloc-hwcc-gpf"
+    CXLALLOC_CLFLUSHOPT = "cxlalloc-hwcc"
+    CXLALLOC_FLUSH_CAS = "cxlalloc-flush-cas"
     MIMALLOC = "mimalloc"
     RALLOC = "ralloc"
     CXL_SHM = "cxl-shm"
@@ -36,16 +36,16 @@ class Allocator(enum.StrEnum):
 
 _NAME = pl.col("allocator").struct["name"]
 ALLOCATORS = {
-    Allocator.SHMALLOC_FLUSH_CAS: _NAME == "cxlalloc-flush-cas",
-    Allocator.SHMALLOC: (_NAME == "cxlalloc")
+    Allocator.CXLALLOC_FLUSH_CAS: _NAME == "cxlalloc-flush-cas",
+    Allocator.CXLALLOC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 0),
-    Allocator.SHMALLOC_CXL: (_NAME == "cxlalloc")
+    Allocator.CXLALLOC_CXL: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 2),
-    Allocator.SHMALLOC_SFENCE: (_NAME == "cxlalloc")
+    Allocator.CXLALLOC_SFENCE: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "sfence"),
-    Allocator.SHMALLOC_CLFLUSHOPT: (_NAME == "cxlalloc")
+    Allocator.CXLALLOC_CLFLUSHOPT: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "clflushopt"),
     Allocator.MIMALLOC: _NAME == "mimalloc",
     Allocator.RALLOC: _NAME == "ralloc",
@@ -91,16 +91,16 @@ WORKLOADS = {
     Workload.YCSB_D: (_NAME == "ycsb-run")
     & (pl.col("benchmark").struct["insert_proportion"] < 0.06),
     # threadtest
-    Workload.THREADTEST_SMALL: (_NAME == "tt")
+    Workload.THREADTEST_SMALL: (_NAME == "thread-test")
     & (pl.col("benchmark").struct["object_size"] == 8),
     # Workload.THREADTEST_LARGE: (_NAME == "tt")
     # & (pl.col("benchmark").struct["object_size"] == 1 << 15),
-    Workload.THREADTEST_HUGE: (_NAME == "tt")
+    Workload.THREADTEST_HUGE: (_NAME == "thread-test")
     & (pl.col("benchmark").struct["object_size"] == 1 << 30),
     # xmalloc
-    Workload.XMALLOC_SMALL: (_NAME == "xm"),
+    Workload.XMALLOC_SMALL: (_NAME == "xmalloc"),
     # & (pl.col("benchmark").struct["batch_count"] == 120),
-    Workload.XMALLOC_HUGE: (_NAME == "xm") & (pl.col("benchmark").struct["huge"]),
+    Workload.XMALLOC_HUGE: (_NAME == "xmalloc") & (pl.col("benchmark").struct["huge"]),
 }
 
 MICRO_WORKLOADS = [
@@ -130,11 +130,11 @@ SIZE_LEGEND_TITLE = 16
 SIZE_LEGEND_ENTRY = 16
 
 COLORS = {
-    Allocator.SHMALLOC: "black",
-    Allocator.SHMALLOC_CXL: "black",
-    Allocator.SHMALLOC_SFENCE: "black",
-    Allocator.SHMALLOC_CLFLUSHOPT: "black",
-    Allocator.SHMALLOC_FLUSH_CAS: "black",
+    Allocator.CXLALLOC: "black",
+    Allocator.CXLALLOC_CXL: "black",
+    Allocator.CXLALLOC_SFENCE: "black",
+    Allocator.CXLALLOC_CLFLUSHOPT: "black",
+    Allocator.CXLALLOC_FLUSH_CAS: "black",
     Allocator.MIMALLOC: SCHEME[0],
     Allocator.RALLOC: SCHEME[1],
     Allocator.CXL_SHM: SCHEME[2],
@@ -144,11 +144,11 @@ COLORS = {
 
 # https://plotly.com/python-api-reference/generated/plotly.graph_objects.Scatter.html#plotly.graph_objects.scatter.Line.dash
 DASHES = {
-    Allocator.SHMALLOC: "solid",
-    Allocator.SHMALLOC_CXL: "solid",
-    Allocator.SHMALLOC_SFENCE: "solid",
-    Allocator.SHMALLOC_CLFLUSHOPT: "solid",
-    Allocator.SHMALLOC_FLUSH_CAS: "solid",
+    Allocator.CXLALLOC: "solid",
+    Allocator.CXLALLOC_CXL: "solid",
+    Allocator.CXLALLOC_SFENCE: "solid",
+    Allocator.CXLALLOC_CLFLUSHOPT: "solid",
+    Allocator.CXLALLOC_FLUSH_CAS: "solid",
     Allocator.MIMALLOC: "solid",
     Allocator.RALLOC: "solid",
     Allocator.CXL_SHM: "solid",
@@ -157,16 +157,16 @@ DASHES = {
 }
 
 SYMBOLS = {
-    Allocator.SHMALLOC: "circle",
+    Allocator.CXLALLOC: "circle",
     Allocator.MIMALLOC: "triangle-up",
     Allocator.RALLOC: "square",
     Allocator.CXL_SHM: "diamond",
     Allocator.BOOST: "cross",
     Allocator.LIGHTNING: "x",
-    Allocator.SHMALLOC_CXL: "square",
-    Allocator.SHMALLOC_SFENCE: "diamond",
-    Allocator.SHMALLOC_CLFLUSHOPT: "cross",
-    Allocator.SHMALLOC_FLUSH_CAS: "x",
+    Allocator.CXLALLOC_CXL: "square",
+    Allocator.CXLALLOC_SFENCE: "diamond",
+    Allocator.CXLALLOC_CLFLUSHOPT: "cross",
+    Allocator.CXLALLOC_FLUSH_CAS: "x",
 }
 
 
@@ -262,16 +262,13 @@ def style(allocator, function, *args, **kwargs):
 def collapse(
     df, allocators=list(ALLOCATORS.keys()), workloads=list(WORKLOADS.keys()), *agg
 ):
-    allocators = translate(ALLOCATORS, allocators)
-    workloads = translate(WORKLOADS, workloads)
-
     return (
         df.group_by("date")
         .agg(
-            allocators.first().alias(ALLOCATOR),
+            translate(ALLOCATORS, allocators).first().alias(ALLOCATOR),
             pl.col("global").struct["process_count"].first().alias(PROCESS_COUNT),
             pl.col("global").struct["thread_count"].first().alias(THREAD_COUNT),
-            workloads.first().alias(WORKLOAD),
+            translate(WORKLOADS, workloads).first().alias(WORKLOAD),
             (
                 pl.col("output")
                 .struct["thread"]
@@ -304,6 +301,8 @@ def collapse(
             .alias(MAX_RSS),
             *agg,
         )
+        .filter(pl.col(ALLOCATOR).is_in(allocators))
+        .filter(pl.col(WORKLOAD) == pl.col(WORKLOAD))
         .drop(DATE)
         .group_by(cs.exclude(THROUGHPUT, MAX_RSS))
         .agg(

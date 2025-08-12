@@ -1,6 +1,12 @@
 import common
 
-from common import ALLOCATOR, ALLOCATORS, THREAD_COUNT, WORKLOAD, METRICS
+from common import (
+    ALLOCATOR,
+    ALLOCATORS,
+    THREAD_COUNT,
+    WORKLOAD,
+    METRICS,
+)
 
 import polars as pl
 import plotly.graph_objects as go
@@ -36,28 +42,28 @@ def main():
 
     fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
-    # # Clip lightning RSS
-    # for col, workload in enumerate(common.MACRO_WORKLOADS):
-    #     data = (
-    #         df.filter(pl.col(WORKLOAD) == workload)
-    #         .select(common.MAX_RSS)
-    #         .sort(common.MAX_RSS)
-    #         .collect()
-    #         .head(-9)
-    #         .to_series()
-    #     )
-    #
-    #     # low = data.first() * 0.99
-    #     low = 0.0
-    #     high = data.last() * 1.1
-    #
-    #     fig.for_each_yaxis(
-    #         lambda yaxis: yaxis.update(range=(low, high)),
-    #         col=col + 1,
-    #         row=2,
-    #     )
+    # Clip lightning RSS
+    for col, workload in enumerate(common.MACRO_WORKLOADS):
+        data = (
+            df.filter(pl.col(WORKLOAD) == workload)
+            .select(common.MAX_RSS)
+            .sort(common.MAX_RSS)
+            .collect()
+            .head(-9)
+            .to_series()
+        )
 
-    common.update_layout(fig, full=True, numa=False)
+        # low = data.first() * 0.99
+        low = 0.0
+        high = data.last() * 1.1
+
+        fig.for_each_yaxis(
+            lambda yaxis: yaxis.update(range=(low, high)),
+            col=col + 1,
+            row=2,
+        )
+
+    common.update_layout(fig, full=True, numa=True)
 
     fig.write_image("out.pdf")
     fig.show()

@@ -47,26 +47,26 @@ def main():
 
     fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
-    # # Clip lightning RSS
-    # for col, workload in enumerate(common.MICRO_WORKLOADS):
-    #     data = (
-    #         df.filter(pl.col(WORKLOAD) == workload)
-    #         .select(MAX_RSS)
-    #         .sort(MAX_RSS)
-    #         .collect()
-    #         .head(-len(thread_counts))
-    #         .to_series()
-    #     )
-    #
-    #     # low = data.first() * 0.99
-    #     low = 0.0
-    #     high = data.last() * 1.1
-    #
-    #     fig.for_each_yaxis(
-    #         lambda yaxis: yaxis.update(range=(low, high)),
-    #         col=col + 1,
-    #         row=2,
-    #     )
+    # Clip lightning RSS
+    for col, workload in enumerate(common.MICRO_WORKLOADS):
+        data = (
+            df.filter(pl.col(WORKLOAD) == workload)
+            .select(MAX_RSS)
+            .sort(MAX_RSS)
+            .collect()
+            .head(-len(thread_counts))
+            .to_series()
+        )
+
+        # low = data.first() * 0.99
+        low = 0.0
+        high = data.last() * 1.1
+
+        fig.for_each_yaxis(
+            lambda yaxis: yaxis.update(range=(low, high)),
+            col=col + 1,
+            row=2,
+        )
 
     common.update_layout(fig, full=False, numa=False)
 
