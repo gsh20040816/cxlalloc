@@ -88,20 +88,18 @@ pub(crate) fn init_thread(id: thread::Id) {
 
 fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
     let mcas = MCAS.get().unwrap();
-
     let phys = mcas.target.virt_to_phys(address);
-    let id = THREAD_ID.with(|id| id.load(Ordering::Relaxed) as u64);
 
-    log::warn!(
-        "{} {:?} {:?} mcas: v{:x?} p{:x?} o{} n{}",
-        id,
+    log::info!(
+        "{:x?} mcas: v{:x?} p{:x?} o{:#x} n{:#x}",
         mcas,
-        mcas.target,
         address,
         phys,
         old,
         new
     );
+
+    let id = THREAD_ID.with(|id| id.load(Ordering::Relaxed) as u64);
 
     unsafe {
         let write = mcas.write.virt;
