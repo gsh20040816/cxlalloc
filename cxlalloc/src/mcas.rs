@@ -104,12 +104,8 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
     );
 
     unsafe {
-        let write = mcas.write.virt.as_ptr();
-        let read = mcas
-            .read
-            .virt
-            .cast::<u64>()
-            .byte_add(id as usize * 2 * 64 + 1);
+        let write = mcas.write.virt;
+        let read = mcas.read.virt.cast::<u64>().byte_add(id as usize * 2 * 64);
 
         #[repr(C, align(64))]
         struct Aligned([u64; 8]);
@@ -118,7 +114,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
 
         core::arch::asm! {
             "movdir64b {dst}, [{src}]",
-            dst = in(reg) write,
+            dst = in(reg) write.as_ptr(),
             src  = in(reg) &buffer,
         }
 
@@ -129,7 +125,14 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
         // But result can be garbage if not successful, so
         // it's not reliable. Must reload value from memory
         // when CAS fails to get an estimate of current value.
-        let success = read.read_volatile();
+        let mut out = [0u64; 2];
+        core::arch::asm! {
+            "movdqu xmm0, [{input}]",
+            "movdqu [{output}], xmm0",
+            input = in(reg) read.as_ptr(),
+            output = in(reg) &mut out,
+        }
+        let success = out[1];
         log::warn!("{id} mcas result: {success}");
         success > 0
     }
