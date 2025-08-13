@@ -5,7 +5,7 @@ import subprocess as sp
 # https://stackoverflow.com/questions/5137497/find-the-current-directory-and-files-directory
 ROOT = os.path.dirname(os.path.realpath(__file__))
 OBJECT_COUNT = 100000
-CRASH_COUNTS = [0, 1, 2, 4, 8]
+CRASH_COUNTS = [0, 1, 2]
 WORKLOADS = ["queue", "clevel"]
 ITERATIONS = 10
 
