@@ -25,10 +25,8 @@ METRICS = [THROUGHPUT, PSS]
 
 class Allocator(enum.StrEnum):
     CXLALLOC = "cxlalloc"
-    CXLALLOC_CXL = "cxlalloc-cxl"
-    CXLALLOC_SFENCE = "cxlalloc-hwcc-gpf"
-    CXLALLOC_CLFLUSHOPT = "cxlalloc-hwcc"
-    CXLALLOC_FLUSH_CAS = "cxlalloc-flush-cas"
+    CXLALLOC_HWCC = "cxlalloc-hwcc"
+    CXLALLOC_MCAS = "cxlalloc-mcas"
     MIMALLOC = "mimalloc"
     RALLOC = "ralloc"
     CXL_SHM = "cxl-shm"
@@ -38,17 +36,15 @@ class Allocator(enum.StrEnum):
 
 _NAME = pl.col("allocator").struct["name"]
 ALLOCATORS = {
-    Allocator.CXLALLOC_FLUSH_CAS: _NAME == "cxlalloc-flush-cas",
     Allocator.CXLALLOC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 0),
-    Allocator.CXLALLOC_CXL: (_NAME == "cxlalloc")
-    & (pl.col("allocator").struct["consistency"] == "none")
+    Allocator.CXLALLOC_HWCC: (_NAME == "cxlalloc")
+    & (pl.col("allocator").struct["coherence"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 2),
-    Allocator.CXLALLOC_SFENCE: (_NAME == "cxlalloc")
-    & (pl.col("allocator").struct["consistency"] == "sfence"),
-    Allocator.CXLALLOC_CLFLUSHOPT: (_NAME == "cxlalloc")
-    & (pl.col("allocator").struct["consistency"] == "clflushopt"),
+    Allocator.CXLALLOC_MCAS: (_NAME == "cxlalloc")
+    & (pl.col("allocator").struct["coherence"] == "mcas")
+    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
     Allocator.MIMALLOC: _NAME == "mimalloc",
     Allocator.RALLOC: _NAME == "ralloc",
     Allocator.CXL_SHM: _NAME == "cxl_shm",
@@ -133,10 +129,8 @@ SIZE_LEGEND_ENTRY = 16
 
 COLORS = {
     Allocator.CXLALLOC: "black",
-    Allocator.CXLALLOC_CXL: "black",
-    Allocator.CXLALLOC_SFENCE: "black",
-    Allocator.CXLALLOC_CLFLUSHOPT: "black",
-    Allocator.CXLALLOC_FLUSH_CAS: "black",
+    Allocator.CXLALLOC_HWCC: "black",
+    Allocator.CXLALLOC_MCAS: "black",
     Allocator.MIMALLOC: SCHEME[0],
     Allocator.RALLOC: SCHEME[1],
     Allocator.CXL_SHM: SCHEME[2],
@@ -147,10 +141,8 @@ COLORS = {
 # https://plotly.com/python-api-reference/generated/plotly.graph_objects.Scatter.html#plotly.graph_objects.scatter.Line.dash
 DASHES = {
     Allocator.CXLALLOC: "solid",
-    Allocator.CXLALLOC_CXL: "solid",
-    Allocator.CXLALLOC_SFENCE: "solid",
-    Allocator.CXLALLOC_CLFLUSHOPT: "solid",
-    Allocator.CXLALLOC_FLUSH_CAS: "solid",
+    Allocator.CXLALLOC_HWCC: "solid",
+    Allocator.CXLALLOC_MCAS: "solid",
     Allocator.MIMALLOC: "solid",
     Allocator.RALLOC: "solid",
     Allocator.CXL_SHM: "solid",
@@ -160,15 +152,13 @@ DASHES = {
 
 SYMBOLS = {
     Allocator.CXLALLOC: "circle",
+    Allocator.CXLALLOC_HWCC: "square",
+    Allocator.CXLALLOC_MCAS: "diamond",
     Allocator.MIMALLOC: "triangle-up",
     Allocator.RALLOC: "square",
     Allocator.CXL_SHM: "diamond",
     Allocator.BOOST: "cross",
     Allocator.LIGHTNING: "x",
-    Allocator.CXLALLOC_CXL: "square",
-    Allocator.CXLALLOC_SFENCE: "diamond",
-    Allocator.CXLALLOC_CLFLUSHOPT: "cross",
-    Allocator.CXLALLOC_FLUSH_CAS: "x",
 }
 
 
@@ -265,26 +255,33 @@ def collapse(
     df, allocators=list(ALLOCATORS.keys()), workloads=list(WORKLOADS.keys()), *agg
 ):
     return (
+        # First, aggregate statistics within each process group/experiment
+        # Date uniquely identifies group
         df.group_by("date")
         .agg(
+            # Convert to structured allocator name
             translate(ALLOCATORS, allocators).first().alias(ALLOCATOR),
+            # All processes in group share same process and thread count
             pl.col("global").struct["process_count"].first().alias(PROCESS_COUNT),
             pl.col("global").struct["thread_count"].first().alias(THREAD_COUNT),
+            # Convert to structured workload name
             translate(WORKLOADS, workloads).first().alias(WORKLOAD),
+            # Throughput is ops / time (ns) summed over all threads
             (
                 pl.col("output")
                 .struct["thread"]
                 .list.explode()
                 .struct["operation_count"]
+                * 1e9
                 / pl.col("output")
                 .struct["thread"]
                 .list.explode()
                 .struct["time"]
                 .struct["total"]
-                * 1e9
             )
             .sum()
             .alias(THROUGHPUT),
+            # Total SWcc memory usage
             pl.col("output")
             .struct["process"]
             .struct["memory"]
@@ -293,6 +290,7 @@ def collapse(
             .sum()
             .truediv(2**30)
             .alias(SWCC),
+            # Total HWcc memory usage
             pl.col("output")
             .struct["process"]
             .struct["memory"]
@@ -303,9 +301,20 @@ def collapse(
             .alias(HWCC),
             *agg,
         )
+        # cxl-shm doesn't support allocations >= 1KiB
+        .filter(
+            (
+                (pl.col(ALLOCATOR) == Allocator.CXL_SHM)
+                & pl.col(WORKLOAD).is_in([Workload.MC_12, Workload.MC_37])
+            ).not_()
+        )
+        # Filter by arguments
         .filter(pl.col(ALLOCATOR).is_in(allocators))
         .filter(pl.col(WORKLOAD).is_in(workloads))
+        # Now aggregate outputs across process groups/experiments with the
+        # same inputs/configuration
         .drop(DATE)
+        # Group by inputs/configuration (everything not an output)
         .group_by(cs.exclude(THROUGHPUT, SWCC, HWCC))
         .agg(
             pl.col(THROUGHPUT).mean().alias(THROUGHPUT),
@@ -317,17 +326,12 @@ def collapse(
             (pl.col(SWCC) + pl.col(HWCC)).mean().alias(PSS),
             (pl.col(SWCC) + pl.col(HWCC)).std().alias(PSS + "_std"),
         )
-        # cxl-shm doesn't support allocations >= 1KiB
-        .filter(
-            (
-                (pl.col(ALLOCATOR) == Allocator.CXL_SHM)
-                & pl.col(WORKLOAD).is_in([Workload.MC_12, Workload.MC_37])
-            ).not_()
-        )
         .sort(WORKLOAD, ALLOCATOR, PROCESS_COUNT, THREAD_COUNT)
     )
 
 
+# Create a polars expression that translates a row into
+# a symbolic name using the mapping in `translate`.
 def translate(translate: dict[str, pl.Expr], keys: [str]) -> pl.Expr:
     expr = pl.when(translate[keys[0]]).then(pl.lit(keys[0]))
     for workload in keys[1:]:
