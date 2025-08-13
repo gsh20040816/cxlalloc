@@ -66,6 +66,7 @@ pub(crate) enum Sequential {
         size: NonZeroUsize,
     },
 
+    #[cfg_attr(not(feature = "cxl-mcas"), expect(unused))]
     Mcas {
         id: Id,
         address: NonNull<Page>,
@@ -97,13 +98,14 @@ impl Fixed {
         })
     }
 
+    #[cfg(feature = "cxl-mcas")]
     pub(super) fn new_mcas(id: Id, size: NonZeroUsize) -> crate::Result<Self> {
-        let mcas = crate::mcas::init();
+        let mcas = crate::mcas::init_process();
 
         Ok(Fixed {
             id,
             create: true,
-            address: NonNull::new(mcas.target.virt.cast()).expect("Target buffer is null"),
+            address: mcas.address(),
             size,
         })
     }
@@ -160,16 +162,27 @@ impl Sequential {
         })
     }
 
+    #[cfg(feature = "cxl-mcas")]
     pub(super) fn new_mcas(id: Id, size: NonZeroUsize) -> crate::Result<Self> {
         let size = NonZeroUsize::new(size.get().next_multiple_of(crate::SIZE_PAGE)).unwrap();
 
+        // FIXME: hard-coded for small heap
+        let offset = crate::Raw::shared()
+            .0
+            .get()
+            .next_multiple_of(crate::SIZE_PAGE);
+
+        assert!(
+            offset < crate::mcas::Buffer::SIZE_TARGET,
+            "No room for sequential region of size {:x?} at offset {:x?} in target buffer of size {:x?}",
+            size,
+            offset,
+            crate::mcas::Buffer::SIZE_TARGET,
+        );
+
         Ok(Sequential::Mcas {
             id,
-            address: unsafe {
-                NonNull::new(crate::mcas::init().target.virt.cast())
-                    .unwrap()
-                    .byte_add(1 << 14)
-            },
+            address: unsafe { crate::mcas::init_process().address().byte_add(offset) },
             size,
         })
     }

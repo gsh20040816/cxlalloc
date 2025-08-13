@@ -145,14 +145,13 @@ impl Raw {
 
         let id = region::Id::new(id);
 
-        let (shared_size, _) = Self::shared();
         // FIXME: support extension for huge allocation region?
+        let (shared_size, _) = Self::shared();
 
-        let shared = if cfg!(feature = "cxl-mcas") {
-            region::Fixed::new_mcas(id.with_suffix("shared"), shared_size)
-        } else {
-            region::Fixed::new(&backend, id.with_suffix("shared"), shared_size)
-        }?;
+        #[cfg(feature = "cxl-mcas")]
+        let shared = region::Fixed::new_mcas(id.with_suffix("shared"), shared_size)?;
+        #[cfg(not(feature = "cxl-mcas"))]
+        let shared = region::Fixed::new(&backend, id.with_suffix("shared"), shared_size)?;
 
         let (owned_size, _) = Self::owned();
         let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
@@ -175,17 +174,17 @@ impl Raw {
             small_lazy,
         )?;
 
-        let remote_small = if cfg!(feature = "cxl-mcas") {
-            region::Sequential::new_mcas(id.with_suffix("remote-small"), small.remotes)
-        } else {
-            region::Sequential::new(
-                &backend,
-                id.with_suffix("remote-small"),
-                Reservation::new()?,
-                small.remotes,
-                small_lazy,
-            )
-        }?;
+        #[cfg(feature = "cxl-mcas")]
+        let remote_small =
+            region::Sequential::new_mcas(id.with_suffix("remote-small"), small.remotes)?;
+        #[cfg(not(feature = "cxl-mcas"))]
+        let remote_small = region::Sequential::new(
+            &backend,
+            id.with_suffix("remote-small"),
+            Reservation::new()?,
+            small.remotes,
+            small_lazy,
+        )?;
 
         let (large_lazy, large) = match NonZeroUsize::new(
             size_large.next_multiple_of(size::Large::SIZE_SLAB) / size::Large::SIZE_SLAB,
@@ -205,6 +204,7 @@ impl Raw {
             large_lazy,
         )?;
 
+        // FIXME: large allocations are not integrated with mCAS
         let remote_large_reservation = Reservation::new()?;
         let remote_large = region::Sequential::new(
             &backend,
