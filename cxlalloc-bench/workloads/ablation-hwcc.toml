@@ -1,0 +1,43 @@
+repeat = 10
+
+[[experiment]]
+output = "ablation.ndjson"
+numa = [{ policy = "bind", node = 0 }]
+thread_count = [1, 2, 4, 8, 16, 24, 32]
+process_count = [1]
+allocator = [{ name = "mimalloc" }]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }]
+size = [68719476736]
+
+[[experiment.benchmark]]
+kind = "thread_test"
+iteration_count = [9600]
+operation_count = [10000]
+object_size = [8]
+
+[[experiment.benchmark]]
+kind = "xmalloc"
+operation_count = [960000]
+
+[[experiment]]
+output = "ablation.ndjson"
+numa = [{ policy = "bind", node = 0 }]
+thread_count = [1, 2, 4, 8, 16, 24, 32]
+process_count = [1]
+allocator = [{ name = "cxlalloc" }]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }, { policy = "bind", node = 2 }]
+size = [68719476736]
+
+[[experiment.benchmark]]
+kind = "thread_test"
+iteration_count = [9600]
+operation_count = [10000]
+object_size = [8]
+
+[[experiment.benchmark]]
+kind = "xmalloc"
+operation_count = [960000]
