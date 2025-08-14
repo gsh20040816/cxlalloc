@@ -16,9 +16,11 @@ def main():
     )
 
     fig = common.make_subplots(common.HUGE_WORKLOADS)
-    process_counts = (
-        df.select(common.PROCESS_COUNT).unique().collect().to_series().sort()
-    )
+    # process_counts = (
+    #     df.select(common.PROCESS_COUNT).unique().collect().to_series().sort()
+    # )
+
+    process_counts = [1, 2, 10, 40, 80]
 
     for col, workload in enumerate(common.HUGE_WORKLOADS):
         for row, metric in enumerate(common.METRICS):
@@ -49,7 +51,7 @@ def main():
                     ),
                     name=process_count,
                     legendgroup=process_count,
-                    zorder=process_counts.index_of(process_count),
+                    zorder=-process_count,
                 )
 
                 fig.add_trace(trace, row=row + 1, col=col + 1)
