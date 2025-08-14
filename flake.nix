@@ -46,6 +46,7 @@
             (python3.withPackages (python-pkgs: with python-pkgs; [
               dash
               dash-bootstrap-components
+              pandas
               plotly
               polars
               pyarrow
