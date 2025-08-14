@@ -32,6 +32,13 @@ def compile(mcas: bool):
         "--release",
         "--package",
         "cxlalloc-bench",
+        "--no-default-features",
+        "--features",
+        "allocator-mimalloc",
+        "--features",
+        "allocator-cxlalloc",
+        "--features",
+        "recover-shm",
     ]
 
     if mcas:
