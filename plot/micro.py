@@ -68,7 +68,7 @@ def main():
             row=2,
         )
 
-    common.update_layout(fig, full=False, numa=False)
+    common.update_layout(fig, full=False, numa=True)
 
     fig.write_image("out.pdf")
     fig.show()

@@ -8,60 +8,90 @@ def main():
     df = common.scan_ndjson()
     df = common.collapse(df)
 
-    cxlalloc = df.filter(pl.col(common.ALLOCATOR) == pl.lit(common.Allocator.CXLALLOC))
-    mimalloc = df.filter(
-        pl.col(common.ALLOCATOR) == pl.lit(common.Allocator.MIMALLOC)
-    ).select(pl.col(common.THROUGHPUT).alias("mimalloc"))
+    base = df.filter(pl.col(common.ALLOCATOR) == pl.lit(common.Allocator.CXLALLOC))
 
-    print(
-        "Average performance drop relative to mimalloc:",
-        pl.concat([cxlalloc, mimalloc], how="horizontal")
-        .with_columns(relative=pl.col(common.THROUGHPUT) / "mimalloc")
-        # Switch filters as necessary
-        .filter(pl.col(common.WORKLOAD) == common.Workload.YCSB_LOAD)
-        .filter(pl.col(common.THREAD_COUNT) >= 40)
-        .select((1.0 - pl.col("relative").mean()) * 100)
-        .collect()
-        .item(),
-        "%",
-    )
-
-    ralloc = df.filter(
-        pl.col(common.ALLOCATOR) == pl.lit(common.Allocator.RALLOC)
-    ).select(pl.col(common.HWCC).alias("ralloc"))
-
-    print(
-        "Average HWcc usage relative to ralloc (all workloads):",
-        pl.concat([cxlalloc, ralloc], how="horizontal")
-        .filter(pl.col(common.WORKLOAD).is_in(common.MACRO_WORKLOADS))
-        .select((pl.col(common.HWCC) / "ralloc").mean() * 100)
-        .collect()
-        .item(),
-    )
-
-    print(
-        "Average HWcc usage relative to ralloc (working set > 8GiB):",
-        pl.concat([cxlalloc, ralloc], how="horizontal")
-        .filter(
-            pl.col(common.WORKLOAD).is_in(
-                [
-                    common.Workload.YCSB_A,
-                    common.Workload.YCSB_D,
-                    common.Workload.YCSB_LOAD,
-                    common.Workload.MC_12,
+    # Throughput analysis
+    throughput = pl.concat(
+        [
+            base,
+            *[
+                df.filter(pl.col(common.ALLOCATOR) == pl.lit(allocator)).select(
+                    pl.col(common.THROUGHPUT).alias(allocator)
+                )
+                for allocator in [
+                    common.Allocator.CXLALLOC,
+                    common.Allocator.CXLALLOC_NONRECOVERABLE,
+                    common.Allocator.MIMALLOC,
+                    common.Allocator.RALLOC,
                 ]
-            )
-        )
-        .select(
-            pl.col(common.WORKLOAD),
-            pl.col(common.HWCC) * (2**10),
-            (pl.col(common.HWCC) / pl.col(common.PSS) * 100)
-            .mean()
-            .alias("relative-pss"),
-            (pl.col(common.HWCC) / "ralloc").mean().alias("relative-ralloc") * 100,
-        )
-        .collect(),
+            ],
+        ],
+        how="horizontal",
     )
+
+    for group in [
+        common.MACRO_WORKLOADS,
+        [common.Workload.THREADTEST_SMALL],
+        [common.Workload.XMALLOC_SMALL],
+    ]:
+        print(
+            f"Throughput comparisons ({group})",
+            throughput
+            # Switch filters as necessary
+            .filter(pl.col(common.WORKLOAD).is_in(group))
+            # .filter(pl.col(common.THREAD_COUNT) == 80)
+            .select(
+                *[
+                    (pl.col(over) / pl.col(under)).mean().alias(f"{over}-{under}") * 100
+                    for over, under in [
+                        (common.Allocator.CXLALLOC, common.Allocator.MIMALLOC),
+                        (common.Allocator.RALLOC, common.Allocator.MIMALLOC),
+                        (
+                            common.Allocator.CXLALLOC,
+                            common.Allocator.CXLALLOC_NONRECOVERABLE,
+                        ),
+                    ]
+                ],
+            )
+            .collect(),
+        )
+
+    # HWcc analysis
+
+    hwcc = pl.concat(
+        [
+            base,
+            *[
+                df.filter(pl.col(common.ALLOCATOR) == pl.lit(allocator)).select(
+                    pl.col(common.HWCC).alias(allocator)
+                )
+                for allocator in [
+                    common.Allocator.RALLOC,
+                ]
+            ],
+        ],
+        how="horizontal",
+    )
+
+    for group in [
+        common.MACRO_WORKLOADS,
+        [common.Workload.THREADTEST_SMALL],
+        [common.Workload.XMALLOC_SMALL],
+    ]:
+        print(
+            f"HWcc comparisons ({group}):",
+            hwcc.filter(pl.col(common.WORKLOAD).is_in(group))
+            .select(
+                (pl.col(common.HWCC) / pl.col(common.PSS) * 100)
+                .mean()
+                .alias("relative-pss"),
+                (pl.col(common.HWCC) / common.Allocator.RALLOC)
+                .mean()
+                .alias("relative-ralloc")
+                * 100,
+            )
+            .collect(),
+        )
 
 
 if __name__ == "__main__":

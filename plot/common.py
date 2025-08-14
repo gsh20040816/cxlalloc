@@ -25,6 +25,7 @@ METRICS = [THROUGHPUT, PSS]
 
 class Allocator(enum.StrEnum):
     CXLALLOC = "cxlalloc"
+    CXLALLOC_NONRECOVERABLE = "cxlalloc-nonrecoverable"
     CXLALLOC_HWCC = "cxlalloc-hwcc"
     CXLALLOC_MCAS = "cxlalloc-mcas"
     MIMALLOC = "mimalloc"
@@ -39,6 +40,7 @@ ALLOCATORS = {
     Allocator.CXLALLOC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["consistency"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 0),
+    Allocator.CXLALLOC_NONRECOVERABLE: _NAME == "cxlalloc-nonrecoverable",
     Allocator.CXLALLOC_HWCC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["coherence"] == "none")
     & (pl.col("allocator").struct["numa"].struct["node"] == 2),
@@ -129,8 +131,9 @@ SIZE_LEGEND_ENTRY = 16
 
 COLORS = {
     Allocator.CXLALLOC: "black",
-    Allocator.CXLALLOC_HWCC: "black",
-    Allocator.CXLALLOC_MCAS: "black",
+    Allocator.CXLALLOC_NONRECOVERABLE: SCHEME[5],
+    Allocator.CXLALLOC_HWCC: SCHEME[6],
+    Allocator.CXLALLOC_MCAS: SCHEME[7],
     Allocator.MIMALLOC: SCHEME[0],
     Allocator.RALLOC: SCHEME[1],
     Allocator.CXL_SHM: SCHEME[2],
@@ -141,6 +144,7 @@ COLORS = {
 # https://plotly.com/python-api-reference/generated/plotly.graph_objects.Scatter.html#plotly.graph_objects.scatter.Line.dash
 DASHES = {
     Allocator.CXLALLOC: "solid",
+    Allocator.CXLALLOC_NONRECOVERABLE: "solid",
     Allocator.CXLALLOC_HWCC: "solid",
     Allocator.CXLALLOC_MCAS: "solid",
     Allocator.MIMALLOC: "solid",
@@ -152,6 +156,7 @@ DASHES = {
 
 SYMBOLS = {
     Allocator.CXLALLOC: "circle",
+    Allocator.CXLALLOC_NONRECOVERABLE: "pentagon",
     Allocator.CXLALLOC_HWCC: "square",
     Allocator.CXLALLOC_MCAS: "diamond",
     Allocator.MIMALLOC: "triangle-up",
