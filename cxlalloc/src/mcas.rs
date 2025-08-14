@@ -74,7 +74,7 @@ pub(crate) fn init_process() -> &'static Mcas {
 
         // FIXME: assumes single process
         unsafe {
-            libc::memset(mcas.target.virt.as_ptr().cast(), 0, 1 << 16);
+            libc::memset(mcas.target.virt.as_ptr().cast(), 0, Buffer::SIZE_TARGET);
         }
 
         mcas
@@ -106,9 +106,9 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
         let read = mcas.read.virt.cast::<u64>().byte_add(id as usize * 2 * 64);
 
         #[repr(C, align(64))]
-        struct Aligned([u64; 8]);
+        struct Input([u64; 4]);
 
-        let buffer: Aligned = Aligned([old, new, phys, id * 2, 0, 0, 0, 0]);
+        let buffer: Input = Input([old, new, phys, id * 2]);
 
         core::arch::asm! {
             "movdir64b {dst}, [{src}]",
@@ -119,18 +119,23 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
         // Make sure write makes it to NMP
         core::arch::x86_64::_mm_sfence();
 
+        #[repr(C, align(16))]
+        struct Output([u64; 2]);
+
         // Memory layout is [result, success]
         // But result can be garbage if not successful, so
         // it's not reliable. Must reload value from memory
         // when CAS fails to get an estimate of current value.
-        let mut out = [0u64; 2];
+        let mut out = Output([0u64; 2]);
+
         core::arch::asm! {
             "movdqu xmm0, [{input}]",
             "movdqu [{output}], xmm0",
             input = in(reg) read.as_ptr(),
             output = in(reg) &mut out,
         }
-        let success = out[1];
+
+        let success = out.0[1];
         log::warn!("{id} mcas result: {success}");
         success > 0
     }
@@ -217,7 +222,7 @@ unsafe impl Send for Buffer {}
 impl Buffer {
     const SIZE_READ: usize = 1 << 16;
     const SIZE_WRITE: usize = 1 << 16;
-    pub(crate) const SIZE_TARGET: usize = 1 << 16;
+    pub(crate) const SIZE_TARGET: usize = 1 << 22;
 
     pub fn read(csr: &mut Csr) -> io::Result<Self> {
         Self::map(
