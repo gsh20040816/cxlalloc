@@ -86,6 +86,7 @@ pub(crate) fn init_thread(id: thread::Id) {
     THREAD_ID.with(|save| save.store(u16::from(id), Ordering::Relaxed));
 }
 
+#[inline(never)]
 fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
     let mcas = MCAS.get().unwrap();
     let phys = mcas.target.virt_to_phys(address);
