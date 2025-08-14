@@ -43,11 +43,14 @@ ALLOCATORS = {
     Allocator.CXLALLOC_NONRECOVERABLE: _NAME == "cxlalloc-nonrecoverable",
     Allocator.CXLALLOC_HWCC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["coherence"] == "none")
-    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
+    & (pl.col("allocator").struct["numa"].struct["node"] == 3),
     Allocator.CXLALLOC_MCAS: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["coherence"] == "mcas")
-    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
-    Allocator.MIMALLOC: _NAME == "mimalloc",
+    & (pl.col("allocator").struct["numa"].struct["node"] == 3),
+    Allocator.MIMALLOC: (_NAME == "mimalloc")
+    & (pl.col("allocator").struct["numa"].struct["node"] == 0),
+    # Allocator.MIMALLOC_HWCC: _NAME
+    # == "mimalloc" & (pl.col("allocator").struct["numa"].struct["node"] == 3),
     Allocator.RALLOC: _NAME == "ralloc",
     Allocator.CXL_SHM: _NAME == "cxl_shm",
     Allocator.BOOST: _NAME == "boost",
@@ -171,19 +174,19 @@ def scan_ndjson(paths: [str] = sys.argv[1:]):
     return pl.scan_ndjson(paths, infer_schema_length=None)
 
 
-def make_subplots(workloads):
+def make_subplots(workloads, metrics=METRICS):
     return sp.make_subplots(
-        rows=len(METRICS),
+        rows=len(metrics),
         cols=len(workloads),
         shared_xaxes=True,
         column_titles=workloads,
         horizontal_spacing=0.03,
         vertical_spacing=0.03,
-        row_heights=[3, 1],
+        row_heights=[3, 1] if len(metrics) == 2 else [1],
     )
 
 
-def update_layout(fig, full: bool, numa: bool, **kwargs):
+def update_layout(fig, full: bool, numa: bool, single_row=False, **kwargs):
     # Deduplicate legend entries
     # https://stackoverflow.com/a/62162555
     unique = set()
@@ -201,8 +204,8 @@ def update_layout(fig, full: bool, numa: bool, **kwargs):
         lambda xaxis: xaxis.update(
             title=dict(text="Thread Count", font_size=SIZE_XAXIS_TITLE)
         ),
-        row=2,
-        col=1 if full else None,
+        row=1 if single_row else None,
+        col=1 if full else 2 if single_row else None,
     )
 
     for row, metric in enumerate(METRICS):
@@ -227,7 +230,7 @@ def update_layout(fig, full: bool, numa: bool, **kwargs):
 
     fig.update_layout(
         width=1200 if full else 620,
-        height=400,
+        height=200 if single_row else 400,
         legend=dict(
             title=dict(text="", font_size=SIZE_LEGEND_TITLE),
             orientation="h",
