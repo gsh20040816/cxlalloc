@@ -357,10 +357,12 @@ pub struct Claim {
 }
 
 impl Shared {
+    const SLOT_SIZE: usize = 1 << 30;
+
     fn claim(&self, id: thread::Id, size: NonZeroUsize) -> (slab::Index<size::Huge>, usize) {
         let mut i = self.hint.load(Ordering::Relaxed) as usize;
 
-        let slot_count = size.get().next_multiple_of(size::Huge::SIZE_SLAB) / size::Huge::SIZE_SLAB;
+        let slot_count = size.get().next_multiple_of(Self::SLOT_SIZE) / Self::SLOT_SIZE;
         let claim = Claim::new(id, u48::new(slot_count as u64));
 
         while i + slot_count <= self.slots.len() {
@@ -479,8 +481,8 @@ impl Default for Allocator {
 impl Allocator {
     fn claim(&mut self, slot: slab::Index<size::Huge>, slot_count: usize) {
         self.uncover(
-            u32::from(slot) as usize * size::Huge::SIZE_SLAB,
-            slot_count * size::Huge::SIZE_SLAB,
+            u32::from(slot) as usize * Shared::SLOT_SIZE,
+            slot_count * Shared::SLOT_SIZE,
         )
     }
 
