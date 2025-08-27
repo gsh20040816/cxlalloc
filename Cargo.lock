@@ -1909,7 +1909,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "ribbit"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/ribbit.git#b5a5e5df5d954ccc7bec580af171a3fce4655566"
+source = "git+https://github.com/nwtnni/ribbit.git#7a9d17345a3ff8c500f7f3a55b89fe0be068ae61"
 dependencies = [
  "arbitrary-int",
  "const_panic",
@@ -1920,7 +1920,7 @@ dependencies = [
 [[package]]
 name = "ribbit-derive"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/ribbit.git#b5a5e5df5d954ccc7bec580af171a3fce4655566"
+source = "git+https://github.com/nwtnni/ribbit.git#7a9d17345a3ff8c500f7f3a55b89fe0be068ae61"
 dependencies = [
  "bitvec",
  "darling",
@@ -2082,7 +2082,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/shm.git#0c2ac550a972540853457a9706e3746d390cb0b2"
+source = "git+https://github.com/nwtnni/shm.git#050202df6984241705cb0b37dac19fb3e20d6153"
 dependencies = [
  "bon",
  "libc",

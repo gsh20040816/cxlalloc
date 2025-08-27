@@ -149,12 +149,12 @@ impl Raw {
         let (shared_size, _) = Self::shared();
 
         #[cfg(feature = "cxl-mcas")]
-        let shared = region::Fixed::new_mcas(id.with_suffix("shared"), shared_size)?;
+        let shared = region::Fixed::new_mcas(id.with_suffix("s"), shared_size)?;
         #[cfg(not(feature = "cxl-mcas"))]
-        let shared = region::Fixed::new(&backend, id.with_suffix("shared"), shared_size)?;
+        let shared = region::Fixed::new(&backend, id.with_suffix("s"), shared_size)?;
 
         let (owned_size, _) = Self::owned();
-        let owned = region::Fixed::new(&backend, id.with_suffix("owned"), owned_size)?;
+        let owned = region::Fixed::new(&backend, id.with_suffix("o"), owned_size)?;
 
         let (small_lazy, small) = match NonZeroUsize::new(
             size_small.next_multiple_of(size::Small::SIZE_SLAB) / size::Small::SIZE_SLAB,
@@ -168,19 +168,18 @@ impl Raw {
         let local_small_reservation = Reservation::new()?;
         let local_small = region::Sequential::new(
             &backend,
-            id.with_suffix("local-small"),
+            id.with_suffix("ls"),
             local_small_reservation,
             small.locals,
             small_lazy,
         )?;
 
         #[cfg(feature = "cxl-mcas")]
-        let remote_small =
-            region::Sequential::new_mcas(id.with_suffix("remote-small"), small.remotes)?;
+        let remote_small = region::Sequential::new_mcas(id.with_suffix("rs"), small.remotes)?;
         #[cfg(not(feature = "cxl-mcas"))]
         let remote_small = region::Sequential::new(
             &backend,
-            id.with_suffix("remote-small"),
+            id.with_suffix("rs"),
             Reservation::new()?,
             small.remotes,
             small_lazy,
@@ -198,7 +197,7 @@ impl Raw {
         let local_large_reservation = Reservation::new()?;
         let local_large = region::Sequential::new(
             &backend,
-            id.with_suffix("local-large"),
+            id.with_suffix("ll"),
             local_large_reservation,
             large.locals,
             large_lazy,
@@ -208,7 +207,7 @@ impl Raw {
         let remote_large_reservation = Reservation::new()?;
         let remote_large = region::Sequential::new(
             &backend,
-            id.with_suffix("remote-large"),
+            id.with_suffix("rl"),
             remote_large_reservation,
             large.remotes,
             large_lazy,
@@ -219,7 +218,7 @@ impl Raw {
 
         let data_small = region::Sequential::new(
             &backend,
-            id.with_suffix("data-small"),
+            id.with_suffix("ds"),
             data_small_reservation,
             small.data,
             small_lazy,
@@ -227,13 +226,13 @@ impl Raw {
 
         let data_large = region::Sequential::new(
             &backend,
-            id.with_suffix("data-large"),
+            id.with_suffix("dl"),
             data_large_reservation,
             large.data,
             large_lazy,
         )?;
 
-        let data_huge = region::Random::new(id.with_suffix("data-huge"), data_huge_reservation)?;
+        let data_huge = region::Random::new(id.with_suffix("dh"), data_huge_reservation)?;
 
         Ok(Self {
             backend,
