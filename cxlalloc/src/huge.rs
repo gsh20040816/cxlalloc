@@ -360,7 +360,8 @@ impl Shared {
     const SLOT_SIZE: usize = 1 << 30;
 
     fn claim(&self, id: thread::Id, size: NonZeroUsize) -> (slab::Index<size::Huge>, usize) {
-        let mut i = self.hint.load(Ordering::Relaxed) as usize;
+        // FIXME: jank workaround for nonzero offset
+        let mut i = self.hint.load(Ordering::Relaxed).max(1) as usize;
 
         let slot_count = size.get().next_multiple_of(Self::SLOT_SIZE) / Self::SLOT_SIZE;
         let claim = Claim::new(id, u48::new(slot_count as u64));
