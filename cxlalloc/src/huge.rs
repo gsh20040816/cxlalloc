@@ -307,10 +307,9 @@ impl<'raw> Huge<'raw> {
         data: &Data<'raw, size::Small>,
         offset: data::Offset<size::Huge>,
     ) -> Option<&Descriptor> {
-        let slot = offset.into_index();
-        let claim = self[slot].load(Ordering::Relaxed).unwrap();
-        let walk = self.peek(data, claim.id());
-        Self::trace(walk).find(|descriptor| descriptor.offset == offset)
+        let id = self.shared.find(offset)?;
+        let walk = self.peek(data, id);
+        Self::trace(walk).find(|descriptor| descriptor.contains(offset))
     }
 
     fn trace(mut walk: Option<&'raw Descriptor>) -> impl Iterator<Item = &'raw Descriptor> {
@@ -385,12 +384,15 @@ impl Shared {
 
         panic!("Out of virtual address space")
     }
-}
 
-impl core::ops::Index<slab::Index<size::Huge>> for Huge<'_> {
-    type Output = Atomic64<Option<Claim>>;
-    fn index(&self, index: slab::Index<size::Huge>) -> &Self::Output {
-        &self.shared.slots[u32::from(index) as usize]
+    fn find(&self, offset: data::Offset<size::Huge>) -> Option<thread::Id> {
+        let mut slot = u32::from(offset.into_index()) as usize;
+        loop {
+            match self.slots.get(slot)?.load(Ordering::Relaxed) {
+                None => slot = slot.checked_sub(1)?,
+                Some(claim) => return Some(claim.id()),
+            }
+        }
     }
 }
 
@@ -527,6 +529,12 @@ pub(crate) struct Descriptor {
     size: NonZeroUsize,
     next: Option<crate::Box<Descriptor>>,
     state: Atomic64<State>,
+}
+
+impl Descriptor {
+    fn contains(&self, offset: data::Offset<size::Huge>) -> bool {
+        self.offset <= offset && offset < (self.offset + self.size.get() as u64)
+    }
 }
 
 #[ribbit::pack(size = 2, debug)]

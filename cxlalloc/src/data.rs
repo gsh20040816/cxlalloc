@@ -125,3 +125,13 @@ impl<B: size::Bracket> From<Offset<B>> for u64 {
         offset.value.get() - B::SIZE_SLAB as u64
     }
 }
+
+impl<B> core::ops::Add<u64> for Offset<B> {
+    type Output = Self;
+    fn add(self, rhs: u64) -> Self::Output {
+        Self {
+            value: self.value.checked_add(rhs).unwrap(),
+            r#type: self.r#type,
+        }
+    }
+}
