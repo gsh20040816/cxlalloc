@@ -15,9 +15,9 @@ impl Debug for Huge {
 impl size::Bracket for Huge {
     const NAME: &'static str = "huge";
 
-    const SIZE_SLAB: usize = 0;
-    const SIZE_MIN: usize = 0;
-    const SIZE_MAX: usize = 0;
+    const SIZE_SLAB: usize = 1 << 30;
+    const SIZE_MIN: usize = 4096;
+    const SIZE_MAX: usize = 4096;
     const COUNT: usize = 1;
 
     type Array<T> = [T; 1];
