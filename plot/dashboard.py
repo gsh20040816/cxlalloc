@@ -78,7 +78,12 @@ def main():
                         col.store(),
                         dbc.Col(html.Span(col.name)),
                         dbc.Col(
-                            dcc.RadioItems(CHOICES_DEPENDENT, id=col.id(), inline=True),
+                            dcc.RadioItems(
+                                CHOICES_DEPENDENT,
+                                id=col.id(),
+                                inline=True,
+                                value=CHOICES_DEPENDENT[-1]["value"],
+                            ),
                         ),
                     ]
                 )
@@ -121,6 +126,7 @@ def main():
                                 for value in values.to_list()
                             ],
                             id=col.id(),
+                            value=CHOICES_INDEPENDENT[-1]["value"],
                         )
                     ),
                 ]
