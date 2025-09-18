@@ -253,7 +253,7 @@ impl Raw {
 
 impl Raw {
     pub fn allocator<S, O>(&self, id: thread::Id) -> Allocator<S, O> {
-        unsafe { Allocator::new(self.unfocused().focus(id)) }
+        unsafe { Allocator::new(self.unfocused().focus(id, true)) }
     }
 
     pub fn report(&self) -> impl Iterator<Item = stat::Report> + '_ {
@@ -265,7 +265,7 @@ impl Raw {
             return false;
         };
 
-        let allocator = self.allocator::<(), ()>(id);
+        let allocator = unsafe { Allocator::<(), ()>::new(self.unfocused().focus(id, false)) };
 
         let context = crate::allocator::Context {
             id,
