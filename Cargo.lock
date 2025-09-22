@@ -2082,7 +2082,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm"
 version = "0.1.0"
-source = "git+https://github.com/nwtnni/shm.git#737d2eecdd2a4ddbbb79108cb5f78e84792c9c00"
+source = "git+https://github.com/nwtnni/shm.git#05ce3a1d503e7fbf7806b350f95b532f2a14a1a8"
 dependencies = [
  "bon",
  "libc",
