@@ -76,8 +76,10 @@ where
     pub(crate) fn layout(count: NonZeroUsize) -> Result<Layout<B>, core::alloc::LayoutError> {
         let count = count.get();
         Ok(Layout {
-            locals: NonZeroUsize::new(slab::Slice::<B, slab::Local<B>>::layout(count)?.size())
-                .unwrap(),
+            locals: NonZeroUsize::new(
+                slab::Slice::<B, slab::stack::Link<B, slab::Local<B>>>::layout(count)?.size(),
+            )
+            .unwrap(),
             remotes: NonZeroUsize::new(
                 slab::Slice::<B, cas::Detectable<slab::Remote>>::layout(count)?.size(),
             )
@@ -147,7 +149,7 @@ where
             return Err(crate::Error::OutOfBounds);
         };
 
-        let size_local = const { mem::size_of::<slab::Local<B>>() };
+        let size_local = const { mem::size_of::<slab::stack::Link<B, slab::Local<B>>>() };
         let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote>>() };
         let size_slab = const { B::SIZE_SLAB };
 
