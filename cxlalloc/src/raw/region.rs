@@ -90,6 +90,14 @@ impl Fixed {
                 .maybe_populate(backend.populate())
                 .call()?
         };
+
+        log::debug!(
+            "New fixed region with id={}, size={:#x?}, address={:#x?}",
+            id.as_str(),
+            size,
+            address,
+        );
+
         Ok(Self {
             id,
             address,
@@ -101,6 +109,13 @@ impl Fixed {
     #[cfg(feature = "cxl-mcas")]
     pub(super) fn new_mcas(id: Id, size: NonZeroUsize) -> crate::Result<Self> {
         let mcas = crate::mcas::init_process();
+
+        log::debug!(
+            "New fixed MCAS region with id={}, size={:#x?}, address={:#x?}",
+            id.as_str(),
+            size,
+            mcas.address(),
+        );
 
         Ok(Fixed {
             id,
@@ -154,6 +169,14 @@ impl Sequential {
             }
         };
 
+        log::debug!(
+            "New sequential region with id={}, size={:#x?}, reservation={:#x?}, lazy={}",
+            id.as_str(),
+            size,
+            reservation,
+            lazy,
+        );
+
         Ok(Sequential::Normal {
             id,
             create,
@@ -180,11 +203,16 @@ impl Sequential {
             crate::mcas::Buffer::SIZE_TARGET,
         );
 
-        Ok(Sequential::Mcas {
-            id,
-            address: unsafe { crate::mcas::init_process().address().byte_add(offset) },
+        let address = unsafe { crate::mcas::init_process().address().byte_add(offset) };
+
+        log::debug!(
+            "New sequential MCAS region with id={}, size={:#x?}, address={:#x?}",
+            id.as_str(),
             size,
-        })
+            address,
+        );
+
+        Ok(Sequential::Mcas { id, address, size })
     }
 
     fn size(&self) -> &NonZeroUsize {
@@ -259,6 +287,12 @@ impl Region for Sequential {
 
 impl Random {
     pub(super) fn new(id: Id, reservation: Reservation) -> io::Result<Self> {
+        log::debug!(
+            "New random region with id={}, reservation={:#x?}",
+            id.as_str(),
+            reservation,
+        );
+
         Ok(Random { id, reservation })
     }
 
