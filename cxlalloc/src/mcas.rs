@@ -53,17 +53,19 @@ impl<T: ribbit::Pack> Atomic<T> {
         old: T,
         new: T,
         _success: Ordering,
-        failure: Ordering,
+        _failure: Ordering,
     ) -> Result<T, T> {
-        if mcas(
+        mcas(
             self as *const _ as *mut _,
             ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(old)),
             ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(new)),
-        ) {
-            Ok(old)
-        } else {
-            Err(self.load(failure))
-        }
+        )
+        .map(|old| unsafe {
+            ribbit::convert::loose_to_packed(ribbit::convert::loose_to_loose(old))
+        })
+        .map_err(|conflict| unsafe {
+            ribbit::convert::loose_to_packed(ribbit::convert::loose_to_loose(conflict))
+        })
     }
 }
 
@@ -86,8 +88,8 @@ pub(crate) fn init_thread(id: thread::Id) {
     THREAD_ID.with(|save| save.store(u16::from(id), Ordering::Relaxed));
 }
 
-#[inline(never)]
-fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
+#[inline]
+fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
     let mcas = MCAS.get().unwrap();
     let phys = mcas.target.virt_to_phys(address);
 
@@ -139,9 +141,13 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
             output = in(reg) &mut out,
         }
 
+        let value = out.0[0];
         let success = out.0[1];
         log::warn!("{id} mcas result: {success}");
-        success > 0
+        match success {
+            1 => Ok(value),
+            _ => Err(value),
+        }
     }
 }
 
