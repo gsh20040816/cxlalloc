@@ -401,6 +401,10 @@ where
                 Ordering::Relaxed,
                 Ordering::Relaxed,
                 |meta, version| {
+                    if cfg!(feature = "validate") {
+                        assert!(meta.free() > 0);
+                    }
+
                     let last = meta.free() as u64 == 1;
                     let next = meta.with_free(meta.free() - 1);
 
