@@ -193,10 +193,27 @@ unsafe impl Send for Mcas {}
 
 impl Mcas {
     pub(crate) fn new(csr: &mut Csr) -> io::Result<Self> {
+        let target = Buffer::target(csr)?;
+        let read = Buffer {
+            phys: target.phys + Buffer::SIZE_TARGET as u64 - Buffer::SIZE_READ as u64,
+            virt: unsafe {
+                target
+                    .virt
+                    .byte_add(Buffer::SIZE_TARGET)
+                    .byte_sub(Buffer::SIZE_READ)
+            },
+        };
+        let write = Buffer {
+            phys: read.phys - Buffer::SIZE_WRITE as u64,
+            virt: unsafe { read.virt.byte_sub(Buffer::SIZE_WRITE) },
+        };
+
         Ok(Self {
-            read: Buffer::read(csr)?,
-            write: Buffer::write(csr)?,
-            target: Buffer::target(csr)?,
+            // read: Buffer::read(csr)?,
+            // write: Buffer::write(csr)?,
+            read,
+            write,
+            target,
         })
     }
 
@@ -223,25 +240,25 @@ unsafe impl Send for Buffer {}
 impl Buffer {
     const SIZE_READ: usize = 1 << 16;
     const SIZE_WRITE: usize = 1 << 16;
-    pub(crate) const SIZE_TARGET: usize = 1 << 22;
+    pub(crate) const SIZE_TARGET: usize = 1 << 26;
 
-    pub fn read(csr: &mut Csr) -> io::Result<Self> {
-        Self::map(
-            csr,
-            Some(Csr::RD_BUFF),
-            c"/proc/mcas_rd_buff",
-            Self::SIZE_READ,
-        )
-    }
-
-    pub fn write(csr: &mut Csr) -> io::Result<Self> {
-        Self::map(
-            csr,
-            Some(Csr::WR_BUFF),
-            c"/proc/mcas_wr_buff",
-            Self::SIZE_WRITE,
-        )
-    }
+    // pub fn read(csr: &mut Csr) -> io::Result<Self> {
+    //     Self::map(
+    //         csr,
+    //         Some(Csr::RD_BUFF),
+    //         c"/proc/mcas_rd_buff",
+    //         Self::SIZE_READ,
+    //     )
+    // }
+    //
+    // pub fn write(csr: &mut Csr) -> io::Result<Self> {
+    //     Self::map(
+    //         csr,
+    //         Some(Csr::WR_BUFF),
+    //         c"/proc/mcas_wr_buff",
+    //         Self::SIZE_WRITE,
+    //     )
+    // }
 
     pub fn target(csr: &mut Csr) -> io::Result<Self> {
         Self::map(csr, None, c"/proc/mcas_target_buff", Self::SIZE_TARGET)
@@ -251,7 +268,7 @@ impl Buffer {
         (address as u64)
             .checked_sub(self.virt.addr().get() as u64)
             .unwrap()
-            + self.phys as u64
+            + self.phys
     }
 
     fn map(csr: &mut Csr, index: Option<usize>, name: &CStr, size: usize) -> io::Result<Self> {
