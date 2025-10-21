@@ -103,8 +103,11 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
     let id = THREAD_ID.with(|id| id.load(Ordering::Relaxed) as u64);
 
     unsafe {
-        let write = mcas.write.virt;
-        let read = mcas.read.virt.cast::<u64>().byte_add(id as usize * 2 * 64);
+        // Separate read and write targets by 2 cache lines so no
+        // two threads conflict on memory channel or cache line.
+        let offset = id as usize * 2 * 64;
+        let write = mcas.write.virt.byte_add(offset);
+        let read = mcas.read.virt.cast::<u64>().byte_add(offset);
 
         #[repr(C, align(64))]
         struct Input([u64; 4]);
@@ -142,7 +145,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> bool {
     }
 }
 
-const CXL_PCIE_BAR_PATH: &CStr = c"/sys/devices/pci0000:ab/0000:ab:00.1/resource2";
+const CXL_PCIE_BAR_PATH: &CStr = c"/sys/devices/pci0000:43/0000:43:00.1/resource2";
 
 #[derive(Debug)]
 pub struct Csr {
