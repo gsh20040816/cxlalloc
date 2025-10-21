@@ -9,7 +9,6 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
 use ribbit::atomic::Atomic64;
-use ribbit::unpack;
 
 use crate::cache;
 use crate::cas;
@@ -23,7 +22,6 @@ use crate::slab;
 use crate::stat;
 use crate::thread;
 use crate::view;
-use crate::Data;
 use crate::Heap;
 use crate::Huge;
 
@@ -141,6 +139,11 @@ impl Context<'_> {
     }
 }
 
+pub struct Reservation<'a, T> {
+    #[expect(unused)]
+    allocation: &'a mut MaybeUninit<T>,
+}
+
 /// Type-safe API
 impl<'raw, S, O> Allocator<'raw, view::Focus, S, O>
 where
@@ -188,21 +191,11 @@ where
         unsafe { self.small.data.base.byte_add(offset).cast() }
     }
 
-    pub fn allocate<'link, T: Default>(
-        &mut self,
-        link: Option<&'link mut Option<crate::Box<T>>>,
-    ) -> &'link mut T {
-        self.allocate_checked(link).unwrap()
-    }
-
-    pub fn allocate_checked<'link, T: Default>(
-        &mut self,
-        link: Option<&'link mut Option<crate::Box<T>>>,
-    ) -> Option<&'link mut T> {
+    pub fn reserve<T>(&mut self) -> Reservation<T> {
         let size = mem::size_of::<T>();
 
         let Some(class) = size::Small::new(size) else {
-            return self.allocate_large_checked(size, link);
+            return self.reserve_large();
         };
 
         let context = &mut Context {
@@ -211,21 +204,11 @@ where
             owned: self.owned,
         };
 
-        Self::allocate_heap(
-            context,
-            self.small.data.clone(),
-            &mut self.small,
-            class,
-            link,
-        )
+        Self::reserve_heap(context, &mut self.small, class)
     }
 
-    fn allocate_large_checked<'link, T: Default>(
-        &mut self,
-        size: usize,
-        link: Option<&'link mut Option<crate::Box<T>>>,
-    ) -> Option<&'link mut T> {
-        let Some(class) = size::Large::new(size) else {
+    fn reserve_large<T>(&mut self) -> Reservation<T> {
+        let Some(class) = size::Large::new(mem::size_of::<T>()) else {
             todo!()
         };
 
@@ -235,86 +218,32 @@ where
             owned: self.owned,
         };
 
-        Self::allocate_heap(
-            context,
-            self.small.data.clone(),
-            &mut self.large,
-            class,
-            link,
-        )
+        Self::reserve_heap(context, &mut self.large, class)
     }
 
-    fn allocate_heap<'link, B: size::Bracket, T>(
+    fn reserve_heap<'heap, B: size::Bracket, T>(
         context: &mut Context,
-        base: Data<size::Small>,
         heap: &mut Heap<'raw, view::Focus, B>,
         class: B,
-        mut link: Option<&'link mut Option<crate::Box<T>>>,
-    ) -> Option<&'link mut T>
+    ) -> Reservation<'heap, T>
     where
-        T: Default,
         slab::Local<B>: slab::local::Cache<B>,
         recover::State: From<recover::HeapState<B>>,
     {
-        let (index, block) = heap.peek(context, class)?;
-
-        #[cfg(feature = "recover-log")]
-        match link.as_mut() {
-            None => context.owned.link.store(None, Ordering::Relaxed),
-            Some(link) => {
-                let offset = base.pointer_to_offset(NonNull::from(link)).unwrap();
-                context.owned.link.store(Some(offset), Ordering::Relaxed);
-            }
-        }
-
-        cache::flush(&context.owned.link, cache::Invalidate::No);
-        cache::fence();
-
-        context.log(recover::State::from(recover::HeapState::new(
-            <unpack![recover::HeapState::<B>]>::SizedToApplication(
-                recover::SizedToApplication::new(index, block),
-            ),
-        )));
-
+        let (index, block) = heap.peek(context, class).expect("Out of memory");
         let offset = data::Offset::from_block(class, index, block);
-        let allocation = unsafe {
-            let uninit = heap
-                .data
-                .offset_to_pointer::<MaybeUninit<T>>(offset)
-                .as_mut();
-
-            uninit.as_mut_ptr().write(T::default());
-            uninit.assume_init_mut()
-        };
-
-        cache::flush(allocation, cache::Invalidate::No);
-        cache::fence();
-
-        #[cfg(feature = "recover-log")]
-        match link.as_mut() {
-            None => {
-                context
-                    .owned
-                    .root
-                    .store(u64::from(offset), Ordering::Relaxed);
-                cache::flush(&context.owned.root, cache::Invalidate::No);
-            }
-            Some(link) => {
-                crate::Box::link(link, Some(allocation));
-                cache::flush(link, cache::Invalidate::No);
-            }
+        Reservation {
+            allocation: unsafe {
+                heap.data
+                    .offset_to_pointer::<MaybeUninit<T>>(offset)
+                    .as_mut()
+            },
         }
-
-        heap.pop(context, class, index, block);
-
-        Some(allocation)
     }
 
-    pub fn free<'link, T: Default>(&mut self, link: Option<&'link mut Option<crate::Box<T>>>) {
-        let size = mem::size_of::<T>();
-
-        let Some(_) = size::Small::new(size) else {
-            return self.free_large_checked(size, link);
+    pub unsafe fn free<T: Default>(&mut self, allocation: NonNull<T>) {
+        let Some(_) = size::Small::new(mem::size_of::<T>()) else {
+            return self.free_large(allocation);
         };
 
         let context = &mut Context {
@@ -323,15 +252,12 @@ where
             owned: self.owned,
         };
 
-        Self::free_heap(context, self.small.data.clone(), &mut self.small, link)
+        let offset = self.small.data.pointer_to_offset(allocation).unwrap();
+        self.small.free(context, offset)
     }
 
-    fn free_large_checked<'link, T: Default>(
-        &mut self,
-        size: usize,
-        link: Option<&'link mut Option<crate::Box<T>>>,
-    ) {
-        let Some(_) = size::Large::new(size) else {
+    fn free_large<T>(&mut self, allocation: NonNull<T>) {
+        let Some(_) = size::Large::new(mem::size_of::<T>()) else {
             todo!()
         };
 
@@ -341,50 +267,8 @@ where
             owned: self.owned,
         };
 
-        Self::free_heap(context, self.small.data.clone(), &mut self.large, link)
-    }
-
-    fn free_heap<B: size::Bracket, T>(
-        context: &mut Context,
-        base: Data<size::Small>,
-        heap: &mut Heap<'raw, view::Focus, B>,
-        mut link: Option<&mut Option<crate::Box<T>>>,
-    ) where
-        slab::Local<B>: slab::local::Cache<B>,
-        recover::State: From<recover::HeapState<B>>,
-    {
-        let offset = match link.as_mut() {
-            None => {
-                #[cfg(feature = "recover-log")]
-                context.owned.free.store(None, Ordering::Relaxed);
-
-                let offset = context.owned.root.load(Ordering::Relaxed);
-                heap.data.offset_to_offset(offset as usize)
-            }
-            Some(link) => {
-                #[cfg(feature = "recover-log")]
-                {
-                    let offset = base.pointer_to_offset(NonNull::from(&mut **link)).unwrap();
-                    context.owned.free.store(Some(offset), Ordering::Relaxed);
-                }
-
-                let offset = heap
-                    .checked_pointer_to_offset(NonNull::from(link.as_mut().unwrap()).cast())
-                    .unwrap();
-                offset
-            }
-        };
-
-        heap.free(context, offset);
-
-        match link {
-            None => context.owned.root.store(0, Ordering::Relaxed),
-            Some(link) => {
-                *link = None;
-            }
-        }
-
-        context.owned.state.store(None, Ordering::Relaxed);
+        let offset = self.large.data.pointer_to_offset(allocation).unwrap();
+        self.large.free(context, offset)
     }
 }
 
@@ -470,7 +354,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     #[inline]
     pub fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         let Some(offset) = self.small.checked_pointer_to_offset(pointer) else {
-            return self.free_large(pointer);
+            return self.free_large_untyped(pointer);
         };
 
         let context = &mut Context {
@@ -549,9 +433,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 
     #[cold]
-    fn free_large(&mut self, pointer: NonNull<ffi::c_void>) {
+    fn free_large_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         let Some(offset) = self.large.checked_pointer_to_offset(pointer) else {
-            return self.free_huge(pointer);
+            return self.free_huge_untyped(pointer);
         };
 
         let context = &mut Context {
@@ -564,7 +448,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 
     #[cold]
-    fn free_huge(&mut self, pointer: NonNull<ffi::c_void>) {
+    fn free_huge_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         if let Some(offset) = self.huge.checked_pointer_to_offset(pointer) {
             let context = &mut Context {
                 id: self.id,
