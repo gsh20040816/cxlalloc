@@ -196,7 +196,8 @@ unsafe impl Send for Mcas {}
 
 impl Mcas {
     pub(crate) fn new(csr: &mut Csr) -> io::Result<Self> {
-        let target = Buffer::target(csr)?;
+        let target = Buffer::target()?;
+
         let read = Buffer {
             phys: target.phys + Buffer::SIZE_TARGET as u64 - Buffer::SIZE_READ as u64,
             virt: unsafe {
@@ -206,14 +207,15 @@ impl Mcas {
                     .byte_sub(Buffer::SIZE_READ)
             },
         };
+        csr.set(Csr::RD_BUFF, read.phys);
+
         let write = Buffer {
             phys: read.phys - Buffer::SIZE_WRITE as u64,
             virt: unsafe { read.virt.byte_sub(Buffer::SIZE_WRITE) },
         };
+        csr.set(Csr::WR_BUFF, write.phys);
 
         Ok(Self {
-            // read: Buffer::read(csr)?,
-            // write: Buffer::write(csr)?,
             read,
             write,
             target,
@@ -245,36 +247,10 @@ impl Buffer {
     const SIZE_WRITE: usize = 1 << 16;
     pub(crate) const SIZE_TARGET: usize = 1 << 26;
 
-    // pub fn read(csr: &mut Csr) -> io::Result<Self> {
-    //     Self::map(
-    //         csr,
-    //         Some(Csr::RD_BUFF),
-    //         c"/proc/mcas_rd_buff",
-    //         Self::SIZE_READ,
-    //     )
-    // }
-    //
-    // pub fn write(csr: &mut Csr) -> io::Result<Self> {
-    //     Self::map(
-    //         csr,
-    //         Some(Csr::WR_BUFF),
-    //         c"/proc/mcas_wr_buff",
-    //         Self::SIZE_WRITE,
-    //     )
-    // }
+    pub fn target() -> io::Result<Self> {
+        let name = c"/proc/mcas_target_buff";
+        let size = Self::SIZE_TARGET;
 
-    pub fn target(csr: &mut Csr) -> io::Result<Self> {
-        Self::map(csr, None, c"/proc/mcas_target_buff", Self::SIZE_TARGET)
-    }
-
-    fn virt_to_phys(&self, address: *mut u64) -> u64 {
-        (address as u64)
-            .checked_sub(self.virt.addr().get() as u64)
-            .unwrap()
-            + self.phys
-    }
-
-    fn map(csr: &mut Csr, index: Option<usize>, name: &CStr, size: usize) -> io::Result<Self> {
         unsafe {
             let fd = match libc::open(name.as_ptr(), libc::O_RDWR) {
                 -1 => return Err(io::Error::last_os_error()),
@@ -291,10 +267,6 @@ impl Buffer {
                 8
             );
             let address_phys = u64::from_ne_bytes(address_phys);
-
-            if let Some(index) = index {
-                csr.set(index, address_phys);
-            }
 
             let address_virt = match libc::mmap(
                 ptr::null_mut(),
@@ -313,5 +285,12 @@ impl Buffer {
                 virt: NonNull::new(address_virt.cast::<shm::Page>()).unwrap(),
             })
         }
+    }
+
+    fn virt_to_phys(&self, address: *mut u64) -> u64 {
+        (address as u64)
+            .checked_sub(self.virt.addr().get() as u64)
+            .unwrap()
+            + self.phys
     }
 }
