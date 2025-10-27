@@ -42,7 +42,12 @@ def main():
             # .filter(pl.col(common.THREAD_COUNT) == 80)
             .select(
                 *[
-                    (pl.col(over) / pl.col(under)).mean().alias(f"{over}-{under}") * 100
+                    (pl.col(over) / pl.col(under))
+                    .log()
+                    .mean()
+                    .exp()
+                    .alias(f"{over}-{under}")
+                    * 100
                     for over, under in [
                         (common.Allocator.CXLALLOC, common.Allocator.MIMALLOC),
                         (common.Allocator.RALLOC, common.Allocator.MIMALLOC),
