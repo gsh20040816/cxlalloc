@@ -3,12 +3,12 @@ repeat = 10
 [[experiment]]
 output = "ablation.ndjson"
 numa = [{ policy = "bind", node = 0 }]
-thread_count = [1, 2, 4, 8]
+thread_count = [1, 2, 4, 8, 16, 32]
 process_count = [1]
 allocator = [{ name = "cxlalloc" }]
 
 [experiment.allocator_config]
-numa = [{ policy = "bind", node = 3 }]
+numa = [{ policy = "bind", node = 1 }]
 size = [4294967296]
 
 [[experiment.benchmark]]
