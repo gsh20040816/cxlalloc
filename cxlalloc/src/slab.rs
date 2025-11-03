@@ -18,7 +18,6 @@ use core::ops::Range;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 
-use crate::allocator;
 use crate::cache;
 use crate::cas::Detectable;
 use crate::data;
@@ -26,20 +25,20 @@ use crate::size;
 use crate::thread;
 
 pub(crate) struct Slab<'raw, B: size::Bracket> {
-    locals: Slice<'raw, B, stack::Link<B, Local<B>>>,
+    locals: Slice<'raw, B, Local<B>>,
     remotes: Slice<'raw, B, Detectable<Remote>>,
 }
 
 impl<'raw, B: size::Bracket> Slab<'raw, B> {
     pub(crate) fn new(
-        locals: Slice<'raw, B, stack::Link<B, Local<B>>>,
+        locals: Slice<'raw, B, Local<B>>,
         remotes: Slice<'raw, B, Detectable<Remote>>,
     ) -> Self {
         Self { locals, remotes }
     }
 
     #[inline]
-    pub(crate) fn local(&self, index: Index<B>) -> &stack::Link<B, Local<B>> {
+    pub(crate) fn local(&self, index: Index<B>) -> &Local<B> {
         &self.locals[index]
     }
 
@@ -48,7 +47,12 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
         &self.remotes[index]
     }
 
-    pub(crate) unsafe fn link(&self, range: Range<Index<B>>, head: Option<Index<B>>) {
+    pub(crate) unsafe fn link(
+        &self,
+        id: thread::Id,
+        range: Range<Index<B>>,
+        head: Option<Index<B>>,
+    ) {
         let range = (range.start.value.get()..range.end.value.get())
             .map(NonZeroU32::new)
             .map(Option::unwrap)
@@ -62,72 +66,19 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
                 .map(Option::Some)
                 .chain(iter::once(head)),
         ) {
-            let next = self.local(i).next();
-            next.store(j, Ordering::Relaxed);
-            cache::flush(next, cache::Invalidate::No);
+            let local = self.local(i);
+            local.own(id);
+            local.next.store(j, Ordering::Relaxed);
+            cache::flush(&local.next, cache::Invalidate::No);
         }
     }
 
     pub(crate) fn trace(&self, mut head: Option<Index<B>>) -> impl Iterator<Item = Index<B>> + '_ {
         iter::from_fn(move || {
             let next = head?;
-            head = self.local(next).next().load(Ordering::Relaxed);
+            head = self.local(next).next.load(Ordering::Relaxed);
             Some(next)
         })
-    }
-}
-
-impl<B> Slab<'_, B>
-where
-    B: size::Bracket,
-{
-    #[inline]
-    pub(crate) fn transfer(
-        &self,
-        context: &mut allocator::Context,
-        index: Index<B>,
-        old: Option<thread::Id>,
-        new: Option<thread::Id>,
-    ) {
-        if !cfg!(feature = "validate") {
-            return;
-        }
-
-        let Err(actual) = self.local(index).get().owner.transfer(old, new) else {
-            return;
-        };
-
-        let remote = self.remotes[index].load(context, Ordering::Relaxed);
-        let local = &self.local(index);
-
-        panic!(
-            "Slab {index} transfer failed: \
-            old = {old:?}, \
-            new = {new:?}, \
-            actual = {actual:?}, \
-            remote = {:?}, \
-            local = {:?}",
-            remote,
-            local.get().free,
-        );
-    }
-
-    #[inline]
-    pub(crate) fn transfer_all(
-        &self,
-        context: &mut allocator::Context,
-        index: Index<B>,
-        count: usize,
-        old: Option<thread::Id>,
-        new: Option<thread::Id>,
-    ) {
-        if !cfg!(feature = "validate") {
-            return;
-        }
-
-        for i in 0..count {
-            self.transfer(context, unsafe { index.add(i as u32) }, old, new);
-        }
     }
 }
 
@@ -163,6 +114,11 @@ impl<B> PartialEq for Index<B> {
     }
 }
 impl<B> Eq for Index<B> {}
+impl<B> core::hash::Hash for Index<B> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state)
+    }
+}
 
 impl Index<size::Huge> {
     pub(crate) fn new_huge(slot: usize) -> Self {

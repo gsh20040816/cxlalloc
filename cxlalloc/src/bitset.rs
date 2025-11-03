@@ -11,7 +11,6 @@ pub(crate) trait Interface: Copy + Debug + Sized {
     const SIZE: usize = Self::SIZE_DATA + SIZE_METADATA;
     const SIZE_DATA: usize;
 
-    #[allow(unused)]
     fn fill(&mut self, count: u64);
 
     // Return the first set bit.

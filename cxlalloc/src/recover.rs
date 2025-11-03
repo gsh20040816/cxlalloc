@@ -33,7 +33,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         state: HeapState<B>,
     ) where
         B: size::Bracket,
-        slab::Local<B>: slab::local::Cache<B>,
+        // slab::Local<B>: slab::local::Cache<B>,
         State: From<HeapState<B>>,
     {
         match state {
@@ -73,7 +73,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 let end = unsafe { start.add(batch as u32) };
 
                 unsafe {
-                    heap.slabs.link(start..end, None);
+                    heap.slabs.link(context.id, start..end, None);
                     heap.owned.r#unsized.set(Some(start), batch);
                 }
             }
@@ -83,12 +83,12 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     Some(head) if head == index => {
                         // Possible that writes to head and count were reordered,
                         // such that write to count persisted first before crash?
-                        heap.owned.r#unsized.recover_count(&heap.slabs);
+                        heap.owned.r#unsized.recover_len(&heap.slabs);
                     }
                     // Crashed after popping batch, undo
                     _ => {
                         heap.owned.r#unsized.set(Some(index), 0);
-                        heap.owned.r#unsized.recover_count(&heap.slabs);
+                        heap.owned.r#unsized.recover_len(&heap.slabs);
                     }
                 }
             }
@@ -100,7 +100,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
 
                 // Undo popping of batch
                 heap.owned.r#unsized.set(Some(index), 0);
-                heap.owned.r#unsized.recover_count(&heap.slabs);
+                heap.owned.r#unsized.recover_len(&heap.slabs);
             }
             HeapState::SizedToApplication { .. } => todo!(),
             HeapState::ApplicationToSized { .. } => todo!(),
@@ -127,7 +127,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             }
             HeapState::Detach { index, version } => {
                 let slab = heap.slabs.remote(index);
-                let class = heap.slabs.local(index).get().class;
+                let class = heap.slabs.local(index).class.load(Ordering::Relaxed);
 
                 if !slab.detect(context, version) {
                     heap.detach(context, class, index);

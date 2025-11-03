@@ -5,6 +5,7 @@ use core::num::NonZeroUsize;
 use core::ops::Range;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
+use std::collections::HashSet;
 
 use crate::allocator;
 use crate::bitset::Bit;
@@ -72,10 +73,8 @@ where
     pub(crate) fn layout(count: NonZeroUsize) -> Result<Layout<B>, core::alloc::LayoutError> {
         let count = count.get();
         Ok(Layout {
-            locals: NonZeroUsize::new(
-                slab::Slice::<B, slab::stack::Link<B, slab::Local<B>>>::layout(count)?.size(),
-            )
-            .unwrap(),
+            locals: NonZeroUsize::new(slab::Slice::<B, slab::Local<B>>::layout(count)?.size())
+                .unwrap(),
             remotes: NonZeroUsize::new(
                 slab::Slice::<B, cas::Detectable<slab::Remote>>::layout(count)?.size(),
             )
@@ -145,7 +144,7 @@ where
             return Err(crate::Error::OutOfBounds);
         };
 
-        let size_local = const { mem::size_of::<slab::stack::Link<B, slab::Local<B>>>() };
+        let size_local = const { mem::size_of::<slab::Local<B>>() };
         let size_remote = const { mem::size_of::<cas::Detectable<slab::Remote>>() };
         let size_slab = const { B::SIZE_SLAB };
 
@@ -192,13 +191,12 @@ where
 impl<B> Heap<'_, view::Focus, B>
 where
     B: size::Bracket,
-    slab::Local<B>: slab::local::Cache<B>,
+    // slab::Local<B>: slab::local::Cache<B>,
     recover::State: From<HeapState<B>>,
 {
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
         let index = offset.into_index();
-        // FIXME: not currently possible to do safely
-        self.slabs.local(index).get().class
+        self.slabs.local(index).class.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -214,7 +212,7 @@ where
             stat::thread::Event::Allocate { size: class.size() },
         );
 
-        let free = unsafe { &mut self.slabs.local(index).get_mut().free };
+        let free = unsafe { &mut *self.slabs.local(index).free.get() };
         free.unset(block);
 
         if free.is_empty() {
@@ -236,7 +234,7 @@ where
             .peek()
             .or_else(|| self.allocate(context, class))?;
 
-        let free = unsafe { &mut self.slabs.local(index).get_mut().free };
+        let free = unsafe { &*self.slabs.local(index).free.get() };
         let block = unsafe { free.peek_unchecked() };
         Some((index, block))
     }
@@ -252,14 +250,15 @@ where
             self.stat
                 .record(context.id, stat::thread::Event::UnsizedToSized { class });
 
+            validate!(self.owned.is_valid(context, &self.slabs));
             return self.owned.r#sized[class].peek();
         }
 
         if let Some(index) = self.shared.pop(context, &self.slabs) {
             self.stat
                 .record(context.id, stat::thread::Event::GlobalToUnsized);
-            self.slabs.transfer(context, index, None, Some(context.id));
 
+            self.slabs.local(index).own(context.id);
             self.owned.r#unsized.push(&self.slabs, index);
         } else {
             let range = self.shared.bump(context);
@@ -268,11 +267,8 @@ where
 
             let batch = BATCH_BUMP_POP.load(Ordering::Relaxed);
 
-            self.slabs
-                .transfer_all(context, range.start, batch, None, Some(context.id));
-
             unsafe {
-                self.slabs.link(range.clone(), None);
+                self.slabs.link(context.id, range.clone(), None);
                 self.owned.r#unsized.set(Some(range.start), batch);
             }
         }
@@ -281,6 +277,7 @@ where
         self.stat
             .record(context.id, stat::thread::Event::UnsizedToSized { class });
 
+        validate!(self.owned.is_valid(context, &self.slabs));
         self.owned.r#sized[class].peek()
     }
 
@@ -298,47 +295,18 @@ where
         let meta = remote.load(context, Ordering::Relaxed);
 
         if (meta.free as u64) < class.count() {
-            remote
-                .update(
-                    context,
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                    |meta, version| {
-                        Some((
-                            slab::Remote {
-                                owner: None,
-                                ..meta
-                            },
-                            recover::HeapState::Detach { index, version },
-                        ))
-                    },
-                )
-                .unwrap();
-
             self.stat
                 .record(context.id, stat::thread::Event::Disown { class });
 
-            self.slabs.transfer(context, index, Some(context.id), None);
-
-            cache::flush_cxl(self.slabs.local(index));
+            let local = self.slabs.local(index);
+            local.disown(context.id);
+            cache::flush_cxl(local);
             cache::fence_cxl();
-        }
-
-        if cfg!(feature = "validate") {
-            assert!(self.owned.r#sized[class]
-                .trace(&self.slabs)
-                .all(|other| other != index));
         }
     }
 
     #[cold]
     fn attach(&mut self, context: &mut allocator::Context, class: B, index: slab::Index<B>) {
-        if cfg!(feature = "validate") {
-            assert!(self.owned.r#sized[class]
-                .trace(&self.slabs)
-                .all(|other| other != index));
-        }
-
         self.stat
             .record(context.id, stat::thread::Event::Attach { class });
 
@@ -348,16 +316,18 @@ where
     #[inline]
     pub(crate) fn free(&mut self, context: &mut allocator::Context, offset: data::Offset<B>) {
         let index = slab::Index::from(offset);
-        let remote = self.slabs.remote(index).load(context, Ordering::Relaxed);
 
-        if remote.owner != Some(context.id) {
+        let local = self.slabs.local(index);
+        let owner = local.owner();
+
+        if owner != Some(context.id) {
             return self.free_remote(context, index);
         }
 
-        let local = unsafe { self.slabs.local(index).get_mut() };
-        let class = local.class;
+        let local = self.slabs.local(index);
+        let class = local.class.load(Ordering::Relaxed);
         let block = offset.into_block(class);
-        let free = &mut local.free;
+        let free = unsafe { &mut *local.free.get() };
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
@@ -376,8 +346,8 @@ where
             return;
         }
 
-        self.owned
-            .sized_to_unsized(context, &self.slabs, class, index);
+        self.owned.sized_to_unsized(&self.slabs, class, index);
+        validate!(self.owned.is_valid(context, &self.slabs));
 
         self.stat
             .record(context.id, stat::thread::Event::SizedToUnsized { class });
@@ -387,8 +357,7 @@ where
 
     #[cold]
     pub(crate) fn free_remote(&mut self, context: &mut allocator::Context, index: slab::Index<B>) {
-        // FIXME: not correct to load in production, only for metrics
-        let class = self.slabs.local(index).get().class;
+        let class = self.slabs.local(index).class.load(Ordering::Relaxed);
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
@@ -400,14 +369,11 @@ where
                 Ordering::Relaxed,
                 Ordering::Relaxed,
                 |meta, version| {
-                    if cfg!(feature = "validate") {
-                        assert!(meta.free > 0);
-                    }
+                    validate!(meta.free > 0);
 
                     let last = meta.free as u64 == 1;
                     let next = slab::Remote {
                         free: meta.free - 1,
-                        ..meta
                     };
 
                     Some((
@@ -423,34 +389,23 @@ where
             .unwrap();
 
         if meta.free == 1 {
-            self.claim(context, meta.owner, class, index);
+            self.claim(context, class, index);
         }
     }
 
     #[cold]
-    fn claim(
-        &mut self,
-        context: &mut allocator::Context,
-        victim: Option<thread::Id>,
-        class: B,
-        index: slab::Index<B>,
-    ) {
-        if cfg!(feature = "validate") {
-            assert!(
-                self.owned
-                    .r#unsized
-                    .trace(&self.slabs)
-                    .all(|other| other != index),
-                "Claim does not introduce alias",
-            );
-        }
-
+    fn claim(&mut self, context: &mut allocator::Context, class: B, index: slab::Index<B>) {
         self.stat
             .record(context.id, stat::thread::Event::Claim { class });
 
-        self.slabs
-            .transfer(context, index, victim, Some(context.id));
+        // NOTE: it's possible for previous owner to be non-None if they
+        // detached slab without disowning, and all allocations are
+        // subsequently freed remotely.
+        self.slabs.local(index).steal(context.id);
         self.owned.r#unsized.push(&self.slabs, index);
+
+        validate!(self.owned.is_valid(context, &self.slabs));
+
         self.unsized_to_global(context);
     }
 
@@ -468,12 +423,17 @@ where
             .owned
             .r#unsized
             .trace(&self.slabs)
-            .inspect(|index| self.slabs.transfer(context, *index, Some(context.id), None))
+            .inspect(|index| {
+                // Not strictly necessary, but helps debugging
+                if cfg!(feature = "validate") {
+                    self.slabs.local(*index).disown(context.id);
+                }
+            })
             .take(batch);
 
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap_or(head);
-        let next = self.slabs.local(tail).next().load(Ordering::Relaxed);
+        let next = self.slabs.local(tail).next.load(Ordering::Relaxed);
 
         context.log(HeapState::UnsizedToGlobalSave { index: head });
 
@@ -574,9 +534,53 @@ pub(crate) struct Owned<B: size::Bracket> {
 impl<B> Owned<B>
 where
     B: size::Bracket,
-    slab::Local<B>: slab::local::Cache<B>,
+    // slab::Local<B>: slab::local::Cache<B>,
     State: From<HeapState<B>>,
 {
+    /// Invariants:
+    /// - All descriptors in `unsized` stack have this thread as owner
+    /// - All descriptors in `sized` stacks have:
+    ///     - correct size class
+    ///     - this thread as owner
+    ///     - non-empty free bitset
+    /// - `unsized` stack and `sized stacks contain disjoint sets of descriptors
+    pub(crate) fn is_valid(&self, context: &allocator::Context, slabs: &Slab<B>) -> bool {
+        let mut set = HashSet::new();
+
+        if !self.r#unsized.is_valid(slabs) {
+            return false;
+        }
+
+        if !self.r#unsized.trace(slabs).all(|index| {
+            if !set.insert(index) {
+                return false;
+            }
+
+            let local = slabs.local(index);
+            local.owner() == Some(context.id)
+        }) {
+            return false;
+        }
+
+        self.r#sized.iter().all(|(class, stack)| {
+            if !stack.is_valid(slabs) {
+                return false;
+            }
+
+            stack.trace(slabs).all(|index| {
+                if !set.insert(index) {
+                    return false;
+                }
+
+                let local = slabs.local(index);
+
+                unsafe { *local.free.get() }.len() > 0
+                    && local.class.load(Ordering::Relaxed) == class
+                    && local.owner() == Some(context.id)
+            })
+        })
+    }
+
     pub(crate) fn unsized_to_sized(
         &mut self,
         context: &mut allocator::Context,
@@ -590,13 +594,11 @@ where
         crash::define!(unsized_to_sized_pre_log);
 
         let local = slabs.local(index);
-        let next = local.next().load(Ordering::Relaxed);
-
+        let next = local.next.load(Ordering::Relaxed);
         context.log(HeapState::UnsizedToSized { index: next, class });
 
-        unsafe {
-            local.get_mut().initialize(class);
-        }
+        local.class.store(class, Ordering::Relaxed);
+        unsafe { &mut *local.free.get() }.fill(class.count());
 
         cache::flush(local, cache::Invalidate::No);
 
@@ -606,7 +608,6 @@ where
         remote.store(
             context,
             slab::Remote {
-                owner: Some(context.id),
                 free: class.count() as u16,
             },
             Ordering::Relaxed,
@@ -618,14 +619,8 @@ where
     }
 
     #[cold]
-    pub(crate) fn sized_to_unsized(
-        &mut self,
-        context: &mut allocator::Context,
-        slabs: &Slab<B>,
-        class: B,
-        index: slab::Index<B>,
-    ) {
-        let next = slabs.local(index).next().load(Ordering::Relaxed);
+    pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
+        let next = slabs.local(index).next.load(Ordering::Relaxed);
 
         let mut walk = self.r#sized[class].peek().unwrap();
 
@@ -634,18 +629,15 @@ where
             self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
-                let slab = slabs.local(walk);
-
-                assert!(slab.get().owner.is(context.id));
-
-                match slabs.local(walk).next().load(Ordering::Relaxed) {
+                let local = slabs.local(walk);
+                match local.next.load(Ordering::Relaxed) {
                     None => panic!("removing non-existent slab {} {:?}", index, class),
-                    Some(next) if next == index => break slabs.local(walk),
+                    Some(next) if next == index => break local,
                     Some(next) => walk = next,
                 }
             };
 
-            prev.next().store(next, Ordering::Relaxed);
+            prev.next.store(next, Ordering::Relaxed);
             cache::flush(prev, cache::Invalidate::No);
         };
 

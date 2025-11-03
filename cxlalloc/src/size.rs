@@ -14,7 +14,7 @@ use crate::bitset;
 
 /// A set of size classes that share the same slab size and
 /// in-memory representation.
-pub(crate) trait Bracket: ribbit::Pack + Debug + 'static {
+pub(crate) trait Bracket: ribbit::Pack + Debug + Eq + 'static {
     /// Name of this size bracket (for logging and statistics).
     const NAME: &'static str;
 

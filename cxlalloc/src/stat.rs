@@ -341,7 +341,7 @@ pub(crate) mod thread {
 
                     if let Some(value) = update(
                         &self.slab_local,
-                        mem::size_of::<slab::stack::Link<B, slab::Local<B>>>() as i64 * batch,
+                        mem::size_of::<slab::Local<B>>() as i64 * batch,
                     ) {
                         apply("slab_local", None, value);
                     }

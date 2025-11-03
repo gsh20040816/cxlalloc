@@ -18,7 +18,6 @@ use crate::recover;
 use crate::recover::State;
 use crate::size;
 use crate::size::Bracket as _;
-use crate::slab;
 use crate::stat;
 use crate::thread;
 use crate::view;
@@ -227,7 +226,7 @@ where
         class: B,
     ) -> Reservation<'heap, T>
     where
-        slab::Local<B>: slab::local::Cache<B>,
+        // slab::Local<B>: slab::local::Cache<B>,
         recover::State: From<recover::HeapState<B>>,
     {
         let (index, block) = heap.peek(context, class).expect("Out of memory");

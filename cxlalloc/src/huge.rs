@@ -393,9 +393,7 @@ pub(crate) struct Owned {
 
 impl Owned {
     fn insert(&self, offset: data::Offset<size::Huge>) {
-        if cfg!(feature = "validate") {
-            assert!(!self.contains(offset));
-        }
+        validate!(!self.contains(offset));
 
         let len = self.len.load(Ordering::Relaxed);
         self.hazards[len].store(Some(offset), Ordering::Relaxed);

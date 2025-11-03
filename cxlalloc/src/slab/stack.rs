@@ -1,8 +1,5 @@
-use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
-
-use ribbit::atomic::Atomic32;
 
 use crate::allocator;
 use crate::cache;
@@ -17,24 +14,37 @@ use crate::thread;
 #[repr(C)]
 pub(crate) struct Local<B> {
     head: Option<Index<B>>,
-    count: usize,
+    len: usize,
     _bracket: PhantomData<B>,
 }
 
 impl<B: size::Bracket> Local<B> {
+    // Invariant: `len` = `trace(head).count()`
+    // Implies no cycles (or else `trace(..)` is infinite loop)
+    pub(crate) fn is_valid(&self, slabs: &Slab<B>) -> bool {
+        let mut i = 0;
+        for _ in self.trace(slabs) {
+            i += 1;
+            if i > self.len {
+                return false;
+            }
+        }
+        i == self.len
+    }
+
     pub(crate) fn peek(&self) -> Option<Index<B>> {
         self.head
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.count
+        self.len
     }
 
-    pub(crate) fn set(&mut self, head: Option<Index<B>>, count: usize) {
+    pub(crate) fn set(&mut self, head: Option<Index<B>>, len: usize) {
         self.head = head;
         cache::flush(&self.head, cache::Invalidate::No);
 
-        self.count = count;
+        self.len = len;
     }
 
     pub(crate) fn pop(&mut self, slabs: &Slab<B>) -> Option<Index<B>> {
@@ -42,13 +52,11 @@ impl<B: size::Bracket> Local<B> {
         self.head = slabs.local(head).next.load(Ordering::Relaxed);
         cache::flush(&self.head, cache::Invalidate::No);
 
-        self.count -= 1;
+        self.len -= 1;
         Some(head)
     }
 
     pub(crate) fn push(&mut self, slabs: &Slab<B>, index: Index<B>) {
-        assert_ne!(self.head, Some(index));
-
         let head = slabs.local(index);
         head.next.store(self.head, Ordering::Relaxed);
         cache::flush(&head.next, cache::Invalidate::No);
@@ -61,7 +69,7 @@ impl<B: size::Bracket> Local<B> {
 
         // Count can be recomputed on recovery and doesn't
         // require flushing or fencing.
-        self.count += 1;
+        self.len += 1;
     }
 
     pub(crate) fn recover_push(&mut self, slabs: &Slab<B>, index: Index<B>) {
@@ -69,11 +77,11 @@ impl<B: size::Bracket> Local<B> {
             self.push(slabs, index);
         }
 
-        self.recover_count(slabs);
+        self.recover_len(slabs);
     }
 
-    pub(crate) fn recover_count(&mut self, slabs: &Slab<B>) {
-        self.count = self.trace(slabs).count();
+    pub(crate) fn recover_len(&mut self, slabs: &Slab<B>) {
+        self.len = self.trace(slabs).count();
     }
 
     pub(crate) fn trace<'a>(&self, slabs: &'a Slab<B>) -> impl Iterator<Item = Index<B>> + 'a {
@@ -170,25 +178,5 @@ impl<B> Copy for Head<B> {}
 impl<B> Clone for Head<B> {
     fn clone(&self) -> Self {
         *self
-    }
-}
-
-pub struct Link<B, T> {
-    next: Atomic32<Option<Index<B>>>,
-    data: UnsafeCell<T>,
-}
-
-impl<B: size::Bracket, T> Link<B, T> {
-    pub fn next(&self) -> &Atomic32<Option<Index<B>>> {
-        &self.next
-    }
-
-    pub fn get(&self) -> &T {
-        unsafe { &*self.data.get() }
-    }
-
-    #[expect(clippy::mut_from_ref)]
-    pub unsafe fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.data.get() }
     }
 }

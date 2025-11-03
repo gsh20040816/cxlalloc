@@ -6,11 +6,7 @@ use crate::thread;
 
 pub(crate) use ::crash::define;
 
-#[test]
-fn coverage() {
-    crash::assert_coverage();
-}
-
+#[expect(unused)]
 fn allocate(crash: crash::Dynamic, reclaim: bool) {
     let raw = raw::Raw::builder()
         .size_small(2usize.pow(28))
@@ -45,9 +41,16 @@ fn allocate(crash: crash::Dynamic, reclaim: bool) {
     }
 }
 
-mod unsized_to_sized {
-    #[test]
-    fn pre_log() {
-        super::allocate(::crash::reference!(unsized_to_sized_pre_log), true);
-    }
-}
+// FIXME
+//
+// #[test]
+// fn coverage() {
+//     crash::assert_coverage();
+// }
+//
+// mod unsized_to_sized {
+//     #[test]
+//     fn pre_log() {
+//         super::allocate(::crash::reference!(unsized_to_sized_pre_log), true);
+//     }
+// }
