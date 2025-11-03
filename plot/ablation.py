@@ -11,6 +11,26 @@ def main():
         df,
         workloads=common.MICRO_WORKLOADS,
     )
+    pl.Config.set_tbl_rows(-1)
+
+    print(
+        df.collect().select(
+            pl.col(common.WORKLOAD).filter(
+                pl.col(common.ALLOCATOR) == common.Allocator.CXLALLOC_MCAS
+            ),
+            pl.col(common.THREAD_COUNT).filter(
+                pl.col(common.ALLOCATOR) == common.Allocator.CXLALLOC_MCAS
+            ),
+            (
+                pl.col(common.THROUGHPUT).filter(
+                    pl.col(common.ALLOCATOR) == common.Allocator.CXLALLOC_MCAS
+                )
+                / pl.col(common.THROUGHPUT).filter(
+                    pl.col(common.ALLOCATOR) == common.Allocator.CXLALLOC_HWCC
+                )
+            ).alias("Throughput relative to hwcc"),
+        )
+    )
 
     metrics = [common.THROUGHPUT]
     fig = common.make_subplots(common.MICRO_WORKLOADS, metrics=metrics)
