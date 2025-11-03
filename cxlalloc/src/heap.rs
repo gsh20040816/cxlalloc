@@ -258,11 +258,18 @@ where
             self.stat
                 .record(context.id, stat::thread::Event::GlobalToUnsized);
 
+            log::info!("Transfer: {} from global to unsized", index);
             self.slabs.local(index).own(context.id);
+
             self.owned.r#unsized.push(&self.slabs, index);
         } else {
             let range = self.shared.bump(context);
 
+            log::info!(
+                "Transfer: {}..{} from bump to unsized",
+                range.start,
+                range.end,
+            );
             self.stat.record(context.id, stat::thread::Event::Bump);
 
             let batch = BATCH_BUMP_POP.load(Ordering::Relaxed);
@@ -295,6 +302,8 @@ where
         let meta = remote.load(context, Ordering::Relaxed);
 
         if (meta.free as u64) < class.count() {
+            log::info!("Transfer: disown {} ({:?})", index, class,);
+
             self.stat
                 .record(context.id, stat::thread::Event::Disown { class });
 
@@ -302,6 +311,8 @@ where
             local.disown(context.id);
             cache::flush_cxl(local);
             cache::fence_cxl();
+        } else {
+            log::info!("Transfer: detach {} ({:?})", index, class,);
         }
     }
 
@@ -309,6 +320,8 @@ where
     fn attach(&mut self, context: &mut allocator::Context, class: B, index: slab::Index<B>) {
         self.stat
             .record(context.id, stat::thread::Event::Attach { class });
+
+        log::info!("Transfer: attach {} ({:?})", index, class);
 
         self.owned.r#sized[class].push(&self.slabs, index);
     }
@@ -398,6 +411,12 @@ where
         self.stat
             .record(context.id, stat::thread::Event::Claim { class });
 
+        log::info!(
+            "Transfer: {} from detached ({:?}) to unsized",
+            index,
+            self.slabs.local(index).owner(),
+        );
+
         // NOTE: it's possible for previous owner to be non-None if they
         // detached slab without disowning, and all allocations are
         // subsequently freed remotely.
@@ -434,6 +453,8 @@ where
         let head = iter.next().unwrap();
         let tail = iter.last().unwrap_or(head);
         let next = self.slabs.local(tail).next.load(Ordering::Relaxed);
+
+        log::info!("Transfer: {}..={} from unsized to global", head, tail);
 
         context.log(HeapState::UnsizedToGlobalSave { index: head });
 
@@ -591,6 +612,8 @@ where
             return false;
         };
 
+        log::info!("Transfer: {} from unsized to sized ({:?})", index, class);
+
         crash::define!(unsized_to_sized_pre_log);
 
         let local = slabs.local(index);
@@ -620,6 +643,8 @@ where
 
     #[cold]
     pub(crate) fn sized_to_unsized(&mut self, slabs: &Slab<B>, class: B, index: slab::Index<B>) {
+        log::info!("Transfer: {} from sized ({:?}) to unsized", index, class);
+
         let next = slabs.local(index).next.load(Ordering::Relaxed);
 
         let mut walk = self.r#sized[class].peek().unwrap();

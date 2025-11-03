@@ -92,7 +92,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
     let mcas = MCAS.get().unwrap();
     let phys = mcas.target.virt_to_phys(address);
 
-    log::info!(
+    log::trace!(
         "{:x?} mcas: v{:x?} p{:x?} o{:#x} n{:#x}",
         mcas,
         address,
