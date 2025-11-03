@@ -109,7 +109,10 @@ where
                     cache::flush(&slabs.local(tail).next, cache::Invalidate::No);
                     Some((
                         Some(head),
-                        recover::UnsizedToGlobal::new(head, version).into(),
+                        recover::HeapState::UnsizedToGlobal {
+                            index: head,
+                            version,
+                        },
                     ))
                 },
             )
@@ -129,7 +132,13 @@ where
                 |old, version| {
                     let old = old?;
                     let new = slabs.local(old).next.load(Ordering::Relaxed);
-                    Some((new, recover::GlobalToUnsized::new(old, version).into()))
+                    Some((
+                        new,
+                        recover::HeapState::GlobalToUnsized {
+                            index: old,
+                            version,
+                        },
+                    ))
                 },
             )
             .flatten()
@@ -144,7 +153,8 @@ where
     }
 }
 
-#[ribbit::pack(size = 64, debug, eq)]
+#[derive(ribbit::Pack)]
+#[ribbit(size = 64)]
 struct Head<B> {
     #[ribbit(size = 16, nonzero)]
     id: thread::Id,
@@ -154,6 +164,13 @@ struct Head<B> {
 
     #[ribbit(size = 32)]
     index: Option<Index<B>>,
+}
+
+impl<B> Copy for Head<B> {}
+impl<B> Clone for Head<B> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 pub struct Link<B, T> {

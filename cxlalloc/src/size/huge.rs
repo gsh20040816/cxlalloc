@@ -3,7 +3,8 @@ use core::fmt::Debug;
 use crate::bitset::BitSet;
 use crate::size;
 
-#[ribbit::pack(size = 8, eq)]
+#[derive(ribbit::Pack, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[ribbit(size = 0)]
 pub struct Huge;
 
 impl Debug for Huge {
@@ -24,12 +25,12 @@ impl size::Bracket for Huge {
     type BitSet = BitSet<0>;
 
     fn new(_: usize) -> Option<Self> {
-        Some(Huge::new())
+        Some(Huge)
     }
 
     fn from_index(index: usize) -> Option<Self> {
         match index {
-            0 => Some(Huge::new()),
+            0 => Some(Huge),
             _ => None,
         }
     }

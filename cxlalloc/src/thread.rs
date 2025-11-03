@@ -6,31 +6,32 @@ use core::ops::Index;
 use crate::COUNT_THREAD;
 
 #[repr(transparent)]
-#[ribbit::pack(size = 16, nonzero, new(rename = "new_internal", vis = ""), eq, hash)]
+#[derive(ribbit::Pack, Copy, Clone, PartialEq, Eq, Hash)]
+#[ribbit(size = 16, nonzero, packed(rename = "IdPacked"), new(vis = ""))]
 pub struct Id(NonZeroU16);
 
 impl Id {
     pub const unsafe fn new(id: u16) -> Self {
         assert!(id < u16::MAX);
-        Self::new_internal(NonZeroU16::new_unchecked(id.wrapping_add(1)))
+        Self(NonZeroU16::new_unchecked(id.wrapping_add(1)))
     }
 }
 
 impl From<Id> for u16 {
     fn from(id: Id) -> Self {
-        id._0().get() - 1
+        id.0.get() - 1
     }
 }
 
 impl Debug for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&(self._0().get() - 1), f)
+        Debug::fmt(&(self.0.get() - 1), f)
     }
 }
 
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&(self._0().get() - 1), f)
+        Display::fmt(&(self.0.get() - 1), f)
     }
 }
 
@@ -46,7 +47,7 @@ impl<T> Array<T> {
 impl<T> Index<Id> for Array<T> {
     type Output = T;
     fn index(&self, index: Id) -> &Self::Output {
-        &self.0[index._0().get() as usize]
+        &self.0[index.0.get() as usize]
     }
 }
 

@@ -14,7 +14,7 @@ use crate::bitset;
 
 /// A set of size classes that share the same slab size and
 /// in-memory representation.
-pub(crate) trait Bracket: ribbit::Pack<Loose = u8> + Debug + 'static {
+pub(crate) trait Bracket: ribbit::Pack + Debug + 'static {
     /// Name of this size bracket (for logging and statistics).
     const NAME: &'static str;
 
@@ -91,14 +91,18 @@ impl<B: Bracket, T> ops::Index<B> for Array<B, T> {
     type Output = T;
 
     fn index(&self, class: B) -> &Self::Output {
-        let index = ribbit::convert::packed_to_loose(class) as usize;
+        let index = ribbit::convert::loose_to_loose::<_, u64>(ribbit::convert::packed_to_loose(
+            class.pack(),
+        )) as usize;
         unsafe { self.inner.as_ref().get_unchecked(index) }
     }
 }
 
 impl<B: Bracket, T> ops::IndexMut<B> for Array<B, T> {
     fn index_mut(&mut self, class: B) -> &mut Self::Output {
-        let index = ribbit::convert::packed_to_loose(class) as usize;
+        let index = ribbit::convert::loose_to_loose::<_, u64>(ribbit::convert::packed_to_loose(
+            class.pack(),
+        )) as usize;
         unsafe { self.inner.as_mut().get_unchecked_mut(index) }
     }
 }

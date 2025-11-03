@@ -1,16 +1,16 @@
 use core::ffi;
 use core::ffi::CStr;
-use core::marker::PhantomData;
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU16;
-use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::fd::FromRawFd as _;
 use std::os::fd::OwnedFd;
 use std::sync::OnceLock;
+
+use ribbit::Unpack as _;
 
 use crate::thread;
 
@@ -23,18 +23,11 @@ thread_local! {
 // Temporary workaround for address resolution bug in hardware.
 // Should support 64b alignment in theory?
 #[repr(align(128))]
-pub struct Atomic<T> {
-    data: AtomicU64,
-    _type: PhantomData<T>,
-}
+pub struct Atomic<T>(ribbit::atomic::Atomic64<T>);
 
 impl<T: ribbit::Pack> Atomic<T> {
     pub fn load(&self, ordering: Ordering) -> T {
-        unsafe {
-            ribbit::convert::loose_to_packed(ribbit::convert::loose_to_loose(
-                self.data.load(ordering),
-            ))
-        }
+        self.0.load(ordering)
     }
 
     pub fn store(&self, value: T, _ordering: Ordering) {
@@ -57,14 +50,20 @@ impl<T: ribbit::Pack> Atomic<T> {
     ) -> Result<T, T> {
         mcas(
             self as *const _ as *mut _,
-            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(old)),
-            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(new)),
+            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(old.pack())),
+            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(new.pack())),
         )
         .map(|old| unsafe {
-            ribbit::convert::loose_to_packed(ribbit::convert::loose_to_loose(old))
+            ribbit::convert::loose_to_packed::<ribbit::Packed<T>>(ribbit::convert::loose_to_loose(
+                old,
+            ))
+            .unpack()
         })
         .map_err(|conflict| unsafe {
-            ribbit::convert::loose_to_packed(ribbit::convert::loose_to_loose(conflict))
+            ribbit::convert::loose_to_packed::<ribbit::Packed<T>>(ribbit::convert::loose_to_loose(
+                conflict,
+            ))
+            .unpack()
         })
     }
 }

@@ -16,7 +16,6 @@ use interval::interval_set::ToIntervalSet as _;
 use interval::IntervalSet;
 use ribbit::atomic::Atomic64;
 use ribbit::private::u48;
-use ribbit::unpack;
 
 use crate::allocator;
 use crate::cache;
@@ -70,12 +69,7 @@ impl<'raw> Huge<'raw> {
             .map(|offset| data.offset_to_pointer::<Descriptor>(offset))
             .map(|pointer| unsafe { pointer.as_ref() })
             .flat_map(|head| Self::trace(Some(head)))
-            .filter(|descriptor| {
-                matches!(
-                    descriptor.state.load(Ordering::Relaxed).unpack(),
-                    <unpack![State]>::Free
-                )
-            })
+            .filter(|descriptor| matches!(descriptor.state.load(Ordering::Relaxed), State::Free))
             .filter(|descriptor| self.owned[id].swap_remove(descriptor.offset))
             .for_each(|descriptor| self.unmap_descriptor(descriptor))
     }
@@ -87,7 +81,7 @@ impl<'raw> Huge<'raw> {
             .iter()
             .enumerate()
             .filter_map(|(slot, owner)| match owner.load(Ordering::Relaxed)? {
-                claim if claim.id() == id => Some((slot, claim.slot_count())),
+                claim if claim.id == id => Some((slot, claim.slot_count)),
                 _ => None,
             })
             .map(|(slot, slot_count)| (slab::Index::new_huge(slot), slot_count))
@@ -98,12 +92,7 @@ impl<'raw> Huge<'raw> {
 
         Self::trace(walk)
             .inspect(|descriptor| index = index.max(descriptor.index))
-            .filter(|descriptor| {
-                matches!(
-                    descriptor.state.load(Ordering::Relaxed).unpack(),
-                    <unpack![State]>::Live
-                )
-            })
+            .filter(|descriptor| matches!(descriptor.state.load(Ordering::Relaxed), State::Live))
             .for_each(|descriptor| {
                 self.allocator
                     .cover(u64::from(descriptor.offset) as usize, descriptor.size.get())
@@ -149,8 +138,7 @@ impl<'raw> Huge<'raw> {
                         },
                     );
 
-                    out.state
-                        .store(State::new(<unpack![State]>::Live), Ordering::Relaxed);
+                    out.state.store(State::Live, Ordering::Relaxed);
                     out.index = descriptor.index;
                     out.offset = descriptor.offset;
                     out.size = descriptor.size;
@@ -196,9 +184,7 @@ impl<'raw> Huge<'raw> {
 
         self.unmap_descriptor(descriptor);
         self.owned[context.id].swap_remove(descriptor.offset);
-        descriptor
-            .state
-            .store(State::new(<unpack![State]>::Free), Ordering::Relaxed);
+        descriptor.state.store(State::Free, Ordering::Relaxed);
 
         cache::flush(&descriptor.state, cache::Invalidate::Yes);
 
@@ -268,10 +254,10 @@ impl<'raw> Huge<'raw> {
 
         Self::trace(walk)
             .filter(
-                |descriptor| match descriptor.state.load(Ordering::Relaxed).unpack() {
-                    <unpack![State]>::Live => false,
+                |descriptor| match descriptor.state.load(Ordering::Relaxed) {
+                    State::Live => false,
                     // Protected by hazard pointer
-                    <unpack![State]>::Free
+                    State::Free
                         if self
                             .owned
                             .iter()
@@ -279,11 +265,11 @@ impl<'raw> Huge<'raw> {
                     {
                         false
                     }
-                    <unpack![State]>::Free => {
+                    State::Free => {
                         safe.get_or_insert(*descriptor);
                         true
                     }
-                    <unpack![State]>::Safe => {
+                    State::Safe => {
                         safe.get_or_insert(*descriptor);
                         false
                     }
@@ -292,9 +278,7 @@ impl<'raw> Huge<'raw> {
             .for_each(|descriptor| {
                 self.allocator
                     .uncover(u64::from(descriptor.offset) as usize, descriptor.size.get());
-                descriptor
-                    .state
-                    .store(State::new(<unpack![State]>::Safe), Ordering::Relaxed);
+                descriptor.state.store(State::Safe, Ordering::Relaxed);
             });
 
         let safe = safe?;
@@ -348,7 +332,8 @@ pub(crate) struct Shared {
     hint: Atomic64<u64>,
 }
 
-#[ribbit::pack(size = 64, nonzero)]
+#[derive(ribbit::Pack, Copy, Clone)]
+#[ribbit(size = 64, nonzero)]
 pub struct Claim {
     #[ribbit(size = 16, nonzero)]
     id: thread::Id,
@@ -360,7 +345,10 @@ impl Shared {
         let mut i = self.hint.load(Ordering::Relaxed) as usize;
 
         let slot_count = size.get().next_multiple_of(size::Huge::SIZE_SLAB) / size::Huge::SIZE_SLAB;
-        let claim = Claim::new(id, u48::new(slot_count as u64));
+        let claim = Claim {
+            id,
+            slot_count: u48::new(slot_count as u64),
+        };
 
         while i + slot_count <= self.slots.len() {
             match self.slots[i].compare_exchange(
@@ -376,8 +364,8 @@ impl Shared {
                     return (slab::Index::new_huge(i), slot_count);
                 }
                 Err(Some(claim)) => {
-                    log::info!("Lost slot {} to {} ({})", i, claim.id(), claim.slot_count());
-                    i += claim.slot_count().value() as usize;
+                    log::info!("Lost slot {} to {} ({})", i, claim.id, claim.slot_count);
+                    i += claim.slot_count.value() as usize;
                 }
             }
         }
@@ -390,7 +378,7 @@ impl Shared {
         loop {
             match self.slots.get(slot)?.load(Ordering::Relaxed) {
                 None => slot = slot.checked_sub(1)?,
-                Some(claim) => return Some(claim.id()),
+                Some(claim) => return Some(claim.id),
             }
         }
     }
@@ -500,7 +488,7 @@ impl Allocator {
                 size,
                 index: self.index,
                 next: None,
-                state: Atomic64::new(State::new(StateUnpacked::Live)),
+                state: Atomic64::new(State::Live),
             })
     }
 
@@ -537,10 +525,14 @@ impl Descriptor {
     }
 }
 
-#[ribbit::pack(size = 2, debug)]
+#[derive(ribbit::Pack, Copy, Clone)]
+#[ribbit(size = 2)]
 enum State {
+    #[ribbit(size = 0)]
     Live,
+    #[ribbit(size = 0)]
     Free,
+    #[ribbit(size = 0)]
     Safe,
 }
 

@@ -39,34 +39,46 @@ where
 
     pub(crate) fn offset_to_offset(&self, offset: usize) -> Offset<B> {
         let offset = offset + B::SIZE_SLAB;
-        NonZeroU64::new(offset as u64)
-            .map(|offset| Offset::new_internal(offset))
-            .unwrap()
+        NonZeroU64::new(offset as u64).map(Offset::new).unwrap()
     }
 
     pub(crate) fn pointer_to_offset<T>(&self, pointer: NonNull<T>) -> Option<Offset<B>> {
         (pointer.as_ptr() as u64)
             .checked_sub(self.base.as_ptr() as u64)
             .and_then(NonZeroU64::new)
-            .map(Offset::new_internal)
+            .map(Offset::new)
     }
 }
 
-#[ribbit::pack(
-    size = 64,
-    nonzero,
-    new(rename = "new_internal", vis = ""),
-    debug,
-    eq,
-    hash,
-    ord
-)]
 #[repr(transparent)]
+#[derive(ribbit::Pack, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[ribbit(size = 64, nonzero)]
 pub(crate) struct Offset<B> {
-    #[ribbit(debug(format = "{:#x?}"))]
-    value: NonZeroU64,
     #[ribbit(size = 0)]
     _bracket: PhantomData<B>,
+    value: NonZeroU64,
+}
+
+impl<B> Copy for Offset<B> {}
+impl<B> Clone for Offset<B> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<B> core::hash::Hash for Offset<B> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state)
+    }
+}
+
+impl<B> Offset<B> {
+    const fn new(value: NonZeroU64) -> Self {
+        Self {
+            value,
+            _bracket: PhantomData,
+        }
+    }
 }
 
 impl<B: size::Bracket> Offset<B> {
@@ -83,13 +95,13 @@ impl<B: size::Bracket> Offset<B> {
             NonZeroU32::from(slab).get() as u64 * (B::SIZE_SLAB as u64)
                 + u64::from(block) * class.size(),
         )
-        .map(Self::new_internal)
+        .map(Self::new)
         .unwrap()
     }
 
     pub(crate) fn into_block(self, class: B) -> Bit {
         unsafe {
-            let block = self.value().get() % B::SIZE_SLAB as u64 / class.size();
+            let block = self.value.get() % B::SIZE_SLAB as u64 / class.size();
             debug_assert!(
                 block <= class.count(),
                 "{:?} {:?} {}",
@@ -109,7 +121,7 @@ impl<B: size::Bracket> Offset<B> {
 impl<B: size::Bracket> From<slab::Index<B>> for Offset<B> {
     fn from(index: slab::Index<B>) -> Self {
         NonZeroU64::new(NonZeroU32::from(index).get() as u64 * B::SIZE_SLAB as u64)
-            .map(Self::new_internal)
+            .map(Self::new)
             .unwrap()
     }
 }
@@ -129,9 +141,6 @@ impl<B: size::Bracket> From<Offset<B>> for u64 {
 impl<B> core::ops::Add<u64> for Offset<B> {
     type Output = Self;
     fn add(self, rhs: u64) -> Self::Output {
-        Self {
-            value: self.value.checked_add(rhs).unwrap(),
-            r#type: self.r#type,
-        }
+        Self::new(self.value.checked_add(rhs).unwrap())
     }
 }

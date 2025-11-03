@@ -9,8 +9,9 @@ use crate::size::Bracket as _;
 use crate::SIZE_CACHE_LINE;
 
 /// 1KiB, 2KiB, ..., 1MiB
-#[ribbit::pack(size = 4, new(rename = "new_internal", vis = ""), eq, hash)]
-#[derive(Default)]
+#[repr(transparent)]
+#[derive(ribbit::Pack, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[ribbit(size = 4)]
 pub(crate) struct Large(u4);
 
 impl Debug for Large {
@@ -26,7 +27,7 @@ impl Large {
     #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size <= Self::SIZE_MAX {
-            true => Some(Self::new_internal(u4::new(
+            true => Some(Self(u4::new(
                 (size.next_power_of_two() >> Self::SIZE_MIN_LOG2).trailing_zeros() as u8,
             ))),
             false => None,
@@ -34,12 +35,12 @@ impl Large {
     }
 
     pub(crate) const fn from_index(index: u8) -> Self {
-        Self::new_internal(u4::new(index))
+        Self(u4::new(index))
     }
 
     #[inline]
     const fn count(&self) -> u64 {
-        Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self._0().value()
+        Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self.0.value()
     }
 
     pub(crate) const fn bit_sets() -> [<Self as size::Bracket>::BitSet; Self::COUNT] {
@@ -47,7 +48,7 @@ impl Large {
 
         let mut class = 0;
         while class < bit_sets.len() {
-            let count = Self::new_internal(u4::new(class as u8)).count();
+            let count = Self(u4::new(class as u8)).count();
             bit_sets[class] = BitSet::filled(count);
             class += 1;
         }
@@ -81,7 +82,7 @@ impl size::Bracket for Large {
         u8::try_from(index)
             .ok()
             .and_then(|index| u4::try_new(index).ok())
-            .map(Self::new_internal)
+            .map(Self)
     }
 
     #[inline]
@@ -96,7 +97,7 @@ impl size::Bracket for Large {
 
     #[inline]
     fn size(&self) -> u64 {
-        (Self::SIZE_MIN as u64) << self._0().value()
+        (Self::SIZE_MIN as u64) << self.0.value()
     }
 
     #[inline]

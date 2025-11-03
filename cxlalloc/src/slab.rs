@@ -49,7 +49,7 @@ impl<'raw, B: size::Bracket> Slab<'raw, B> {
     }
 
     pub(crate) unsafe fn link(&self, range: Range<Index<B>>, head: Option<Index<B>>) {
-        let range = (range.start.value().get()..range.end.value().get())
+        let range = (range.start.value.get()..range.end.value.get())
             .map(NonZeroU32::new)
             .map(Option::unwrap)
             .map(Index::new);
@@ -132,16 +132,37 @@ where
 }
 
 #[repr(transparent)]
-#[ribbit::pack(size = 32, nonzero, new(vis = ""), eq)]
+#[derive(ribbit::Pack)]
+#[ribbit(size = 32, nonzero, new(vis = ""))]
 pub(crate) struct Index<B> {
-    value: NonZeroU32,
     #[ribbit(size = 0)]
     _bracket: PhantomData<B>,
+    value: NonZeroU32,
 }
 
 impl<B> Index<B> {
     pub(crate) const MIN: Self = Self::new(NonZeroU32::MIN);
+
+    const fn new(value: NonZeroU32) -> Self {
+        Self {
+            value,
+            _bracket: PhantomData,
+        }
+    }
 }
+
+impl<B> Copy for Index<B> {}
+impl<B> Clone for Index<B> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<B> PartialEq for Index<B> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value.eq(&other.value)
+    }
+}
+impl<B> Eq for Index<B> {}
 
 impl Index<size::Huge> {
     pub(crate) fn new_huge(slot: usize) -> Self {
@@ -151,31 +172,31 @@ impl Index<size::Huge> {
 
 impl<B> Index<B> {
     pub(crate) unsafe fn add(&self, count: u32) -> Self {
-        self.value().checked_add(count).map(Self::new).unwrap()
+        self.value.checked_add(count).map(Self::new).unwrap()
     }
 }
 
 impl<B> Debug for Index<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        Debug::fmt(&(self.value().get() - 1), f)
+        Debug::fmt(&(self.value.get() - 1), f)
     }
 }
 
 impl<B> Display for Index<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&(self.value().get() - 1), f)
+        Display::fmt(&(self.value.get() - 1), f)
     }
 }
 
 impl<B> From<Index<B>> for NonZeroU32 {
     fn from(index: Index<B>) -> Self {
-        index.value()
+        index.value
     }
 }
 
 impl<B> From<Index<B>> for u32 {
     fn from(index: Index<B>) -> Self {
-        index.value().get() - 1
+        index.value.get() - 1
     }
 }
 
@@ -213,6 +234,6 @@ impl<B, T> Slice<'_, B, T> {
 impl<B, T> core::ops::Index<Index<B>> for Slice<'_, B, T> {
     type Output = T;
     fn index(&self, index: Index<B>) -> &Self::Output {
-        unsafe { self.base.add(index.value().get() as usize).as_ref() }
+        unsafe { self.base.add(index.value.get() as usize).as_ref() }
     }
 }

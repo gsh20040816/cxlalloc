@@ -14,7 +14,8 @@ type Atomic<T> = ribbit::atomic::Atomic64<T>;
 
 pub(crate) struct Detectable<T>(Atomic<State<T>>);
 
-#[ribbit::pack(size = 64, debug)]
+#[derive(ribbit::Pack, Copy, Clone)]
+#[ribbit(size = 64)]
 pub(crate) struct State<T> {
     #[ribbit(size = 16)]
     id: Option<thread::Id>,
@@ -34,14 +35,18 @@ impl<T: ribbit::Pack> Detectable<T> {
         cache::fence();
 
         self.help(context, old);
-        old.inner()
+        old.inner
     }
 
     pub(crate) fn store(&self, context: &mut allocator::Context, value: T, ordering: Ordering) {
         let old = self.0.load(Ordering::Relaxed);
         self.help(context, old);
         self.0.store(
-            State::new(Some(context.id), Version::default(), value),
+            State {
+                id: Some(context.id),
+                version: Version::default(),
+                inner: value,
+            },
             ordering,
         );
 
@@ -77,14 +82,18 @@ impl<T: ribbit::Pack> Detectable<T> {
         loop {
             self.help(context, old);
 
-            let (new, log) = next(old.inner(), version)?;
+            let (new, log) = next(old.inner, version)?;
 
             // Unsync because following compare-exchange is serializing
             context.log_unsync(log);
 
             match self.0.compare_exchange(
                 old,
-                State::new(Some(context.id), version, new),
+                State {
+                    id: Some(context.id),
+                    version,
+                    inner: new,
+                },
                 success,
                 failure,
             ) {
@@ -92,7 +101,7 @@ impl<T: ribbit::Pack> Detectable<T> {
                 Ok(_) => {
                     cache::flush(&self.0, cache::Invalidate::No);
                     cache::fence();
-                    return Some(old.inner());
+                    return Some(old.inner);
                 }
             }
         }
@@ -105,7 +114,7 @@ impl<T: ribbit::Pack> Detectable<T> {
         let state = self.0.load(Ordering::Acquire);
 
         // State hasn't been updated yet
-        state.id() == Some(context.id) && state.version() == version
+        state.id == Some(context.id) && state.version == version
             // State has been observed by another thread before updating
             || context
                 .help
@@ -122,8 +131,8 @@ impl<T: ribbit::Pack> Detectable<T> {
             return;
         }
 
-        let Some(id) = state.id() else { return };
-        let version = state.version();
+        let Some(id) = state.id else { return };
+        let version = state.version;
         context.help.store(context.id, id, version);
     }
 }
@@ -160,18 +169,13 @@ pub(crate) mod help {
     }
 }
 
-#[repr(C)]
-#[ribbit::pack(size = 16, debug, eq, hash)]
+#[repr(transparent)]
+#[derive(ribbit::Pack, Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[ribbit(size = 16)]
 pub struct Version(u16);
-
-impl Default for Version {
-    fn default() -> Self {
-        Self::new(0)
-    }
-}
 
 impl Version {
     pub fn next(&self) -> Self {
-        Self::new(self._0().wrapping_add(1))
+        Self(self.0.wrapping_add(1))
     }
 }

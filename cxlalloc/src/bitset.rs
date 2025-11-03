@@ -129,12 +129,15 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
     unsafe fn peek_unchecked(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;
         let col = unsafe { self.dense.get_unchecked(row as usize) }.trailing_zeros() as u8;
-        Bit::new(u6::new(row), u6::new(col))
+        Bit {
+            row: u6::new(row),
+            col: u6::new(col),
+        }
     }
 
     fn set(&mut self, bit: Bit) {
-        let row = bit.row().value() as usize;
-        let col = bit.col().value() as usize;
+        let row = bit.row.value() as usize;
+        let col = bit.col.value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
         if cfg!(feature = "validate") {
@@ -150,8 +153,8 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
     }
 
     fn unset(&mut self, bit: Bit) {
-        let row = bit.row().value() as usize;
-        let col = bit.col().value() as usize;
+        let row = bit.row.value() as usize;
+        let col = bit.col.value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
         if cfg!(feature = "validate") {
@@ -207,22 +210,25 @@ impl<const SIZE: usize> Debug for BitSet<SIZE> {
     }
 }
 
-#[ribbit::pack(size = 12, debug, eq, ord)]
+#[derive(ribbit::Pack, Copy, Clone, Debug, PartialEq, Eq)]
+#[ribbit(size = 12)]
 pub(crate) struct Bit {
-    #[ribbit(offset = 6)]
-    row: u6,
     col: u6,
+    row: u6,
 }
 
 impl Bit {
-    pub unsafe fn from_loose(block: u16) -> Self {
-        unsafe { ribbit::convert::loose_to_packed(block) }
+    pub(crate) unsafe fn from_loose(bit: u16) -> Self {
+        Self {
+            row: u6::new((bit >> 6) as u8),
+            col: u6::new((bit & 0b111111) as u8),
+        }
     }
 }
 
 impl From<Bit> for u64 {
-    fn from(bit: Bit) -> Self {
-        ribbit::convert::packed_to_loose(bit) as u64
+    fn from(bit: Bit) -> u64 {
+        (bit.col.value() as u64) | ((bit.row.value() as u64) << 6)
     }
 }
 

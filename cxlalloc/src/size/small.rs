@@ -12,14 +12,10 @@ use crate::size::Bracket as _;
 use crate::SIZE_CACHE_LINE;
 
 /// 0B, 8B, 16B, 24B, ..., 1016B
-#[ribbit::pack(size = 7, new(rename = "new_internal", vis = ""), eq, hash)]
+#[repr(transparent)]
+#[derive(ribbit::Pack, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[ribbit(size = 7)]
 pub(crate) struct Small(u7);
-
-impl Default for Small {
-    fn default() -> Self {
-        Small::new_internal(const { u7::new(0) })
-    }
-}
 
 impl Debug for Small {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -31,15 +27,13 @@ impl Small {
     #[inline]
     pub(crate) const fn new(size: usize) -> Option<Self> {
         match size <= Self::SIZE_MAX {
-            true => Some(Small::new_internal(u7::new(
-                (size.next_multiple_of(8) / 8) as u8,
-            ))),
+            true => Some(Small(u7::new((size.next_multiple_of(8) / 8) as u8))),
             false => None,
         }
     }
 
     pub(crate) const fn from_index(size: u8) -> Self {
-        Self::new_internal(u7::new(size))
+        Self(u7::new(size))
     }
 
     const fn counts() -> size::Array<Small, u16> {
@@ -103,7 +97,7 @@ impl size::Bracket for Small {
         u8::try_from(index)
             .ok()
             .and_then(|index| u7::try_new(index).ok())
-            .map(Self::new_internal)
+            .map(Self)
     }
 
     #[inline]
@@ -113,12 +107,12 @@ impl size::Bracket for Small {
 
     #[inline]
     fn is_zero(&self) -> bool {
-        self._0().value() == 0
+        self.0.value() == 0
     }
 
     #[inline]
     fn size(&self) -> u64 {
-        self._0().value() as u64 * 8
+        self.0.value() as u64 * 8
     }
 
     #[inline]

@@ -42,7 +42,7 @@ mimalloc = "0.1"
 proptest = "1.0"
 proptest-state-machine = "0.3"
 rand = { version = "0.9", features = ["small_rng"] }
-ribbit = { git = "https://github.com/nwtnni/ribbit.git", rev = "7a9d17345a3ff8c500f7f3a55b89fe0be068ae61" }
+ribbit = { git = "https://github.com/nwtnni/ribbit.git", rev = "a9754c714151b138e9946a83e2ebbdc664069f59" }
 serde = { version = "1.0", features = ["derive"] }
 serde-inline-default = "0.2"
 serde_json = "1.0"

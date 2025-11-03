@@ -138,7 +138,7 @@ mod validate {
     impl Owner {
         #[inline]
         pub(super) const fn new() -> Self {
-            Self(Atomic64::new(None))
+            Self(Atomic64::from_packed(None))
         }
 
         pub(crate) fn is(&self, id: thread::Id) -> bool {

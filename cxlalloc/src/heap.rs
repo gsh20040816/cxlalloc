@@ -16,12 +16,8 @@ use crate::data;
 use crate::raw::region;
 use crate::raw::Backend;
 use crate::recover;
-use crate::recover::ApplicationToSized;
-use crate::recover::BumpToUnsized;
 use crate::recover::HeapState;
 use crate::recover::State;
-use crate::recover::UnsizedToGlobalSave;
-use crate::recover::UnsizedToSized;
 use crate::size;
 use crate::slab;
 use crate::stat;
@@ -301,7 +297,7 @@ where
         let remote = &self.slabs.remote(index);
         let meta = remote.load(context, Ordering::Relaxed);
 
-        if (meta.free() as u64) < class.count() {
+        if (meta.free as u64) < class.count() {
             remote
                 .update(
                     context,
@@ -309,8 +305,11 @@ where
                     Ordering::Relaxed,
                     |meta, version| {
                         Some((
-                            meta.with_owner(None),
-                            recover::Detach::new(index, version).into(),
+                            slab::Remote {
+                                owner: None,
+                                ..meta
+                            },
+                            recover::HeapState::Detach { index, version },
                         ))
                     },
                 )
@@ -351,7 +350,7 @@ where
         let index = slab::Index::from(offset);
         let remote = self.slabs.remote(index).load(context, Ordering::Relaxed);
 
-        if remote.owner() != Some(context.id) {
+        if remote.owner != Some(context.id) {
             return self.free_remote(context, index);
         }
 
@@ -362,7 +361,7 @@ where
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
-        context.log(HeapState::from(ApplicationToSized::new(index, block)));
+        context.log(HeapState::ApplicationToSized { index, block });
 
         free.set(block);
         let count = free.len();
@@ -402,19 +401,29 @@ where
                 Ordering::Relaxed,
                 |meta, version| {
                     if cfg!(feature = "validate") {
-                        assert!(meta.free() > 0);
+                        assert!(meta.free > 0);
                     }
 
-                    let last = meta.free() as u64 == 1;
-                    let next = meta.with_free(meta.free() - 1);
+                    let last = meta.free as u64 == 1;
+                    let next = slab::Remote {
+                        free: meta.free - 1,
+                        ..meta
+                    };
 
-                    Some((next, recover::Remote::new(index, version, last).into()))
+                    Some((
+                        next,
+                        recover::HeapState::Remote {
+                            index,
+                            version,
+                            last,
+                        },
+                    ))
                 },
             )
             .unwrap();
 
-        if meta.free() == 1 {
-            self.claim(context, meta.owner(), class, index);
+        if meta.free == 1 {
+            self.claim(context, meta.owner, class, index);
         }
     }
 
@@ -466,7 +475,7 @@ where
         let tail = iter.last().unwrap_or(head);
         let next = self.slabs.local(tail).next().load(Ordering::Relaxed);
 
-        context.log(HeapState::from(UnsizedToGlobalSave::new(head)));
+        context.log(HeapState::UnsizedToGlobalSave { index: head });
 
         self.owned.r#unsized.set(next, count - batch);
 
@@ -506,7 +515,13 @@ where
                 Ordering::Relaxed,
                 |old, version| {
                     let new = unsafe { old.unwrap_or(slab::Index::MIN).add(batch) };
-                    Some((Some(new), BumpToUnsized::new(old, version).into()))
+                    Some((
+                        Some(new),
+                        HeapState::BumpToUnsized {
+                            start: old,
+                            version,
+                        },
+                    ))
                 },
             )
             .unwrap();
@@ -577,7 +592,7 @@ where
         let local = slabs.local(index);
         let next = local.next().load(Ordering::Relaxed);
 
-        context.log(HeapState::from(UnsizedToSized::new(next, class)));
+        context.log(HeapState::UnsizedToSized { index: next, class });
 
         unsafe {
             local.get_mut().initialize(class);
@@ -590,7 +605,10 @@ where
         let remote = slabs.remote(index);
         remote.store(
             context,
-            slab::Remote::new(Some(context.id), class.count() as u16),
+            slab::Remote {
+                owner: Some(context.id),
+                free: class.count() as u16,
+            },
             Ordering::Relaxed,
         );
 

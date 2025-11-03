@@ -1,7 +1,8 @@
 use crate::thread;
 
 #[repr(C)]
-#[ribbit::pack(size = 32, debug)]
+#[derive(ribbit::Pack, Copy, Clone, Debug)]
+#[ribbit(size = 32)]
 pub(crate) struct Remote {
     #[ribbit(size = 16)]
     pub(crate) owner: Option<thread::Id>,

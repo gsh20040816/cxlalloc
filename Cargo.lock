@@ -133,6 +133,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "825297538d77367557b912770ca3083f778a196054b3ee63b22673c4a3cae0a5"
 
 [[package]]
+name = "arbitrary-int"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c858caffa49edfc4ecc45a4bec37abd3e88041a2903816f10f990b7b41abc281"
+
+[[package]]
 name = "array-init"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -697,7 +703,7 @@ dependencies = [
  "log",
  "proptest",
  "proptest-state-machine",
- "ribbit",
+ "ribbit 0.1.0 (git+https://github.com/nwtnni/ribbit.git?rev=a9754c714151b138e9946a83e2ebbdc664069f59)",
  "serde",
  "shm",
  "thiserror",
@@ -1911,10 +1917,19 @@ name = "ribbit"
 version = "0.1.0"
 source = "git+https://github.com/nwtnni/ribbit.git?rev=7a9d17345a3ff8c500f7f3a55b89fe0be068ae61#7a9d17345a3ff8c500f7f3a55b89fe0be068ae61"
 dependencies = [
- "arbitrary-int",
+ "arbitrary-int 1.3.0",
  "const_panic",
- "ribbit-derive",
+ "ribbit-derive 0.1.0 (git+https://github.com/nwtnni/ribbit.git?rev=7a9d17345a3ff8c500f7f3a55b89fe0be068ae61)",
  "static_assertions",
+]
+
+[[package]]
+name = "ribbit"
+version = "0.1.0"
+source = "git+https://github.com/nwtnni/ribbit.git?rev=a9754c714151b138e9946a83e2ebbdc664069f59#a9754c714151b138e9946a83e2ebbdc664069f59"
+dependencies = [
+ "arbitrary-int 2.0.0",
+ "ribbit-derive 0.1.0 (git+https://github.com/nwtnni/ribbit.git?rev=a9754c714151b138e9946a83e2ebbdc664069f59)",
 ]
 
 [[package]]
@@ -1924,6 +1939,18 @@ source = "git+https://github.com/nwtnni/ribbit.git?rev=7a9d17345a3ff8c500f7f3a55
 dependencies = [
  "bitvec",
  "darling",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.96",
+]
+
+[[package]]
+name = "ribbit-derive"
+version = "0.1.0"
+source = "git+https://github.com/nwtnni/ribbit.git?rev=a9754c714151b138e9946a83e2ebbdc664069f59#a9754c714151b138e9946a83e2ebbdc664069f59"
+dependencies = [
+ "darling",
+ "heck",
  "proc-macro2",
  "quote",
  "syn 2.0.96",
@@ -2087,7 +2114,7 @@ dependencies = [
  "bon",
  "libc",
  "log",
- "ribbit",
+ "ribbit 0.1.0 (git+https://github.com/nwtnni/ribbit.git?rev=7a9d17345a3ff8c500f7f3a55b89fe0be068ae61)",
  "serde",
 ]
 

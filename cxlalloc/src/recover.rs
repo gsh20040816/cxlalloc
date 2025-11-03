@@ -21,11 +21,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return;
         };
 
-        dbg!(&state);
-
-        match state.unpack() {
-            StateUnpacked::Small(state) => Self::recover_heap(context, &mut self.small, state),
-            StateUnpacked::Large(state) => Self::recover_heap(context, &mut self.large, state),
+        match state {
+            State::Small(state) => Self::recover_heap(context, &mut self.small, state),
+            State::Large(state) => Self::recover_heap(context, &mut self.large, state),
         }
     }
 
@@ -38,10 +36,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         slab::Local<B>: slab::local::Cache<B>,
         State: From<HeapState<B>>,
     {
-        match state.unpack() {
-            HeapStateUnpacked::UnsizedToSized(state) => {
+        match state {
+            HeapState::UnsizedToSized { index, class } => {
                 let r#unsized = &mut heap.owned.r#unsized;
-                let index = state.index();
                 let slabs = &heap.slabs;
 
                 match r#unsized.peek() {
@@ -52,14 +49,11 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     }
                     // Retry
                     _ => {
-                        heap.owned.unsized_to_sized(context, slabs, state.class());
+                        heap.owned.unsized_to_sized(context, slabs, class);
                     }
                 }
             }
-            HeapStateUnpacked::GlobalToUnsized(state) => {
-                let index = state.index();
-                let version = state.version();
-
+            HeapState::GlobalToUnsized { index, version } => {
                 // Crashed between logging and CASing
                 if !heap.shared.detect_global(context, version) {
                     return;
@@ -68,9 +62,8 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 heap.owned.r#unsized.recover_push(&heap.slabs, index);
             }
             // FIXME: deduplicate with `heap::Shared::bump`?
-            HeapStateUnpacked::BumpToUnsized(state) => {
-                let start = state.start().unwrap_or(slab::Index::MIN);
-                let version = state.version();
+            HeapState::BumpToUnsized { start, version } => {
+                let start = start.unwrap_or(slab::Index::MIN);
 
                 if !heap.shared.detect_bump(context, version) {
                     return;
@@ -84,9 +77,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     heap.owned.r#unsized.set(Some(start), batch);
                 }
             }
-            HeapStateUnpacked::UnsizedToGlobalSave(state) => {
-                let index = state.index();
-
+            HeapState::UnsizedToGlobalSave { index } => {
                 match heap.owned.r#unsized.peek() {
                     // Crashed before popping batch from `r#unsized`
                     Some(head) if head == index => {
@@ -101,10 +92,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                     }
                 }
             }
-            HeapStateUnpacked::UnsizedToGlobal(state) => {
-                let index = state.index();
-                let version = state.version();
-
+            HeapState::UnsizedToGlobal { index, version } => {
                 // Completed successfully
                 if heap.shared.detect_global(context, version) {
                     return;
@@ -114,13 +102,13 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 heap.owned.r#unsized.set(Some(index), 0);
                 heap.owned.r#unsized.recover_count(&heap.slabs);
             }
-            HeapStateUnpacked::SizedToApplication(_state) => todo!(),
-            HeapStateUnpacked::ApplicationToSized(_state) => todo!(),
-            HeapStateUnpacked::Remote(state) => {
-                let index = state.index();
-                let version = state.version();
-                let last = state.last();
-
+            HeapState::SizedToApplication { .. } => todo!(),
+            HeapState::ApplicationToSized { .. } => todo!(),
+            HeapState::Remote {
+                index,
+                version,
+                last,
+            } => {
                 let slab = heap.slabs.remote(index);
 
                 // Crashed before CASing remote descriptor, retry
@@ -137,10 +125,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
                 heap.owned.r#unsized.recover_push(&heap.slabs, index);
                 heap.unsized_to_global(context);
             }
-            HeapStateUnpacked::Detach(state) => {
-                let index = state.index();
-                let version = state.version();
-
+            HeapState::Detach { index, version } => {
                 let slab = heap.slabs.remote(index);
                 let class = heap.slabs.local(index).get().class;
 
@@ -152,15 +137,18 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 }
 
-#[ribbit::pack(size = 64, nonzero, from, debug)]
+#[repr(u8)]
+#[derive(ribbit::Pack, Copy, Clone)]
+#[ribbit(size = 64, nonzero)]
 pub(crate) enum State {
     #[ribbit(size = 60)]
-    Small(HeapState<size::Small>),
+    Small(HeapState<size::Small>) = 1,
     #[ribbit(size = 60)]
-    Large(HeapState<size::Large>),
+    Large(HeapState<size::Large>) = 2,
 }
 
-#[ribbit::pack(size = 60, from, debug)]
+#[derive(ribbit::Pack, Copy, Clone)]
+#[ribbit(size = 60)]
 pub(crate) enum HeapState<B> {
     #[ribbit(size = 40, from, debug)]
     UnsizedToSized {
@@ -245,12 +233,12 @@ pub(crate) enum HeapState<B> {
 
 impl From<HeapState<size::Small>> for State {
     fn from(state: HeapState<size::Small>) -> Self {
-        Self::new(StateUnpacked::Small(state))
+        Self::Small(state)
     }
 }
 
 impl From<HeapState<size::Large>> for State {
     fn from(state: HeapState<size::Large>) -> Self {
-        Self::new(StateUnpacked::Large(state))
+        Self::Large(state)
     }
 }
