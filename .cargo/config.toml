@@ -1,12 +1,2 @@
 [build]
-rustflags = [
-    "-C",
-    "target-cpu=native",
-    # "-Z",
-    # "tls-model=initial-exec",
-    # Note: rust-lld is enabled by default on nightly
-    # https://blog.rust-lang.org/2024/05/17/enabling-rust-lld-on-linux.html
-    # Seems to break linkme, which we use for the `crash` crate, so disable for now.
-    "-Z",
-    "linker-features=-lld",
-]
+rustflags = ["-C", "target-cpu=native"]

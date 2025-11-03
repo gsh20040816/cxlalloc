@@ -1,9 +1,5 @@
 [toolchain]
-# Nightly corresponding to Rust 1.83.0
-# Unfortunately, we still need nightly due to our use of
-# [-Z tls-model=initial-exec](https://doc.rust-lang.org/beta/unstable-book/compiler-flags/tls-model.html)
-# for efficient TLS accesses when using `cxlalloc-dynamic` with `LD_PRELOAD`.
-channel = "nightly-2024-11-28"
+channel = "1.88.0"
 components = [
     "cargo",
     "clippy",
