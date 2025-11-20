@@ -12,7 +12,7 @@ pub struct Id(NonZeroU16);
 
 impl Id {
     pub const unsafe fn new(id: u16) -> Self {
-        assert!(id < u16::MAX);
+        assert!(id < COUNT_THREAD as u16);
         Self(NonZeroU16::new_unchecked(id.wrapping_add(1)))
     }
 }
