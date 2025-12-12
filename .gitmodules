@@ -9,13 +9,13 @@
 	url = https://github.com/nwtnni/memento.git
 [submodule "extern/lightning"]
 	path = extern/lightning
-	url = git@github.com:nwtnni/lightning.git
+	url = https://github.com/nwtnni/lightning.git
 [submodule "extern/sosp-paper19-ae"]
 	path = extern/sosp-paper19-ae
-	url = git@github.com:nwtnni/sosp-paper19-ae.git
+	url = https://github.com/nwtnni/sosp-paper19-ae.git
 [submodule "extern/mimalloc"]
 	path = extern/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
 [submodule "extern/ralloc"]
 	path = extern/ralloc
-	url = git@github.com:photoszzt/ralloc.git
+	url = https://github.com/photoszzt/ralloc.git
