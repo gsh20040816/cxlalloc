@@ -70,6 +70,7 @@ impl<const SIZE: usize> BitSet<SIZE> {
 }
 
 impl<const SIZE: usize> BitSet<SIZE> {
+    #[allow(unused)]
     pub(crate) const fn new() -> Self {
         Self {
             count: 0,
@@ -78,6 +79,7 @@ impl<const SIZE: usize> BitSet<SIZE> {
         }
     }
 
+    #[allow(unused)]
     pub(crate) const fn filled(count: u64) -> Self {
         let mut filled = Self::new();
         filled.fill(count);

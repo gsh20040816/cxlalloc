@@ -32,6 +32,7 @@ impl Small {
         }
     }
 
+    #[allow(unused)]
     pub(crate) const fn from_index(size: u8) -> Self {
         Self(u7::new(size))
     }
@@ -58,6 +59,7 @@ impl Small {
         }
     }
 
+    #[allow(unused)]
     pub(crate) const fn bit_sets() -> [<Self as size::Bracket>::BitSet; Self::COUNT] {
         let counts = Self::counts().inner;
         let mut bit_sets = [const { BitSet::new() }; Self::COUNT];
