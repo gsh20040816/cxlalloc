@@ -6,7 +6,7 @@ set -o pipefail
 
 readonly ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-cd "$ROOT"
+cd "$ROOT/.."
 
 rm /dev/shm/* || true
 
@@ -16,4 +16,4 @@ cargo run \
     --release \
     --package cxlalloc-bench \
     -- \
-    cxlalloc-bench/workloads/main.toml
+    "$1"
