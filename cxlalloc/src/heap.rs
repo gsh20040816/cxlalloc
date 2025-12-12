@@ -444,7 +444,7 @@ where
             .trace(&self.slabs)
             .inspect(|index| {
                 // Not strictly necessary, but helps debugging
-                if cfg!(feature = "validate") {
+                if cfg!(any(feature = "validate", debug_assertions)) {
                     self.slabs.local(*index).disown(context.id);
                 }
             })
