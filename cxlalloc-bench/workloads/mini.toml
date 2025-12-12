@@ -1,6 +1,7 @@
 repeat = 1
 
 [[experiment]]
+output = "mini.ndjson"
 numa = [{ policy = "bind", node = 0 }]
 thread_count = [2]
 process_count = [1]
@@ -58,6 +59,7 @@ operation_count = [100]
 trace = ["twitter/cluster37.000.parquet"]
 
 [[experiment]]
+output = "mini.ndjson"
 numa = [{ policy = "bind", node = 0 }]
 thread_count = [2]
 process_count = [2]
