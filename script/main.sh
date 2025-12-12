@@ -8,7 +8,7 @@ readonly ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd
 
 cd "$ROOT"
 
-rm /dev/shm/{barrier,tt*,xm*,ycsb*,mc*,ms*,acked,index,ebr} || true
+rm /dev/shm/* || true
 
 cargo build --release --package cxlalloc-bench
 
