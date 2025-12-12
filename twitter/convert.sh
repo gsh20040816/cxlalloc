@@ -9,7 +9,13 @@ set -o pipefail
 
 CLUSTER=$1
 
-# cargo install parquet --features=cli
+if command -v cargo &>/dev/null; then
+    echo "Run cxlalloc/script/setup.sh to install cargo"
+    exit 1
+fi
+
+[ -x ~/.cargo/bin/parquet-fromcsv ] || cargo install parquet --features=cli
+
 ~/.cargo/bin/parquet-fromcsv \
     --csv-compression zstd \
     --input-file "${ROOT}/cluster${CLUSTER}.000.zst" \
