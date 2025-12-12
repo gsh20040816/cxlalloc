@@ -7,17 +7,26 @@ set -o xtrace
 
 cd ~
 
-bash <(curl -L https://nixos.org/nix/install) --no-daemon
+if command -v nix &>/dev/null; then
+    echo "Skipping nix installation"
+else
+    bash <(curl -L https://nixos.org/nix/install) --no-daemon
+    source ~/.nix-profile/etc/profile.d/nix.sh
+fi
 
-curl -sfL https://direnv.net/install.sh | sudo -E bin_path=/usr/bin bash
+if command -v direnv &>/dev/null; then
+    echo "Skipping direnv installation"
+else
+    curl -sfL https://direnv.net/install.sh | sudo -E bin_path=/usr/bin bash
+fi
 
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+grep -q direnv ~/.bashrc || echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
 
-git clone git@github.com:nwtnni/cxlalloc.git
+[ -d "cxlalloc" ] || git clone https://github.com/nwtnni/cxlalloc.git
 cd cxlalloc
 git submodule update --init --recursive
 
-echo "use flake" > .envrc
+[ -f .envrc ] || echo "use flake" > .envrc
 direnv allow .
 
-./bench/normalize.sh
+./script/normalize.sh
