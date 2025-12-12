@@ -19,6 +19,8 @@ def main():
         workloads=common.MACRO_WORKLOADS,
     )
 
+    thread_counts = df.select(THREAD_COUNT).unique().collect().to_series().sort()
+
     fig = common.make_subplots(common.MACRO_WORKLOADS)
 
     for col, workload in enumerate(common.MACRO_WORKLOADS):
@@ -49,7 +51,7 @@ def main():
             .select(common.PSS)
             .sort(common.PSS)
             .collect()
-            .head(-9)
+            .head(-len(thread_counts))
             .to_series()
         )
 
