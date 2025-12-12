@@ -1,0 +1,121 @@
+repeat = 1
+
+[[experiment]]
+numa = [{ policy = "bind", node = 0 }]
+thread_count = [2]
+process_count = [1]
+allocator = [{ name = "mimalloc" }]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }]
+
+[[experiment.benchmark]]
+kind = "thread_test"
+iteration_count = [100]
+operation_count = [100]
+object_size = [8]
+
+[[experiment.benchmark]]
+kind = "xmalloc"
+operation_count = [100]
+
+[[experiment.benchmark]]
+kind = "key_value"
+
+[[experiment.benchmark.workload]]
+name = "ycsb"
+record_count = [100]
+operation_count = [100]
+
+[[experiment.benchmark.workload.mix]]
+phase = "load"
+
+[[experiment.benchmark.workload.mix]]
+phase = "run"
+read = 0.50
+insert = 0.25
+delete = 0.25
+distribution = "zipfian"
+
+[[experiment.benchmark.workload.mix]]
+phase = "run"
+read = 0.95
+insert = 0.05
+distribution = "latest"
+
+[[experiment.benchmark.workload]]
+name = "memcached"
+operation_count = [100]
+trace = [
+    "twitter/cluster12.000.parquet",
+    "twitter/cluster15.000.parquet",
+    "twitter/cluster31.000.parquet",
+]
+
+[[experiment.benchmark.workload]]
+name = "memcached"
+operation_count = [100]
+trace = ["twitter/cluster37.000.parquet"]
+
+[[experiment]]
+numa = [{ policy = "bind", node = 0 }]
+thread_count = [2]
+process_count = [2]
+allocator = [
+    { name = "cxlalloc" },
+    { name = "ralloc" },
+    { name = "cxl_shm" },
+    { name = "boost" },
+    { name = "lightning" },
+]
+
+[experiment.allocator_config]
+numa = [{ policy = "bind", node = 0 }]
+
+[[experiment.benchmark]]
+kind = "thread_test"
+iteration_count = [100]
+operation_count = [100]
+object_size = [8]
+
+[[experiment.benchmark]]
+kind = "xmalloc"
+operation_count = [100]
+
+[[experiment.benchmark]]
+kind = "key_value"
+
+[[experiment.benchmark.workload]]
+name = "ycsb"
+record_count = [100]
+operation_count = [100]
+
+[[experiment.benchmark.workload.mix]]
+phase = "load"
+
+[[experiment.benchmark.workload.mix]]
+phase = "run"
+read = 0.50
+insert = 0.25
+delete = 0.25
+distribution = "zipfian"
+
+[[experiment.benchmark.workload.mix]]
+phase = "run"
+read = 0.95
+insert = 0.05
+distribution = "latest"
+
+[[experiment.benchmark.workload]]
+name = "memcached"
+operation_count = [100]
+trace = [
+    "twitter/cluster12.000.parquet",
+    "twitter/cluster15.000.parquet",
+    "twitter/cluster31.000.parquet",
+]
+
+[[experiment.benchmark.workload]]
+name = "memcached"
+operation_count = [100]
+trace = ["twitter/cluster37.000.parquet"]
