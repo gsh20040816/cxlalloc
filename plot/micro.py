@@ -70,7 +70,7 @@ def main():
 
     common.update_layout(fig, full=False, numa=True)
 
-    fig.write_image("out.pdf")
+    fig.write_image("micro.pdf")
     fig.show()
 
 

@@ -58,7 +58,7 @@ def main():
 
     common.update_layout(fig, full=False, numa=True)
     fig.update_layout(legend_title="Process Count")
-    fig.write_image("out.pdf")
+    fig.write_image("huge.pdf")
     fig.show()
 
 

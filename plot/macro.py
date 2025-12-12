@@ -65,7 +65,7 @@ def main():
 
     common.update_layout(fig, full=True, numa=True)
 
-    fig.write_image("out.pdf")
+    fig.write_image("macro.pdf")
     fig.show()
 
 
