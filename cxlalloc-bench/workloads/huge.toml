@@ -8,6 +8,7 @@ process_count = [1, 2, 5, 10, 20, 40, 80]
 
 [experiment.allocator_config]
 numa = [{ policy = "bind", node = 0 }]
+size = [68719476736]
 
 [[experiment.allocator]]
 name = "cxlalloc"

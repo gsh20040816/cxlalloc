@@ -9,6 +9,7 @@ allocator = [{ name = "mimalloc" }]
 
 [experiment.allocator_config]
 numa = [{ policy = "bind", node = 0 }]
+size = [68719476736]
 
 [[experiment.benchmark]]
 kind = "thread_test"
@@ -73,6 +74,7 @@ allocator = [
 
 [experiment.allocator_config]
 numa = [{ policy = "bind", node = 0 }]
+size = [68719476736]
 
 [[experiment.benchmark]]
 kind = "thread_test"
