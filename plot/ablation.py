@@ -60,7 +60,7 @@ def main():
     fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
     common.update_layout(fig, full=False, numa=False, single_row=True)
-    fig.write_image("out.pdf")
+    fig.write_image("ablation.pdf")
     fig.show()
 
 
