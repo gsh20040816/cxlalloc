@@ -10,10 +10,6 @@ cd "$ROOT/.."
 
 rm /dev/shm/* || true
 
-cargo build --release --package cxlalloc-bench
+cargo build --release --package cxlalloc-bench --quiet --frozen
 
-cargo run \
-    --release \
-    --package cxlalloc-bench \
-    -- \
-    "$1"
+cargo run --release --package cxlalloc-bench --quiet --frozen -- "$1"
