@@ -12,6 +12,12 @@ set -o xtrace
 
 readonly kernel="/proc/sys/kernel";
 
+# Allow perf without root
+echo '-1' | sudo tee $kernel/perf_event_paranoid
+
+# Include kernel symbols in flamegraph
+echo 0 | sudo tee $kernel/kptr_restrict
+
 # Disable NMI watchdog
 # https://docs.kernel.org/admin-guide/lockup-watchdogs.html
 echo 0 | sudo tee $kernel/nmi_watchdog
@@ -65,4 +71,3 @@ fi
 # sudo systemctl set-property --runtime init.scope AllowedCPUs=0 AllowedMemoryNodes=0
 # sudo systemctl set-property --runtime system.slice AllowedCPUs=0 AllowedMemoryNodes=0
 # echo "[Slice]\nAllowedCpus=40-79" | sudo tee /etc/systemd/system/workload.slice
-

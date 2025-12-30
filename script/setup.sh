@@ -22,11 +22,16 @@ fi
 
 grep -q direnv ~/.bashrc || echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
 
-[ -d "cxlalloc" ] || git clone https://github.com/nwtnni/cxlalloc.git
+[ -d "cxlalloc" ] || git clone '<REDACTED>'
 cd cxlalloc
 git submodule update --init --recursive
 
 [ -f .envrc ] || echo "use flake" > .envrc
 direnv allow .
+
+cd twitter
+[ -f 'memcached.tar.gz' ] || wget -O memcached.tar.gz 'https://www.dropbox.com/scl/fi/764zhtr3kvgf44fk6jihm/memcached.tar.gz?rlkey=6w9ehwzd68z52bhcb3mutadog&st=c861shpc&dl=1'
+[ -f 'cluster37.000.parquet' ] || tar -xf memcached.tar.gz
+cd ..
 
 ./script/normalize.sh
