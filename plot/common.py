@@ -17,6 +17,7 @@ THREAD_COUNT = "Thread Count"
 PROCESS_COUNT = "Process Count"
 WORKLOAD = "Workload"
 THROUGHPUT = "Throughput (ops/sec)"
+TIME = "Time (s)"
 PSS = "PSS (GiB)"
 SWCC = "SWcc (GiB)"
 HWCC = "HWcc (GiB)"
@@ -289,6 +290,15 @@ def collapse(
             )
             .sum()
             .alias(THROUGHPUT),
+            (
+                pl.col("output")
+                .struct["thread"]
+                .list.explode()
+                .struct["time"]
+                .struct["total"]
+                .mean()
+                / 1e9
+            ).alias(TIME),
             # Total SWcc memory usage
             pl.col("output")
             .struct["process"]
