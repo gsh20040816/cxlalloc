@@ -196,7 +196,7 @@ impl Sequential {
             .next_multiple_of(crate::SIZE_PAGE);
 
         assert!(
-            offset < crate::mcas::Buffer::SIZE_TARGET,
+            (offset + size.get()) < crate::mcas::Buffer::SIZE_TARGET,
             "No room for sequential region of size {:x?} at offset {:x?} in target buffer of size {:x?}",
             size,
             offset,

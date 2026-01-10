@@ -48,23 +48,24 @@ impl<T: ribbit::Pack> Atomic<T> {
         _success: Ordering,
         _failure: Ordering,
     ) -> Result<T, T> {
-        mcas(
-            self as *const _ as *mut _,
-            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(old.pack())),
-            ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(new.pack())),
-        )
-        .map(|old| unsafe {
-            ribbit::convert::loose_to_packed::<ribbit::Packed<T>>(ribbit::convert::loose_to_loose(
-                old,
-            ))
-            .unpack()
-        })
-        .map_err(|conflict| unsafe {
-            ribbit::convert::loose_to_packed::<ribbit::Packed<T>>(ribbit::convert::loose_to_loose(
-                conflict,
-            ))
-            .unpack()
-        })
+        let old = ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(old.pack()));
+        let new = ribbit::convert::loose_to_loose(ribbit::convert::packed_to_loose(new.pack()));
+
+        return match mcas(self as *const _ as *mut _, old, new) {
+            Ok(old) => Ok(unsafe {
+                ribbit::convert::loose_to_packed::<ribbit::Packed<T>>(
+                    ribbit::convert::loose_to_loose(old),
+                )
+                .unpack()
+            }),
+            Err(0) => Err(self.0.load(_failure)),
+            Err(conflict) => Err(unsafe {
+                ribbit::convert::loose_to_packed::<ribbit::Packed<T>>(
+                    ribbit::convert::loose_to_loose(conflict),
+                )
+                .unpack()
+            }),
+        };
     }
 }
 
@@ -75,7 +76,11 @@ pub(crate) fn init_process() -> &'static Mcas {
 
         // FIXME: assumes single process
         unsafe {
-            libc::memset(mcas.target.virt.as_ptr().cast(), 0, Buffer::SIZE_TARGET);
+            libc::memset(
+                mcas.target.virt.as_ptr().cast(),
+                0,
+                Buffer::SIZE_TARGET - Buffer::SIZE_READ - Buffer::SIZE_WRITE,
+            );
         }
 
         mcas
@@ -91,15 +96,6 @@ pub(crate) fn init_thread(id: thread::Id) {
 fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
     let mcas = MCAS.get().unwrap();
     let phys = mcas.target.virt_to_phys(address);
-
-    log::trace!(
-        "{:x?} mcas: v{:x?} p{:x?} o{:#x} n{:#x}",
-        mcas,
-        address,
-        phys,
-        old,
-        new
-    );
 
     let id = THREAD_ID.with(|id| id.load(Ordering::Relaxed) as u64);
 
@@ -124,7 +120,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
         // Make sure write makes it to NMP
         core::arch::x86_64::_mm_sfence();
 
-        #[repr(C, align(16))]
+        #[repr(C, align(64))]
         struct Output([u64; 2]);
 
         // Memory layout is [result, success]
@@ -134,15 +130,24 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
         let mut out = Output([0u64; 2]);
 
         core::arch::asm! {
-            "movdqu xmm0, [{input}]",
-            "movdqu [{output}], xmm0",
+            "movdqa xmm0, [{input}]",
+            "movdqa [{output}], xmm0",
             input = in(reg) read.as_ptr(),
             output = in(reg) &mut out,
         }
 
         let value = out.0[0];
         let success = out.0[1];
-        log::warn!("{id} mcas result: {success}");
+        log::trace!(
+            "v{:x?} p{:x?} o{:#x} n{:#x} a{:#x} s{}",
+            address,
+            phys,
+            old,
+            new,
+            value,
+            success,
+        );
+
         match success {
             1 => Ok(value),
             _ => Err(value),
@@ -150,7 +155,7 @@ fn mcas(address: *mut u64, old: u64, new: u64) -> Result<u64, u64> {
     }
 }
 
-const CXL_PCIE_BAR_PATH: &CStr = c"/sys/devices/pci0000:43/0000:43:00.1/resource2";
+const CXL_PCIE_BAR_PATH: &CStr = c"/sys/devices/pci0000:16/0000:16:00.1/resource2";
 
 #[derive(Debug)]
 pub struct Csr {
