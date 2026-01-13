@@ -19,7 +19,7 @@ LEAK_SIZE = "Leak Size"
 TIME = "Execution Time (s)"
 TIME_TOTAL = "Total Time"
 
-ORDER_ALLOCATOR = ["shmalloc", "ralloc-leak", "ralloc-gc"]
+ORDER_ALLOCATOR = ["cxlalloc", "ralloc-leak", "ralloc-gc"]
 ORDER_PHASE = [PHASE_GC, PHASE_EXEC]
 
 PATTERN = {
@@ -27,7 +27,7 @@ PATTERN = {
     PHASE_EXEC: "",
 }
 COLOR_ALLOCATOR = {
-    "shmalloc": "black",
+    "cxlalloc": "black",
     "ralloc-leak": common.SCHEME[1],
     "ralloc-gc": "lightgray",
 }
@@ -39,7 +39,7 @@ def main():
     df = (
         df.select(
             pl.when(pl.col("config").struct["allocator"] == "cxlalloc")
-            .then(pl.lit("shmalloc"))
+            .then(pl.lit("cxlalloc"))
             .when(
                 (pl.col("config").struct["allocator"] == "ralloc")
                 & pl.col("config").struct["block"]

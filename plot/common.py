@@ -31,6 +31,7 @@ class Allocator(enum.StrEnum):
     CXLALLOC_MCAS = "cxlalloc-mcas"
     MIMALLOC = "mimalloc"
     RALLOC = "ralloc"
+    RALLOC_HWCC = "ralloc-hwcc"
     CXL_SHM = "cxl-shm"
     BOOST = "boost"
     LIGHTNING = "lightning"
@@ -44,15 +45,18 @@ ALLOCATORS = {
     Allocator.CXLALLOC_NONRECOVERABLE: _NAME == "cxlalloc-nonrecoverable",
     Allocator.CXLALLOC_HWCC: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["coherence"] == "none")
-    & (pl.col("allocator").struct["numa"].struct["node"] == 3),
+    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
     Allocator.CXLALLOC_MCAS: (_NAME == "cxlalloc")
     & (pl.col("allocator").struct["coherence"] == "mcas")
-    & (pl.col("allocator").struct["numa"].struct["node"] == 3),
+    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
     Allocator.MIMALLOC: (_NAME == "mimalloc")
     & (pl.col("allocator").struct["numa"].struct["node"] == 0),
     # Allocator.MIMALLOC_HWCC: _NAME
     # == "mimalloc" & (pl.col("allocator").struct["numa"].struct["node"] == 3),
-    Allocator.RALLOC: _NAME == "ralloc",
+    Allocator.RALLOC: (_NAME == "ralloc")
+    & (pl.col("allocator").struct["numa"].struct["node"] == 0),
+    Allocator.RALLOC_HWCC: (_NAME == "ralloc")
+    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
     Allocator.CXL_SHM: _NAME == "cxl_shm",
     Allocator.BOOST: _NAME == "boost",
     Allocator.LIGHTNING: _NAME == "lightning",
@@ -140,6 +144,7 @@ COLORS = {
     Allocator.CXLALLOC_MCAS: SCHEME[7],
     Allocator.MIMALLOC: SCHEME[0],
     Allocator.RALLOC: SCHEME[1],
+    Allocator.RALLOC_HWCC: SCHEME[8],
     Allocator.CXL_SHM: SCHEME[2],
     Allocator.BOOST: SCHEME[3],
     Allocator.LIGHTNING: SCHEME[4],
@@ -153,6 +158,7 @@ DASHES = {
     Allocator.CXLALLOC_MCAS: "solid",
     Allocator.MIMALLOC: "solid",
     Allocator.RALLOC: "solid",
+    Allocator.RALLOC_HWCC: "solid",
     Allocator.CXL_SHM: "solid",
     Allocator.BOOST: "solid",
     Allocator.LIGHTNING: "solid",
@@ -165,6 +171,7 @@ SYMBOLS = {
     Allocator.CXLALLOC_MCAS: "diamond",
     Allocator.MIMALLOC: "triangle-up",
     Allocator.RALLOC: "square",
+    Allocator.RALLOC_HWCC: "cross",
     Allocator.CXL_SHM: "diamond",
     Allocator.BOOST: "cross",
     Allocator.LIGHTNING: "x",
@@ -333,7 +340,7 @@ def collapse(
         # same inputs/configuration
         .drop(DATE)
         # Group by inputs/configuration (everything not an output)
-        .group_by(cs.exclude(THROUGHPUT, SWCC, HWCC))
+        .group_by(cs.exclude(THROUGHPUT, SWCC, HWCC, TIME))
         .agg(
             pl.col(THROUGHPUT).mean().alias(THROUGHPUT),
             pl.col(THROUGHPUT).std().alias(THROUGHPUT + "_std"),

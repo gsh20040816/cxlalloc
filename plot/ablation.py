@@ -60,6 +60,13 @@ def main():
     fig.for_each_yaxis(lambda yaxis: yaxis.update(type="log"), row=1)
 
     common.update_layout(fig, full=False, numa=False, single_row=True)
+    fig.update_layout(
+        height=225,
+        legend=dict(
+            y=-0.4,
+        ),
+    )
+
     fig.write_image("ablation.pdf")
     fig.show()
 
