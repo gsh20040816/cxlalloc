@@ -32,6 +32,7 @@ class Allocator(enum.StrEnum):
     MIMALLOC = "mimalloc"
     RALLOC = "ralloc"
     RALLOC_HWCC = "ralloc-hwcc"
+    RALLOC_MCAS = "ralloc-mcas"
     CXL_SHM = "cxl-shm"
     BOOST = "boost"
     LIGHTNING = "lightning"
@@ -56,6 +57,10 @@ ALLOCATORS = {
     Allocator.RALLOC: (_NAME == "ralloc")
     & (pl.col("allocator").struct["numa"].struct["node"] == 0),
     Allocator.RALLOC_HWCC: (_NAME == "ralloc")
+    & (pl.col("allocator").struct["coherence"] == "none")
+    & (pl.col("allocator").struct["numa"].struct["node"] == 2),
+    Allocator.RALLOC_MCAS: (_NAME == "ralloc")
+    & (pl.col("allocator").struct["coherence"] == "mcas")
     & (pl.col("allocator").struct["numa"].struct["node"] == 2),
     Allocator.CXL_SHM: _NAME == "cxl_shm",
     Allocator.BOOST: _NAME == "boost",
@@ -145,6 +150,7 @@ COLORS = {
     Allocator.MIMALLOC: SCHEME[0],
     Allocator.RALLOC: SCHEME[1],
     Allocator.RALLOC_HWCC: SCHEME[8],
+    Allocator.RALLOC_MCAS: SCHEME[9],
     Allocator.CXL_SHM: SCHEME[2],
     Allocator.BOOST: SCHEME[3],
     Allocator.LIGHTNING: SCHEME[4],
@@ -159,6 +165,7 @@ DASHES = {
     Allocator.MIMALLOC: "solid",
     Allocator.RALLOC: "solid",
     Allocator.RALLOC_HWCC: "solid",
+    Allocator.RALLOC_MCAS: "solid",
     Allocator.CXL_SHM: "solid",
     Allocator.BOOST: "solid",
     Allocator.LIGHTNING: "solid",
@@ -172,6 +179,7 @@ SYMBOLS = {
     Allocator.MIMALLOC: "triangle-up",
     Allocator.RALLOC: "square",
     Allocator.RALLOC_HWCC: "cross",
+    Allocator.RALLOC_MCAS: "x",
     Allocator.CXL_SHM: "diamond",
     Allocator.BOOST: "cross",
     Allocator.LIGHTNING: "x",
@@ -350,6 +358,7 @@ def collapse(
             pl.col(HWCC).std().alias(HWCC + "_std"),
             (pl.col(SWCC) + pl.col(HWCC)).mean().alias(PSS),
             (pl.col(SWCC) + pl.col(HWCC)).std().alias(PSS + "_std"),
+            pl.col(TIME).mean().alias(TIME),
         )
         .sort(WORKLOAD, ALLOCATOR, PROCESS_COUNT, THREAD_COUNT)
     )

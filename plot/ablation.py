@@ -29,6 +29,14 @@ def main():
                     pl.col(common.ALLOCATOR) == common.Allocator.CXLALLOC_HWCC
                 )
             ).alias("Throughput relative to hwcc"),
+            (
+                pl.col(common.THROUGHPUT).filter(
+                    pl.col(common.ALLOCATOR) == common.Allocator.CXLALLOC_MCAS
+                )
+                / pl.col(common.THROUGHPUT).filter(
+                    pl.col(common.ALLOCATOR) == common.Allocator.RALLOC_MCAS
+                )
+            ).alias("Throughput relative to ralloc-mcas"),
         )
     )
 
@@ -37,10 +45,14 @@ def main():
 
     for col, workload in enumerate(common.MICRO_WORKLOADS):
         for row, metric in enumerate(metrics):
-            for allocator in common.ALLOCATORS:
-                if allocator == common.Allocator.MIMALLOC:
-                    continue
-
+            for allocator in [
+                common.Allocator.CXLALLOC,
+                common.Allocator.CXLALLOC_HWCC,
+                common.Allocator.CXLALLOC_MCAS,
+                common.Allocator.RALLOC,
+                common.Allocator.RALLOC_HWCC,
+                common.Allocator.RALLOC_MCAS,
+            ]:
                 data = (
                     df.filter(pl.col(common.ALLOCATOR) == allocator)
                     .filter(pl.col(common.WORKLOAD) == workload)
@@ -53,6 +65,10 @@ def main():
                     error_y=dict(array=data[metric + "_std"]),
                     x=data[common.THREAD_COUNT],
                     y=data[metric],
+                    legend={
+                        common.Allocator.CXLALLOC: "legend1",
+                        common.Allocator.RALLOC: "legend2",
+                    }[allocator.split("-")[0]],
                 )
 
                 fig.add_trace(trace, row=row + 1, col=col + 1)
@@ -62,8 +78,15 @@ def main():
     common.update_layout(fig, full=False, numa=False, single_row=True)
     fig.update_layout(
         height=225,
-        legend=dict(
+        legend2=dict(
+            title=dict(text="", font_size=common.SIZE_LEGEND_TITLE),
+            orientation="h",
+            xanchor="left",
+            yanchor="top",
+            font_size=common.SIZE_LEGEND_ENTRY,
             y=-0.4,
+            x=-0.05,
+            tracegroupgap=0,
         ),
     )
 
