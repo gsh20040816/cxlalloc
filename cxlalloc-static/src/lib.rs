@@ -84,6 +84,7 @@ pub unsafe extern "C" fn cxlalloc_init_process(
     });
 
     RAW.get_or_init(move || {
+        #[cfg(feature = "log")]
         let _ = env_logger::Builder::from_default_env()
             .format(move |buffer, record| {
                 use std::io::Write;
