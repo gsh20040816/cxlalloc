@@ -1,13 +1,10 @@
 #![allow(clippy::missing_safety_doc)]
 
+use core::cell::Cell;
 use core::mem;
-use core::ops::Deref;
 use core::ptr;
-use core::sync::atomic::AtomicU64;
-use core::sync::atomic::Ordering;
 use std::alloc::Layout;
 use std::cell::RefCell;
-use std::env;
 use std::ffi;
 use std::ffi::CStr;
 use std::ptr::NonNull;
@@ -17,11 +14,10 @@ use cxlalloc::raw;
 use cxlalloc::Allocator;
 
 static RAW: OnceLock<raw::Raw> = OnceLock::new();
-static BACKEND: OnceLock<Backend> = OnceLock::new();
 
 fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
     let address = unsafe { info.read().si_addr() };
-    let id = THREAD_ID.with_borrow(|id| id.as_ref().unwrap().id);
+    let id = THREAD_ID.get();
     if raw().map(id, address) {
         return;
     }
@@ -33,130 +29,59 @@ fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::
     }
 }
 
-enum Backend {
-    Mmap,
-    Shm,
-    Ivshmem,
-}
-
-impl Backend {
-    fn parse(name: &str) -> Self {
-        match name {
-            "mmap" => Backend::Mmap,
-            "shm" => Backend::Shm,
-            "ivshmem" => Backend::Ivshmem,
-            unknown => panic!("Expected one of [mmap, shm], but got {}", unknown),
-        }
-    }
-
-    fn instantiate(&self) -> raw::Backend {
-        let numa = env::var("CXL_NUMA_NODE")
-            .ok()
-            .and_then(|node| node.parse::<usize>().ok())
-            .map(|node| cxlalloc::raw::backend::Numa::Bind { node });
-
-        let builder = raw::Backend::builder().maybe_numa(numa);
-
-        match self {
-            Backend::Mmap => builder.backend(raw::backend::Mmap).build(),
-            Backend::Shm => builder.backend(raw::backend::Shm).build(),
-            Backend::Ivshmem => builder
-                .backend(shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"))
-                .build(),
-        }
-    }
-}
-
 thread_local! {
-    // Using a const initializer was causing some linking errors when using clang-15.
-    static THREAD_ID: RefCell<Option<Id>> = const { RefCell::new(None) };
+    static THREAD_ID: Cell<cxlalloc::thread::Id> = const { Cell::new(unsafe { cxlalloc::thread::Id::new(0) }) };
 
     // > Initialization is dynamically performed on the first call to with within a thread...
     //
     // https://doc.rust-lang.org/std/thread/struct.LocalKey.html
-    static ALLOCATOR: RefCell<Allocator<'static>> = RefCell::new(raw().allocator(thread_id()));
+    static ALLOCATOR: RefCell<Allocator<'static>> = RefCell::new(raw().allocator(THREAD_ID.get()));
 }
 
-static POOL: AtomicU64 = AtomicU64::new(u64::MAX);
-
-struct Id {
-    id: cxlalloc::thread::Id,
-    pool: bool,
-}
-
-impl Deref for Id {
-    type Target = cxlalloc::thread::Id;
-    fn deref(&self) -> &Self::Target {
-        &self.id
-    }
-}
-
-impl Drop for Id {
-    fn drop(&mut self) {
-        cxlalloc::stat::dump(u16::from(self.id) as usize);
-
-        if self.pool {
-            POOL.fetch_or(1 << u16::from(self.id), Ordering::AcqRel);
-        }
-    }
-}
-
-/// Override the default backend. Must be called before `cxlalloc_init`.
+/// Initialize the allocator for this process. This thread does not need to call
+/// `cxlalloc_init_thread`.
 ///
-/// Backend string must be one of [mmap, shm, cxl].
-/// The `destroy` parameter indicates whether the backing file (if it exists)
-/// should be deleted after process exit.
-///
-/// Note: this is a separate function for backward compatibility.
+/// `heap_id` is an application-defined string used to correlate heaps between processes.
+/// `heap_numa` is -1 or else a NUMA node to bind heap memory to.
+/// `heap_backend` must be one of [mmap, shm, ivshmem].
+/// `heap_size` is the initial heap size in bytes.
+/// `thread_count` is the total number of threads that will call the allocator.
+/// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_init_backend(backend: *const ffi::c_char) {
-    BACKEND.get_or_init(|| {
-        CStr::from_ptr(backend)
-            .to_str()
-            .map(Backend::parse)
-            .expect("Backend name must be valid UTF-8")
-    });
-}
-
-/// Control the global logger filter at runtime.
-///
-/// Level string must be one of [off, error, warn, info, debug, trace].
-///
-/// This function is thread-safe.
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_set_log(level: *const ffi::c_char) {
-    let level = match CStr::from_ptr(level)
-        .to_str()
-        .expect("Level must be valid UTF-8")
-    {
-        "off" => log::LevelFilter::Off,
-        "error" => log::LevelFilter::Error,
-        "warn" => log::LevelFilter::Warn,
-        "info" => log::LevelFilter::Info,
-        "debug" => log::LevelFilter::Debug,
-        "trace" => log::LevelFilter::Trace,
-        unknown => panic!(
-            "Expected one of [off, error, warn, info, debug, trace], but got {}",
-            unknown
-        ),
-    };
-
-    log::set_max_level(level);
-}
-
-/// Initialize the global CXL allocator.
-///
-/// Defaults to the mmap driver if `cxlalloc_init_backend` was not called.
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_init(
-    name: *const ffi::c_char,
-    size: usize,
-    thread_id: u8,
-    thread_count: u8,
-    process_id: u8,
-    process_count: u8,
+pub unsafe extern "C" fn cxlalloc_init_process(
+    heap_id: *const ffi::c_char,
+    heap_numa: i8,
+    heap_backend: *const ffi::c_char,
+    heap_size: usize,
+    thread_count: u16,
+    thread_id: u16,
 ) {
-    cxlalloc_init_thread(thread_id as usize);
+    let heap_id = CStr::from_ptr(heap_id)
+        .to_str()
+        .expect("Heap ID must be valid UTF-8")
+        // Hack for memento + ralloc compatibility
+        .trim_start_matches("/dev/shm/");
+
+    enum Backend {
+        Mmap,
+        Shm,
+        Ivshmem,
+    }
+
+    let heap_backend = CStr::from_ptr(heap_backend)
+        .to_str()
+        .ok()
+        .and_then(|backend| match backend {
+            "mmap" => Some(Backend::Mmap),
+            "shm" => Some(Backend::Shm),
+            "ivshmem" => Some(Backend::Ivshmem),
+            _ => None,
+        })
+        .expect("Heap backend one of [mmap, shm, ivshmem]");
+
+    let heap_numa = heap_numa.is_positive().then_some(shm::Numa::Bind {
+        node: heap_numa as usize,
+    });
 
     RAW.get_or_init(move || {
         let _ = env_logger::Builder::from_default_env()
@@ -168,18 +93,10 @@ pub unsafe extern "C" fn cxlalloc_init(
 
                 static START: OnceLock<Instant> = OnceLock::new();
 
-                // Color-coded process ID if there is more than one process
-                if process_count > 1 {
-                    let process = process_id;
-                    let style_process = style::Ansi256Color::from(process).on_default();
-                    write!(buffer, "[{style_process}P{process:02}{style_process:#}]")?;
-                }
-
                 // Color-coded thread ID if there is more than one thread
-                match THREAD_ID.with(|id| u16::from(id.borrow().as_ref().unwrap().id)) {
+                match THREAD_ID.with(|id| u16::from(id.get())) {
                     thread if thread_count > 1 => {
-                        let style_thread =
-                            style::Ansi256Color::from(thread as u8 + 16).on_default();
+                        let style_thread = style::Ansi256Color::from(thread as u8).on_default();
                         write!(buffer, "[{style_thread}T{thread:02}{style_thread:#}]")?;
                     }
                     _ => (),
@@ -207,12 +124,6 @@ pub unsafe extern "C" fn cxlalloc_init(
             })
             .try_init();
 
-        // Hack for memento + ralloc compatibility
-        let name = CStr::from_ptr(name)
-            .to_str()
-            .unwrap()
-            .trim_start_matches("/dev/shm/");
-
         let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
         action.sa_sigaction = handle_sigsegv as _;
         action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
@@ -220,50 +131,35 @@ pub unsafe extern "C" fn cxlalloc_init(
             libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
         }
 
+        let builder = raw::Backend::builder().maybe_numa(heap_numa);
+        let backend = match heap_backend {
+            Backend::Mmap => builder.backend(raw::backend::Mmap).build(),
+            Backend::Shm => builder.backend(raw::backend::Shm).build(),
+            Backend::Ivshmem => builder
+                .backend(shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"))
+                .build(),
+        };
+
         raw::Raw::builder()
-            .backend(BACKEND.get_or_init(|| Backend::Mmap).instantiate())
-            .size_small(size)
+            .backend(backend)
+            .size_small(heap_size)
             .thread_count(thread_count as usize)
-            .build(name)
-            .unwrap()
+            .build(heap_id)
+            .expect("Failed to initialize allocator for process")
     });
 
-    // Eagerly initialize thread-local state to fail fast on buggy recovery.
+    cxlalloc_init_thread(thread_id);
+
+    // Eagerly initialize thread-local state to fail fast on buggy recovery
     ALLOCATOR.with(|_| ());
 }
 
+/// Initialize the allocator for this thread.
+///
+/// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
 #[no_mangle]
-pub unsafe extern "C" fn cxlalloc_is_clean() -> bool {
-    raw().is_clean()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: usize) {
-    THREAD_ID.set(Some(unsafe {
-        if thread_id == 0xFF {
-            let mut pool = POOL.load(Ordering::Acquire);
-            let id = loop {
-                match POOL.compare_exchange(
-                    pool,
-                    pool & !(1 << pool.trailing_zeros()),
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => break pool.trailing_zeros(),
-                    Err(next) => pool = next,
-                }
-            };
-            Id {
-                id: cxlalloc::thread::Id::new(id as u16),
-                pool: true,
-            }
-        } else {
-            Id {
-                id: cxlalloc::thread::Id::new(thread_id as u16),
-                pool: false,
-            }
-        }
-    }));
+pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: u16) {
+    THREAD_ID.set(unsafe { cxlalloc::thread::Id::new(thread_id) });
 }
 
 #[no_mangle]
@@ -302,24 +198,8 @@ pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mu
     ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
-    ALLOCATOR.with_borrow(|allocator| {
-        allocator
-            .root_untyped(index)
-            .map(NonNull::as_ptr)
-            .unwrap_or_else(ptr::null_mut)
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_set_root(index: usize, pointer: *mut ffi::c_void) {
-    ALLOCATOR.with_borrow(|allocator| allocator.set_root_untyped(index, pointer))
-}
-
-#[no_mangle]
-pub extern "C" fn cxlalloc_close() {}
-
+/// Try to convert a pointer into a persistent offset. Returns false if the pointer was
+/// not allocated in this heap.
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     pointer: *const ffi::c_void,
@@ -346,14 +226,4 @@ pub extern "C" fn cxlalloc_offset_to_pointer(offset: u64) -> *mut ffi::c_void {
 fn raw() -> &'static raw::Raw {
     RAW.get()
         .expect("Uninitialized heap: was cxlalloc_init called?")
-}
-
-#[inline]
-fn thread_id() -> cxlalloc::thread::Id {
-    THREAD_ID.with(|id| {
-        id.borrow()
-            .as_ref()
-            .expect("Uninitialized thread ID: was cxlalloc_init called for this thread?")
-            .id
-    })
 }

@@ -12,37 +12,29 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Override the default backend. Must be called before `cxlalloc_init`.
+ * Initialize the allocator for this process. This thread does not need to call
+ * `cxlalloc_init_thread`.
  *
- * Backend string must be one of [mmap, shm, cxl].
- * The `destroy` parameter indicates whether the backing file (if it exists)
- * should be deleted after process exit.
- *
- * Note: this is a separate function for backward compatibility.
+ * `heap_id` is an application-defined string used to correlate heaps between processes.
+ * `heap_numa` is -1 or else a NUMA node to bind heap memory to.
+ * `heap_backend` must be one of [mmap, shm, ivshmem].
+ * `heap_size` is the initial heap size in bytes.
+ * `thread_count` is the total number of threads that will call the allocator.
+ * `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
  */
-void cxlalloc_init_backend(const char *backend);
+void cxlalloc_init_process(const char *heap_id,
+                           int8_t heap_numa,
+                           const char *heap_backend,
+                           size_t heap_size,
+                           uint16_t thread_count,
+                           uint16_t thread_id);
 
 /**
- * Control the global logger filter at runtime.
+ * Initialize the allocator for this thread.
  *
- * Level string must be one of [off, error, warn, info, debug, trace].
- *
- * This function is thread-safe.
+ * `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
  */
-void cxlalloc_set_log(const char *level);
-
-/**
- * Initialize the global CXL allocator.
- *
- * Defaults to the mmap driver if `cxlalloc_init_backend` was not called.
- */
-void cxlalloc_init(const char *name, size_t size, uint8_t thread_id,
-                   uint8_t thread_count, uint8_t process_id,
-                   uint8_t process_count);
-
-bool cxlalloc_is_clean(void);
-
-void cxlalloc_init_thread(size_t thread_id);
+void cxlalloc_init_thread(uint16_t thread_id);
 
 void *cxlalloc_malloc(size_t size);
 
@@ -52,20 +44,9 @@ void *cxlalloc_realloc(void *pointer, size_t size);
 
 void *cxlalloc_memalign(size_t size, size_t alignment);
 
-void *cxlalloc_get_root(size_t index);
-
-void cxlalloc_set_root(size_t index, void *pointer);
-
-void cxlalloc_close(void);
-
 /**
- * Convert a pointer into the heap in this process address space to a
- * persistent offset that can be used by any process.
- *
- * Returns `true` and writes into `offset` if the pointer points into
- * the heap, or returns `false` and doesn't touch `offset` otherwise.
- *
- * SAFETY: `offset` is 8-byte aligned and can be written to.
+ * Try to convert a pointer into a persistent offset. Returns false if the pointer was
+ * not allocated in this heap.
  */
 bool cxlalloc_pointer_to_offset(const void *pointer, uint64_t *offset);
 
@@ -75,7 +56,7 @@ bool cxlalloc_pointer_to_offset(const void *pointer, uint64_t *offset);
 void *cxlalloc_offset_to_pointer(uint64_t offset);
 
 #ifdef __cplusplus
-} // extern "C"
-#endif // __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
 
-#endif /* CXLALLOC_STATIC_H */
+#endif  /* CXLALLOC_STATIC_H */
