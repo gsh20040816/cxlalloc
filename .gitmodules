@@ -1,6 +1,3 @@
-[submodule "mimalloc-bench"]
-	path = extern/mimalloc-bench
-	url = https://github.com/nwtnni/mimalloc-bench.git
 [submodule "extern/silo"]
 	path = extern/silo
 	url = https://github.com/nwtnni/silo.git
