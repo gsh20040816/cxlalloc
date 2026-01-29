@@ -266,13 +266,11 @@ pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: usize) {
     }));
 }
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
     ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size))
 }
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
     let Some(pointer) = NonNull::new(pointer) else {
@@ -285,7 +283,6 @@ pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
     }
 }
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_realloc(
     pointer: *mut ffi::c_void,
@@ -299,14 +296,12 @@ pub unsafe extern "C" fn cxlalloc_realloc(
     ALLOCATOR.with_borrow_mut(|allocator| allocator.realloc_untyped(block, size))
 }
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mut ffi::c_void {
     let layout = Layout::from_size_align(size, alignment).expect("Invalid size and alignment");
     ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
 }
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
     ALLOCATOR.with_borrow(|allocator| {
@@ -317,17 +312,14 @@ pub unsafe extern "C" fn cxlalloc_get_root(index: usize) -> *mut ffi::c_void {
     })
 }
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_set_root(index: usize, pointer: *mut ffi::c_void) {
     ALLOCATOR.with_borrow(|allocator| allocator.set_root_untyped(index, pointer))
 }
 
-#[inline]
 #[no_mangle]
 pub extern "C" fn cxlalloc_close() {}
 
-#[inline]
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     pointer: *const ffi::c_void,
@@ -345,7 +337,6 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
 }
 
 /// Convert a persistent offset into a pointer in this process address space.
-#[inline]
 #[no_mangle]
 pub extern "C" fn cxlalloc_offset_to_pointer(offset: u64) -> *mut ffi::c_void {
     ALLOCATOR.with_borrow(|allocator| allocator.offset_to_pointer(offset as usize).as_ptr())
