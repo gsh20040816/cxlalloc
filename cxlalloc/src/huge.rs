@@ -399,8 +399,8 @@ impl Owned {
         self.hazards[len].store(Some(offset), Ordering::Relaxed);
         self.len.store(len + 1, Ordering::Release);
 
-        log::info!("Insert hazard pointer for {:#x?}", offset);
-        self.invariant();
+        log::info!("Insert hazard offset {:#x?}", offset);
+        self.validate();
     }
 
     fn swap_remove(&self, offset: data::Offset<size::Huge>) -> bool {
@@ -419,8 +419,8 @@ impl Owned {
         self.hazards[len - 1].store(None, Ordering::Relaxed);
         self.len.store(len - 1, Ordering::Release);
 
-        log::info!("Remove hazard pointer for {:#x?}", offset);
-        self.invariant();
+        log::info!("Remove hazard offset {:#x?}", offset);
+        self.validate();
         true
     }
 
@@ -432,21 +432,18 @@ impl Owned {
             .any(|hazard| hazard.load(Ordering::Relaxed) == Some(offset))
     }
 
-    fn invariant(&self) {
-        if !cfg!(feature = "validate") {
-            return;
-        }
-
+    fn validate(&self) {
         let len = self.len.load(Ordering::Acquire);
-
-        let unique = self
-            .hazards
-            .iter()
-            .take(len)
-            .map(|hazard| hazard.load(Ordering::Relaxed).unwrap())
-            .collect::<HashSet<_>>();
-
-        assert_eq!(unique.len(), len);
+        validate_eq!(
+            len,
+            self.hazards
+                .iter()
+                .take(len)
+                .map(|hazard| hazard.load(Ordering::Relaxed).unwrap())
+                .collect::<HashSet<_>>()
+                .len(),
+            "Hazard offsets are unique",
+        );
     }
 }
 

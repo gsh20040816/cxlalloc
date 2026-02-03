@@ -41,18 +41,19 @@ impl<const SIZE: usize> BitSet<SIZE> {
     fn validate(&self) {
         const { assert!(SIZE <= 64) }
 
-        if !cfg!(feature = "validate") {
-            return;
-        }
-
-        let total = self.dense.iter().copied().map(u64::count_ones).sum::<u32>();
-        assert_eq!(
-            total as u64, self.count,
+        validate_eq!(
+            self.dense
+                .iter()
+                .copied()
+                .map(u64::count_ones)
+                .map(u64::from)
+                .sum::<u64>(),
+            self.count,
             "Count is consistent with dense bitset"
         );
 
         for bit in 0..SIZE {
-            assert_eq!(
+            validate_eq!(
                 (self.sparse & (1 << bit)) > 0,
                 self.dense[bit] > 0,
                 "Sparse bitset is consistent with dense bitset",
@@ -60,7 +61,7 @@ impl<const SIZE: usize> BitSet<SIZE> {
         }
 
         for bit in SIZE..64 {
-            assert_eq!(
+            validate_eq!(
                 self.sparse & (1 << bit),
                 0,
                 "Sparse bitset does not overflow",
@@ -139,9 +140,7 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
         let col = bit.col.value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
-        if cfg!(feature = "validate") {
-            assert!(*cols & (1 << col) == 0, "Double free");
-        }
+        validate_eq!(*cols & (1 << col), 0, "Double free");
 
         *cols |= 1 << col;
         cache::flush(cols, cache::Invalidate::No);
@@ -157,9 +156,7 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
         let col = bit.col.value() as usize;
         let cols = unsafe { self.dense.get_unchecked_mut(row) };
 
-        if cfg!(feature = "validate") {
-            assert!(*cols & (1 << col) > 0, "Double allocate");
-        }
+        validate!(*cols & (1 << col) > 0, "Double allocate");
 
         *cols &= !(1 << col);
         cache::flush(cols, cache::Invalidate::No);
