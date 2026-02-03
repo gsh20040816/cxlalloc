@@ -103,7 +103,7 @@ impl Worker {
             log::info!("[{}]: receive {:x?}", self.id, request);
 
             match request {
-                Request::Handshake { .. } => unreachable!("Protocol error"),
+                Request::Handshake => unreachable!("Protocol error"),
                 Request::Allocate { id, size } => {
                     let size = size as usize;
                     let pointer = allocator.allocate_untyped(size).cast::<u64>();
@@ -129,7 +129,7 @@ impl Worker {
                         .all(|word| *word == id)
                     );
 
-                    allocator.free_untyped(pointer.cast());
+                    unsafe { allocator.free_untyped(pointer.cast()) };
 
                     self.tx.send(Response::Free)?;
                 }

@@ -379,6 +379,7 @@ impl Experiment {
             })
     }
 
+    #[expect(clippy::too_many_arguments)]
     fn run(
         &self,
         coordinator: &Path,

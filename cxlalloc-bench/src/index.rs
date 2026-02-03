@@ -58,6 +58,6 @@ impl Display for Index {
             Self::Linked => "linked",
             Self::Linear => "linear",
         };
-        write!(f, "{}", name)
+        write!(f, "{name}")
     }
 }

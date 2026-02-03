@@ -286,7 +286,7 @@ impl Raw {
                 return true;
             }
             Err(crate::Error::OutOfBounds) => (),
-            Err(error) => panic!("Failed to extend small heap at {:x?}: {}", address, error),
+            Err(error) => panic!("Failed to extend small heap at {address:x?}: {error}"),
         }
 
         match allocator.large.try_map(
@@ -302,7 +302,7 @@ impl Raw {
                 return true;
             }
             Err(crate::Error::OutOfBounds) => (),
-            Err(error) => panic!("Failed to extend large heap at {:x?}: {}", address, error),
+            Err(error) => panic!("Failed to extend large heap at {address:x?}: {error}"),
         }
 
         match allocator.huge.try_map(&allocator.small.data, id, address) {
@@ -311,7 +311,7 @@ impl Raw {
                 return true;
             }
             Err(crate::Error::OutOfBounds) => (),
-            Err(error) => panic!("Failed to map huge allocation at {:x?}: {}", address, error),
+            Err(error) => panic!("Failed to map huge allocation at {address:x?}: {error}"),
         }
 
         false

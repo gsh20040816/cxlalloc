@@ -83,7 +83,7 @@ impl Config {
             "mimalloc" => self.specialize_benchmark::<crate::allocator::mimalloc::Backend>(),
             #[cfg(feature = "allocator-ralloc")]
             "ralloc" => self.specialize_benchmark::<crate::allocator::ralloc::Backend>(),
-            allocator => panic!("Unrecognized allocator: {}", allocator),
+            allocator => panic!("Unrecognized allocator: {allocator}"),
         }
     }
 

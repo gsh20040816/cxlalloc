@@ -31,7 +31,7 @@ impl Id {
     pub(crate) fn with_suffix<T: Display>(&self, suffix: T) -> Self {
         let mut buffer = self.clone().buffer;
         let mut cursor = std::io::Cursor::new(&mut buffer[self.len..]);
-        write!(cursor, "-{}", suffix).unwrap();
+        write!(cursor, "-{suffix}").unwrap();
         let last = buffer.iter().rposition(|byte| *byte != 0).unwrap();
         Self {
             buffer,
@@ -309,7 +309,7 @@ impl Random {
         unsafe {
             backend
                 .open(
-                    self.id.with_suffix(format_args!("{:#x}", offset)).as_str(),
+                    self.id.with_suffix(format_args!("{offset:#x}")).as_str(),
                     size,
                 )?
                 .map()
@@ -323,7 +323,7 @@ impl Random {
     }
 
     pub(crate) fn unmap(&self, backend: &Backend, offset: usize, size: NonZeroUsize) {
-        let id = self.id.with_suffix(format_args!("{:#x}", offset));
+        let id = self.id.with_suffix(format_args!("{offset:#x}"));
         let _ = unsafe { munmap(self.address().byte_add(offset), size) };
         let _ = backend.unlink(id.as_str());
     }

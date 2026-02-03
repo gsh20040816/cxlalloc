@@ -120,9 +120,7 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                     assert_eq!(
                         actual,
                         Some(&value),
-                        "expected {:#x?}, found {:#x?}",
-                        value,
-                        actual
+                        "expected {value:#x?}, found {actual:#x?}",
                     );
 
                     if tid != crash_victim {

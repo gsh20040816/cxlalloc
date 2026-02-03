@@ -223,7 +223,7 @@ impl<'raw> Huge<'raw> {
         let descriptor = self.find(data, offset).ok_or(crate::Error::OutOfBounds)?;
 
         self.owned[id].insert(descriptor.offset);
-        self.map_descriptor(descriptor).map_err(crate::Error::from)
+        self.map_descriptor(descriptor)
     }
 
     fn map_descriptor(&self, descriptor: &Descriptor) -> crate::Result<()> {

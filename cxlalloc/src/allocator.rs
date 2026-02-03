@@ -300,7 +300,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             return self.huge.class(&self.small.data, offset).get();
         }
 
-        panic!("Unrecognized pointer: {:#x?}", pointer)
+        panic!("Unrecognized pointer: {pointer:#x?}")
     }
 
     pub unsafe fn realloc_untyped(
@@ -351,7 +351,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
     }
 
     #[inline]
-    pub fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
+    pub unsafe fn free_untyped(&mut self, pointer: NonNull<ffi::c_void>) {
         let Some(offset) = self.small.checked_pointer_to_offset(pointer) else {
             return self.free_large_untyped(pointer);
         };

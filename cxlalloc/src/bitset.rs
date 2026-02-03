@@ -194,14 +194,14 @@ impl<const SIZE: usize> Debug for BitSet<SIZE> {
                 write!(f, "_")?;
                 continue;
             } else {
-                write!(f, "{}:", i)?;
+                write!(f, "{i}:")?;
             }
 
             for byte in 0..8 {
                 match ((row >> (byte * 8)) as u8).reverse_bits() {
                     0 => write!(f, "0-")?,
                     0xFF => write!(f, "1-")?,
-                    byte => write!(f, "{:08b}", byte)?,
+                    byte => write!(f, "{byte:08b}")?,
                 }
             }
         }

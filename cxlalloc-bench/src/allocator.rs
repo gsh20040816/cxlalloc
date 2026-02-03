@@ -13,12 +13,12 @@ pub mod mimalloc;
 #[cfg(feature = "allocator-ralloc")]
 pub mod ralloc;
 
-use shm_bench::allocator::Coherence;
-use shm_bench::allocator::Consistency;
 use cartesian::cartesian;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_inline_default::serde_inline_default;
+use shm_bench::allocator::Coherence;
+use shm_bench::allocator::Consistency;
 
 use crate::TomlOption;
 
@@ -206,9 +206,7 @@ type Partial = shm_bench::allocator::ConfigBuilder<
     shm_bench::allocator::config::SetCoherence<
         shm_bench::allocator::config::SetConsistency<
             shm_bench::allocator::config::SetPopulate<
-                shm_bench::allocator::config::SetSize<
-                    shm_bench::allocator::config::SetNuma,
-                >,
+                shm_bench::allocator::config::SetSize<shm_bench::allocator::config::SetNuma>,
             >,
         >,
     >,
@@ -246,6 +244,6 @@ impl Display for Allocator {
             Allocator::Ralloc => "ralloc",
         };
 
-        write!(f, "{}", name)
+        write!(f, "{name}")
     }
 }

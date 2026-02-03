@@ -656,7 +656,7 @@ where
             let prev = loop {
                 let local = slabs.local(walk);
                 match local.next.load(Ordering::Relaxed) {
-                    None => panic!("removing non-existent slab {} {:?}", index, class),
+                    None => panic!("removing non-existent slab {index} {class:?}"),
                     Some(next) if next == index => break local,
                     Some(next) => walk = next,
                 }

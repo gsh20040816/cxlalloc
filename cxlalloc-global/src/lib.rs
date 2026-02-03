@@ -50,7 +50,7 @@ pub fn deallocate_untyped(pointer: *mut ffi::c_void) {
     let Some(pointer) = NonNull::new(pointer) else {
         return;
     };
-    with(|allocator| allocator.free_untyped(pointer))
+    with(|allocator| unsafe { allocator.free_untyped(pointer) })
 }
 
 #[inline]

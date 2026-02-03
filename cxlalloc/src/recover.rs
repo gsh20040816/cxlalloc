@@ -14,7 +14,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let context = &mut Context {
             id: self.id,
             help: &self.shared.help,
-            owned: &mut self.owned,
+            owned: self.owned,
         };
 
         let Some(state) = context.owned.state.load(Ordering::Relaxed) else {
