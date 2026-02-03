@@ -36,6 +36,8 @@ use crate::OBJECT_COUNT;
 use crate::SEED;
 use crate::STOP;
 
+// Sketchy, but taken directly from memento test harness
+// https://github.com/kaist-cp/memento/blob/b88835a7c2e62d2d7f4057ca119f584cc39a1d22/src/ds/clevel.rs#L2010-L2011
 pub static mut SEND: Option<[Option<Sender<()>>; 64]> = None;
 pub static mut RECV: Option<Receiver<()>> = None;
 
@@ -74,11 +76,15 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
         match tid {
             // T1: Resize loop
             1 => {
+                // https://github.com/kaist-cp/memento/blob/b88835a7c2e62d2d7f4057ca119f584cc39a1d22/src/ds/clevel.rs#L2070-L2073
+                #[expect(static_mut_refs)]
                 let recv = unsafe { RECV.as_ref().unwrap() };
                 self.resize(recv, &mut mmt.resize, handle);
             }
             _ => {
                 let mut i = 0;
+                // https://github.com/kaist-cp/memento/blob/b88835a7c2e62d2d7f4057ca119f584cc39a1d22/src/ds/clevel.rs#L2079-L2080
+                #[expect(static_mut_refs)]
                 let send = unsafe { SEND.as_ref().unwrap()[tid].as_ref().unwrap() };
 
                 if recover && block {
@@ -185,6 +191,8 @@ impl RootObj<Mmt> for Clevel<u64, PPtr<u64>> {
                 }
 
                 unsafe {
+                    // https://github.com/kaist-cp/memento/blob/b88835a7c2e62d2d7f4057ca119f584cc39a1d22/src/ds/clevel.rs#L2161-L2164
+                    #[expect(static_mut_refs)]
                     SEND.as_mut().unwrap()[tid].take();
                 }
             }

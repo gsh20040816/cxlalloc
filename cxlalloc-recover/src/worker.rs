@@ -148,9 +148,12 @@ impl Config {
             }
             Workload::Clevel => {
                 BARRIER.get_or_init(|| Barrier::new(self.thread_count as usize - 1));
+
+                // https://github.com/kaist-cp/memento/blob/b88835a7c2e62d2d7f4057ca119f584cc39a1d22/src/ds/clevel.rs#L2141-L2150
                 let (send, recv) = crossbeam_channel::bounded(8);
                 unsafe {
                     clevel::SEND = Some(core::array::from_fn(|_| None));
+                    #[expect(static_mut_refs)]
                     for i in (2..).take(self.thread_count as usize - 1) {
                         clevel::SEND.as_mut().unwrap()[i] = Some(send.clone());
                     }
