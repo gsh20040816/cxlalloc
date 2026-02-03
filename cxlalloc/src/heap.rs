@@ -191,7 +191,6 @@ where
 impl<B> Heap<'_, view::Focus, B>
 where
     B: size::Bracket,
-    // slab::Local<B>: slab::local::Cache<B>,
     recover::State: From<HeapState<B>>,
 {
     pub(crate) fn class(&self, offset: data::Offset<B>) -> B {
@@ -555,7 +554,6 @@ pub(crate) struct Owned<B: size::Bracket> {
 impl<B> Owned<B>
 where
     B: size::Bracket,
-    // slab::Local<B>: slab::local::Cache<B>,
     State: From<HeapState<B>>,
 {
     /// Invariants:

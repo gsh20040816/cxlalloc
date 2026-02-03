@@ -33,7 +33,6 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         state: HeapState<B>,
     ) where
         B: size::Bracket,
-        // slab::Local<B>: slab::local::Cache<B>,
         State: From<HeapState<B>>,
     {
         match state {

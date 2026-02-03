@@ -70,7 +70,7 @@ impl<const SIZE: usize> BitSet<SIZE> {
 }
 
 impl<const SIZE: usize> BitSet<SIZE> {
-    #[allow(unused)]
+    #[cfg(test)]
     pub(crate) const fn new() -> Self {
         Self {
             count: 0,
@@ -79,14 +79,18 @@ impl<const SIZE: usize> BitSet<SIZE> {
         }
     }
 
-    #[allow(unused)]
-    pub(crate) const fn filled(count: u64) -> Self {
+    #[cfg(test)]
+    pub(crate) fn filled(count: u64) -> Self {
         let mut filled = Self::new();
         filled.fill(count);
         filled
     }
+}
 
-    pub(crate) const fn fill(&mut self, count: u64) {
+impl<const SIZE: usize> Interface for BitSet<SIZE> {
+    const SIZE_DATA: usize = mem::size_of::<u64>() * SIZE;
+
+    fn fill(&mut self, count: u64) {
         let rows = count / 64;
         let cols = count % 64;
 
@@ -118,15 +122,8 @@ impl<const SIZE: usize> BitSet<SIZE> {
 
         self.count = count;
     }
-}
 
-impl<const SIZE: usize> Interface for BitSet<SIZE> {
-    const SIZE_DATA: usize = mem::size_of::<u64>() * SIZE;
-
-    fn fill(&mut self, count: u64) {
-        self.fill(count)
-    }
-
+    #[inline]
     unsafe fn peek_unchecked(&self) -> Bit {
         let row = self.sparse.trailing_zeros() as u8;
         let col = unsafe { self.dense.get_unchecked(row as usize) }.trailing_zeros() as u8;
@@ -136,6 +133,7 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
         }
     }
 
+    #[inline]
     fn set(&mut self, bit: Bit) {
         let row = bit.row.value() as usize;
         let col = bit.col.value() as usize;
@@ -153,6 +151,7 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
         self.validate();
     }
 
+    #[inline]
     fn unset(&mut self, bit: Bit) {
         let row = bit.row.value() as usize;
         let col = bit.col.value() as usize;
@@ -170,6 +169,7 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
         self.validate();
     }
 
+    #[inline]
     fn len(&self) -> u64 {
         self.count
     }

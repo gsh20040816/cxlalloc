@@ -226,7 +226,6 @@ where
         class: B,
     ) -> Reservation<'heap, T>
     where
-        // slab::Local<B>: slab::local::Cache<B>,
         recover::State: From<recover::HeapState<B>>,
     {
         let (index, block) = heap.peek(context, class).expect("Out of memory");

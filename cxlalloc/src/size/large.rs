@@ -43,20 +43,6 @@ impl Large {
     const fn count(&self) -> u64 {
         Self::SIZE_SLAB as u64 >> Self::SIZE_MIN_LOG2 >> self.0.value()
     }
-
-    #[allow(unused)]
-    pub(crate) const fn bit_sets() -> [<Self as size::Bracket>::BitSet; Self::COUNT] {
-        let mut bit_sets = [const { BitSet::new() }; Self::COUNT];
-
-        let mut class = 0;
-        while class < bit_sets.len() {
-            let count = Self(u4::new(class as u8)).count();
-            bit_sets[class] = BitSet::filled(count);
-            class += 1;
-        }
-
-        bit_sets
-    }
 }
 
 impl size::Bracket for Large {

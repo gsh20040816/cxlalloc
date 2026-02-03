@@ -58,20 +58,6 @@ impl Small {
             _bracket: PhantomData,
         }
     }
-
-    #[allow(unused)]
-    pub(crate) const fn bit_sets() -> [<Self as size::Bracket>::BitSet; Self::COUNT] {
-        let counts = Self::counts().inner;
-        let mut bit_sets = [const { BitSet::new() }; Self::COUNT];
-
-        let mut class = 0;
-        while class < counts.len() {
-            bit_sets[class] = BitSet::filled(counts[class] as u64);
-            class += 1;
-        }
-
-        bit_sets
-    }
 }
 
 impl size::Bracket for Small {
