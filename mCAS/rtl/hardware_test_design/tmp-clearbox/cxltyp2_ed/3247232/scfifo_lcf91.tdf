@@ -1,0 +1,73 @@
+--scfifo ADD_RAM_OUTPUT_REGISTER="ON" ALMOST_FULL_VALUE=5 CBX_SINGLE_OUTPUT_FILE="OFF" DEVICE_FAMILY="Agilex 7" ENABLE_ECC="FALSE" LPM_NUMWORDS=8 LPM_SHOWAHEAD="OFF" LPM_WIDTH=19 LPM_WIDTHU=3 OPTIMIZE_FOR_SPEED=5 OVERFLOW_CHECKING="ON" RAM_BLOCK_TYPE="M20K" UNDERFLOW_CHECKING="ON" USE_EAB="ON" aclr(gnd) almost_full clock data empty full q rdreq sclr wrreq ACF_BLOCK_RAM_AND_MLAB_EQUIVALENT_PAUSED_READ_CAPABILITIES="CARE" CARRY_CHAIN="MANUAL" CYCLONEII_M4K_COMPATIBILITY="ON" INTENDED_DEVICE_FAMILY="Agilex" LOW_POWER_MODE="NONE" lpm_hint="RAM_BLOCK_TYPE=M20K"
+--VERSION_BEGIN 24.3 cbx_altdpram 2024:10:24:10:32:27:SC cbx_altera_counter 2024:10:24:10:32:27:SC cbx_altera_syncram 2024:10:24:10:32:27:SC cbx_altera_syncram_ltm 2024:10:24:10:32:27:SC cbx_altera_syncram_nd_impl 2024:10:24:10:32:27:SC cbx_altsyncram 2024:10:24:10:32:27:SC cbx_fifo_common 2024:10:24:10:32:27:SC cbx_libertymesa 2024:10:24:10:32:27:SC cbx_lpm_add_sub 2024:10:24:10:32:27:SC cbx_lpm_compare 2024:10:24:10:32:27:SC cbx_lpm_counter 2024:10:24:10:32:27:SC cbx_lpm_decode 2024:10:24:10:32:27:SC cbx_lpm_mux 2024:10:24:10:32:27:SC cbx_mgl 2024:10:24:10:32:30:SC cbx_nadder 2024:10:24:10:32:27:SC cbx_scfifo 2024:10:24:10:32:27:SC cbx_stratix 2024:10:24:10:32:27:SC cbx_stratixii 2024:10:24:10:32:27:SC cbx_stratixiii 2024:10:24:10:32:27:SC cbx_stratixv 2024:10:24:10:32:27:SC cbx_util_mgl 2024:10:24:10:32:27:SC  VERSION_END
+
+
+-- Copyright (C) 2024  Intel Corporation. All rights reserved.
+--  Your use of Intel Corporation's design tools, logic functions 
+--  and other software and tools, and any partner logic 
+--  functions, and any output files from any of the foregoing 
+--  (including device programming or simulation files), and any 
+--  associated documentation or information are expressly subject 
+--  to the terms and conditions of the Intel Program License 
+--  Subscription Agreement, the Intel Quartus Prime License Agreement,
+--  the Intel FPGA IP License Agreement, or other applicable license
+--  agreement, including, without limitation, that your use is for
+--  the sole purpose of programming logic devices manufactured by
+--  Intel and sold by Intel or its authorized distributors.  Please
+--  refer to the Intel FPGA Software License Subscription Agreements 
+--  on the Quartus Prime software download page.
+
+
+FUNCTION a_dpfifo_j7nb1 (clock, data[18..0], rreq, sclr, wreq)
+RETURNS ( empty, full, q[18..0], usedw[2..0]);
+
+--synthesis_resources = altera_counter 3 M20K 1 reg 10 
+SUBDESIGN scfifo_lcf91
+( 
+	aclr	:	input;
+	almost_full	:	output;
+	clock	:	input;
+	data[18..0]	:	input;
+	empty	:	output;
+	full	:	output;
+	q[18..0]	:	output;
+	rdreq	:	input;
+	sclr	:	input;
+	wrreq	:	input;
+) 
+VARIABLE 
+	dpfifo : a_dpfifo_j7nb1;
+	dffe_af : dffe;
+	const_node_aclr	: NODE;
+	comparison_af0	: WIRE;
+	comparison_af1	: WIRE;
+	comparison_af2	: WIRE;
+	comparison_pre_af0	: WIRE;
+	comparison_pre_af1	: WIRE;
+	comparison_pre_af2	: WIRE;
+	wire_af[2..0]	: WIRE;
+	wire_pre_af[2..0]	: WIRE;
+
+BEGIN 
+	dpfifo.clock = clock;
+	dpfifo.data[] = data[];
+	dpfifo.rreq = rdreq;
+	dpfifo.sclr = sclr;
+	dpfifo.wreq = wrreq;
+	dffe_af.clk = clock;
+	dffe_af.d = ((dffe_af.q & (dffe_af.q $ (sclr # ((comparison_af2 & (! wrreq)) & rdreq)))) # ((! dffe_af.q) & ((((! sclr) & comparison_pre_af2) & wrreq) & (! rdreq))));
+	const_node_aclr = aclr;
+	almost_full = dffe_af.q;
+	comparison_af0 = (dpfifo.usedw[0..0] $ wire_af[0..0]);
+	comparison_af1 = ((dpfifo.usedw[1..1] $ wire_af[1..1]) & comparison_af0);
+	comparison_af2 = ((dpfifo.usedw[2..2] $ wire_af[2..2]) & comparison_af1);
+	comparison_pre_af0 = (dpfifo.usedw[0..0] $ wire_pre_af[0..0]);
+	comparison_pre_af1 = ((dpfifo.usedw[1..1] $ wire_pre_af[1..1]) & comparison_pre_af0);
+	comparison_pre_af2 = ((dpfifo.usedw[2..2] $ wire_pre_af[2..2]) & comparison_pre_af1);
+	empty = dpfifo.empty;
+	full = dpfifo.full;
+	q[] = dpfifo.q[];
+	wire_af[] = ( B"0", B"1", B"0");
+	wire_pre_af[] = ( B"0", B"1", B"1");
+END;
+--VALID FILE

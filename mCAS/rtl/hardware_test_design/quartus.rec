@@ -1,0 +1,12 @@
+# **************************************************
+# Quartus Prime Version 24.3.0
+# Process ID 2847515
+# Start logging TCL commands
+# Sun Feb 16 19:12:42 2025
+# **************************************************
+project_open "/mnt/raid0/yans3/FPGA_projects/r1bex_type2_2chan_24_3/intel_rtile_cxl_top_0_ed/hardware_test_design/cxltyp2_ed.qpf" -revision cxltyp2_ed
+project_close
+# **************************************************
+# Sun Feb 16 19:13:35 2025
+# End of logging TCL commands
+# **************************************************
