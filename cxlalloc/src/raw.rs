@@ -15,6 +15,9 @@ use core::ffi;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
+use std::ffi::CString;
+use std::fs;
+use std::io;
 
 use bon::bon;
 
@@ -31,6 +34,7 @@ use crate::Allocator;
 use crate::Data;
 use crate::Heap;
 use crate::Huge;
+use crate::RESERVE_LARGE_SLABS;
 use crate::Slab;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
@@ -69,6 +73,9 @@ pub struct Raw {
     pub(crate) data_small: region::Sequential,
     pub(crate) data_large: region::Sequential,
     pub(crate) data_huge: region::Random,
+
+    small_slab_capacity: u32,
+    large_slab_capacity: u32,
 
     stat: stat::process::Recorder,
 
@@ -113,8 +120,10 @@ impl Raw {
         #[builder(default, into)] backend: Backend,
         #[builder(default)] size_small: usize,
         #[builder(default)] size_large: usize,
+        #[builder(default)] reserve_large: usize,
         #[builder(default = 1)] thread_count: usize,
         #[builder(default)] free: bool,
+        fixed_base: Option<usize>,
         cache_local: Option<usize>,
         batch_global: Option<usize>,
         batch_bump: Option<usize>,
@@ -142,8 +151,30 @@ impl Raw {
         if let Some(batch_bump) = batch_bump {
             BATCH_BUMP_POP.store(batch_bump, Ordering::Relaxed);
         }
+        RESERVE_LARGE_SLABS.store(
+            reserve_large.next_multiple_of(size::Large::SIZE_SLAB) / size::Large::SIZE_SLAB,
+            Ordering::Relaxed,
+        );
 
         let id = region::Id::new(id);
+        let fixed_base = fixed_base
+            .map(|base| {
+                NonNull::new(base as *mut region::Page).ok_or(crate::Error::Mmap(
+                    std::io::Error::from_raw_os_error(libc::EINVAL),
+                ))
+            })
+            .transpose()?;
+        if let Some(base) = fixed_base {
+            region::reserve_address_space(base, region::Reservation::SIZE.get() * 9)?;
+        }
+        let reservation_at = |index: usize, size: NonZeroUsize| {
+            fixed_base.map(|base| unsafe {
+                region::fixed_reservation(
+                    base.byte_add(region::Reservation::SIZE.get() * index),
+                    size,
+                )
+            })
+        };
 
         // FIXME: support extension for huge allocation region?
         let (shared_size, _) = Self::shared();
@@ -151,10 +182,20 @@ impl Raw {
         #[cfg(feature = "cxl-mcas")]
         let shared = region::Fixed::new_mcas(id.with_suffix("s"), shared_size)?;
         #[cfg(not(feature = "cxl-mcas"))]
-        let shared = region::Fixed::new(&backend, id.with_suffix("s"), shared_size)?;
+        let shared = match reservation_at(0, region::Reservation::SIZE) {
+            Some(reservation) => {
+                region::Fixed::new_at(&backend, id.with_suffix("s"), shared_size, reservation.start())?
+            }
+            None => region::Fixed::new(&backend, id.with_suffix("s"), shared_size)?,
+        };
 
         let (owned_size, _) = Self::owned();
-        let owned = region::Fixed::new(&backend, id.with_suffix("o"), owned_size)?;
+        let owned = match reservation_at(1, region::Reservation::SIZE) {
+            Some(reservation) => {
+                region::Fixed::new_at(&backend, id.with_suffix("o"), owned_size, reservation.start())?
+            }
+            None => region::Fixed::new(&backend, id.with_suffix("o"), owned_size)?,
+        };
 
         let (small_lazy, small) = match NonZeroUsize::new(
             size_small.next_multiple_of(size::Small::SIZE_SLAB) / size::Small::SIZE_SLAB,
@@ -164,8 +205,13 @@ impl Raw {
             None => (true, Default::default()),
             Some(layout) => (false, layout),
         };
+        let small_slab_capacity =
+            (small.data.get() / size::Small::SIZE_SLAB).min(u32::MAX as usize) as u32;
 
-        let local_small_reservation = Reservation::new()?;
+        let local_small_reservation = match reservation_at(2, region::Reservation::SIZE) {
+            Some(reservation) => reservation,
+            None => Reservation::new()?,
+        };
         let local_small = region::Sequential::new(
             &backend,
             id.with_suffix("ls"),
@@ -180,21 +226,32 @@ impl Raw {
         let remote_small = region::Sequential::new(
             &backend,
             id.with_suffix("rs"),
-            Reservation::new()?,
+            match reservation_at(3, region::Reservation::SIZE) {
+                Some(reservation) => reservation,
+                None => Reservation::new()?,
+            },
             small.remotes,
             small_lazy,
         )?;
 
         let (large_lazy, large) = match NonZeroUsize::new(
-            size_large.next_multiple_of(size::Large::SIZE_SLAB) / size::Large::SIZE_SLAB,
+            size_large
+                .saturating_add(reserve_large)
+                .next_multiple_of(size::Large::SIZE_SLAB)
+                / size::Large::SIZE_SLAB,
         )
         .map(|count| Heap::<view::Unfocus, size::Large>::layout(count).unwrap())
         {
             None => (true, Default::default()),
             Some(layout) => (false, layout),
         };
+        let large_slab_capacity =
+            (large.data.get() / size::Large::SIZE_SLAB).min(u32::MAX as usize) as u32;
 
-        let local_large_reservation = Reservation::new()?;
+        let local_large_reservation = match reservation_at(4, region::Reservation::SIZE) {
+            Some(reservation) => reservation,
+            None => Reservation::new()?,
+        };
         let local_large = region::Sequential::new(
             &backend,
             id.with_suffix("ll"),
@@ -204,7 +261,10 @@ impl Raw {
         )?;
 
         // FIXME: large allocations are not integrated with mCAS
-        let remote_large_reservation = Reservation::new()?;
+        let remote_large_reservation = match reservation_at(5, region::Reservation::SIZE) {
+            Some(reservation) => reservation,
+            None => Reservation::new()?,
+        };
         let remote_large = region::Sequential::new(
             &backend,
             id.with_suffix("rl"),
@@ -214,7 +274,14 @@ impl Raw {
         )?;
 
         let [data_small_reservation, data_large_reservation, data_huge_reservation] =
-            Reservation::new_contiguous()?;
+            match fixed_base {
+                Some(_) => [
+                    reservation_at(6, small.data).unwrap(),
+                    reservation_at(7, large.data).unwrap(),
+                    reservation_at(8, region::Reservation::SIZE).unwrap(),
+                ],
+                None => Reservation::new_contiguous()?,
+            };
 
         let data_small = region::Sequential::new(
             &backend,
@@ -245,6 +312,8 @@ impl Raw {
             data_small,
             data_large,
             data_huge,
+            small_slab_capacity,
+            large_slab_capacity,
             stat: stat::process::Recorder::default(),
             free,
         })
@@ -252,6 +321,39 @@ impl Raw {
 }
 
 impl Raw {
+    pub fn unlink(id: &str, backend: &Backend) -> crate::Result<()> {
+        if backend.name() == "shm" {
+            let prefix = format!("{id}-");
+            for entry in fs::read_dir("/dev/shm")? {
+                let entry = entry?;
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else {
+                    continue;
+                };
+                if !name.starts_with(&prefix) {
+                    continue;
+                }
+                let c_name = CString::new(format!("/{name}")).map_err(|error| {
+                    crate::Error::Io(io::Error::new(io::ErrorKind::InvalidInput, error))
+                })?;
+                unsafe {
+                    match libc::shm_unlink(c_name.as_ptr()) {
+                        0 => (),
+                        _ if io::Error::last_os_error().kind() == io::ErrorKind::NotFound => (),
+                        _ => return Err(crate::Error::ShmUnlink(io::Error::last_os_error())),
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        let id = region::Id::new(id);
+        for suffix in ["s", "o"] {
+            let _ = backend.unlink(id.with_suffix(suffix).as_str());
+        }
+        Ok(())
+    }
+
     pub fn allocator<S, O>(&self, id: thread::Id) -> Allocator<S, O> {
         unsafe { Allocator::new(self.unfocused().focus(id, true)) }
     }
@@ -353,7 +455,7 @@ impl Raw {
                         slab::Slice::from_raw(self.local_small.address().cast()),
                         slab::Slice::from_raw(self.remote_small.address().cast()),
                     ),
-                    Data::<size::Small>::new(self.data_small.address()),
+                    Data::<size::Small>::new(self.data_small.address(), self.small_slab_capacity),
                 ),
                 Heap::<view::Unfocus, size::Large>::new(
                     shared
@@ -370,7 +472,7 @@ impl Raw {
                         slab::Slice::from_raw(self.local_large.address().cast()),
                         slab::Slice::from_raw(self.remote_large.address().cast()),
                     ),
-                    Data::<size::Large>::new(self.data_large.address()),
+                    Data::<size::Large>::new(self.data_large.address(), self.large_slab_capacity),
                 ),
                 Huge::new(
                     &self.backend,
@@ -385,7 +487,7 @@ impl Raw {
                         .cast::<thread::Array<huge::Owned>>()
                         .as_ref()
                         .unwrap(),
-                    Data::<size::Huge>::new(self.data_huge.address()),
+                    Data::<size::Huge>::new(self.data_huge.address(), u32::MAX),
                 ),
             )
         }
@@ -428,6 +530,7 @@ impl Raw {
         .into_iter()
     }
 }
+
 
 impl Drop for Raw {
     fn drop(&mut self) {

@@ -8,26 +8,12 @@ use std::cell::RefCell;
 use std::ffi;
 use std::ffi::CStr;
 use std::ptr::NonNull;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 use cxlalloc::raw;
 use cxlalloc::Allocator;
 
-static RAW: OnceLock<raw::Raw> = OnceLock::new();
-
-fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
-    let address = unsafe { info.read().si_addr() };
-    let id = THREAD_ID.get();
-    if raw().map(id, address) {
-        return;
-    }
-
-    unsafe {
-        let mut action = mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = libc::SIG_DFL;
-        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
-    }
-}
+static RAW: Mutex<Option<Box<raw::Raw>>> = Mutex::new(None);
 
 thread_local! {
     static THREAD_ID: Cell<cxlalloc::thread::Id> = const { Cell::new(unsafe { cxlalloc::thread::Id::new(0) }) };
@@ -35,55 +21,124 @@ thread_local! {
     // > Initialization is dynamically performed on the first call to with within a thread...
     //
     // https://doc.rust-lang.org/std/thread/struct.LocalKey.html
-    static ALLOCATOR: RefCell<Allocator<'static>> = RefCell::new(raw().allocator(THREAD_ID.get()));
+    static ALLOCATOR: RefCell<Option<Allocator<'static>>> = const { RefCell::new(None) };
 }
 
-/// Initialize the allocator for this process. This thread does not need to call
-/// `cxlalloc_init_thread`.
-///
-/// `heap_id` is an application-defined string used to correlate heaps between processes.
-/// `heap_numa` is -1 or else a NUMA node to bind heap memory to.
-/// `heap_backend` must be one of [mmap, shm, ivshmem].
-/// `heap_size` is the initial heap size in bytes.
-/// `thread_count` is the total number of threads that will call the allocator.
-/// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
-#[no_mangle]
-pub unsafe extern "C" fn cxlalloc_init_process(
-    heap_id: *const ffi::c_char,
-    heap_numa: i8,
-    heap_backend: *const ffi::c_char,
-    heap_size: usize,
-    thread_count: u16,
-    thread_id: u16,
-) {
-    let heap_id = CStr::from_ptr(heap_id)
+fn with_allocator<R>(apply: impl FnOnce(&mut Allocator<'static>) -> R) -> R {
+    ALLOCATOR.with_borrow_mut(|allocator| {
+        if allocator.is_none() {
+            *allocator = Some(raw().allocator(THREAD_ID.get()));
+        }
+        apply(allocator.as_mut().unwrap())
+    })
+}
+
+fn try_with_allocator<R>(apply: impl FnOnce(&mut Allocator<'static>) -> R) -> Result<R, ()> {
+    ALLOCATOR
+        .try_with(|allocator| {
+            let mut allocator = allocator.borrow_mut();
+            if allocator.is_none() {
+                *allocator = Some(raw().allocator(THREAD_ID.get()));
+            }
+            apply(allocator.as_mut().unwrap())
+        })
+        .map_err(|_| ())
+}
+
+fn reset_thread_allocator() {
+    let _ = ALLOCATOR.try_with(|allocator| {
+        *allocator.borrow_mut() = None;
+    });
+}
+
+fn try_init_thread(thread_id: u16) -> bool {
+    THREAD_ID
+        .try_with(|id| id.set(unsafe { cxlalloc::thread::Id::new(thread_id) }))
+        .is_ok()
+}
+
+enum BackendKind {
+    Mmap,
+    Shm,
+    Ivshmem,
+}
+
+fn parse_heap_id(heap_id: *const ffi::c_char) -> &'static str {
+    unsafe { CStr::from_ptr(heap_id) }
         .to_str()
         .expect("Heap ID must be valid UTF-8")
         // Hack for memento + ralloc compatibility
-        .trim_start_matches("/dev/shm/");
+        .trim_start_matches("/dev/shm/")
+}
 
-    enum Backend {
-        Mmap,
-        Shm,
-        Ivshmem,
-    }
-
-    let heap_backend = CStr::from_ptr(heap_backend)
+fn parse_heap_backend(heap_backend: *const ffi::c_char) -> BackendKind {
+    unsafe { CStr::from_ptr(heap_backend) }
         .to_str()
         .ok()
         .and_then(|backend| match backend {
-            "mmap" => Some(Backend::Mmap),
-            "shm" => Some(Backend::Shm),
-            "ivshmem" => Some(Backend::Ivshmem),
+            "mmap" => Some(BackendKind::Mmap),
+            "shm" => Some(BackendKind::Shm),
+            "ivshmem" => Some(BackendKind::Ivshmem),
             _ => None,
         })
-        .expect("Heap backend one of [mmap, shm, ivshmem]");
+        .expect("Heap backend one of [mmap, shm, ivshmem]")
+}
 
+fn make_backend(kind: BackendKind, heap_numa: i8) -> raw::Backend {
     let heap_numa = heap_numa.is_positive().then_some(shm::Numa::Bind {
         node: heap_numa as usize,
     });
+    let builder = raw::Backend::builder().maybe_numa(heap_numa);
+    match kind {
+        BackendKind::Mmap => builder.backend(raw::backend::Mmap).build(),
+        BackendKind::Shm => builder.backend(raw::backend::Shm).build(),
+        BackendKind::Ivshmem => builder
+            .backend(shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"))
+            .build(),
+    }
+}
 
-    RAW.get_or_init(move || {
+fn reset_sigsegv_handler() {
+    unsafe {
+        let mut action = mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = libc::SIG_DFL;
+        libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
+    }
+}
+
+fn handle_sigsegv(_: libc::c_int, info: *const libc::siginfo_t, _: *const libc::c_void) {
+    let address = unsafe { info.read().si_addr() };
+    let Some(raw) = try_raw() else {
+        reset_sigsegv_handler();
+        return;
+    };
+    let Ok(id) = THREAD_ID.try_with(Cell::get) else {
+        reset_sigsegv_handler();
+        return;
+    };
+    if raw.map(id, address) {
+        return;
+    }
+
+    reset_sigsegv_handler();
+}
+
+unsafe fn init_process(
+    heap_id: *const ffi::c_char,
+    heap_numa: i8,
+    heap_backend: *const ffi::c_char,
+    small_heap_size: usize,
+    large_heap_size: usize,
+    large_reserve_size: usize,
+    thread_count: u16,
+    thread_id: u16,
+    fixed_base: Option<usize>,
+) {
+    let heap_id = parse_heap_id(heap_id);
+    let heap_backend = parse_heap_backend(heap_backend);
+
+    let mut raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    if raw_guard.is_none() {
         #[cfg(feature = "log")]
         let _ = env_logger::Builder::from_default_env()
             .format(move |buffer, record| {
@@ -126,33 +181,133 @@ pub unsafe extern "C" fn cxlalloc_init_process(
             .try_init();
 
         let mut action = unsafe { mem::zeroed::<libc::sigaction>() };
-        action.sa_sigaction = handle_sigsegv as _;
+        action.sa_sigaction = handle_sigsegv as *const () as _;
         action.sa_flags = libc::SA_SIGINFO | libc::SA_NODEFER;
         unsafe {
             libc::sigaction(libc::SIGSEGV, &action, ptr::null_mut());
         }
 
-        let builder = raw::Backend::builder().maybe_numa(heap_numa);
-        let backend = match heap_backend {
-            Backend::Mmap => builder.backend(raw::backend::Mmap).build(),
-            Backend::Shm => builder.backend(raw::backend::Shm).build(),
-            Backend::Ivshmem => builder
-                .backend(shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"))
-                .build(),
-        };
-
-        raw::Raw::builder()
-            .backend(backend)
-            .size_small(heap_size)
+        let raw = raw::Raw::builder()
+            .backend(make_backend(heap_backend, heap_numa))
+            .size_small(small_heap_size)
+            .size_large(large_heap_size)
+            .reserve_large(large_reserve_size)
             .thread_count(thread_count as usize)
+            .maybe_fixed_base(fixed_base)
             .build(heap_id)
-            .expect("Failed to initialize allocator for process")
-    });
+            .expect("Failed to initialize allocator for process");
+        *raw_guard = Some(Box::new(raw));
+    }
+    drop(raw_guard);
 
-    cxlalloc_init_thread(thread_id);
+    if !try_init_thread(thread_id) {
+        return;
+    }
 
     // Eagerly initialize thread-local state to fail fast on buggy recovery
-    ALLOCATOR.with(|_| ());
+    let _ = try_with_allocator(|_| ());
+}
+
+/// Initialize the allocator for this process. This thread does not need to call
+/// `cxlalloc_init_thread`.
+///
+/// `heap_id` is an application-defined string used to correlate heaps between processes.
+/// `heap_numa` is -1 or else a NUMA node to bind heap memory to.
+/// `heap_backend` must be one of [mmap, shm, ivshmem].
+/// `heap_size` is the initial heap size in bytes.
+/// `thread_count` is the total number of threads that will call the allocator.
+/// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_init_process(
+    heap_id: *const ffi::c_char,
+    heap_numa: i8,
+    heap_backend: *const ffi::c_char,
+    heap_size: usize,
+    thread_count: u16,
+    thread_id: u16,
+) {
+    init_process(
+        heap_id,
+        heap_numa,
+        heap_backend,
+        heap_size,
+        0,
+        0,
+        thread_count,
+        thread_id,
+        None,
+    );
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_init_process_fixed(
+    heap_id: *const ffi::c_char,
+    heap_numa: i8,
+    heap_backend: *const ffi::c_char,
+    heap_size: usize,
+    thread_count: u16,
+    thread_id: u16,
+    fixed_base: usize,
+) {
+    init_process(
+        heap_id,
+        heap_numa,
+        heap_backend,
+        heap_size,
+        0,
+        0,
+        thread_count,
+        thread_id,
+        Some(fixed_base),
+    );
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_init_process_fixed_split(
+    heap_id: *const ffi::c_char,
+    heap_numa: i8,
+    heap_backend: *const ffi::c_char,
+    small_heap_size: usize,
+    large_heap_size: usize,
+    large_reserve_size: usize,
+    thread_count: u16,
+    thread_id: u16,
+    fixed_base: usize,
+) {
+    init_process(
+        heap_id,
+        heap_numa,
+        heap_backend,
+        small_heap_size,
+        large_heap_size,
+        large_reserve_size,
+        thread_count,
+        thread_id,
+        Some(fixed_base),
+    );
+}
+
+#[no_mangle]
+pub extern "C" fn cxlalloc_set_large_reserve_enabled(enabled: bool) {
+    cxlalloc::set_large_reserve_enabled(enabled);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_unlink_heap(
+    heap_id: *const ffi::c_char,
+    heap_backend: *const ffi::c_char,
+) -> bool {
+    let heap_id = parse_heap_id(heap_id);
+    let heap_backend = parse_heap_backend(heap_backend);
+    raw::Raw::unlink(heap_id, &make_backend(heap_backend, -1)).is_ok()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_close_process() {
+    reset_thread_allocator();
+    let mut raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    *raw_guard = None;
+    reset_sigsegv_handler();
 }
 
 /// Initialize the allocator for this thread.
@@ -160,12 +315,12 @@ pub unsafe extern "C" fn cxlalloc_init_process(
 /// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: u16) {
-    THREAD_ID.set(unsafe { cxlalloc::thread::Id::new(thread_id) });
+    let _ = try_init_thread(thread_id);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
-    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(size))
+    with_allocator(|allocator| allocator.allocate_untyped(size))
 }
 
 #[no_mangle]
@@ -174,7 +329,11 @@ pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
         return;
     };
 
-    match ALLOCATOR.try_with(|allocator| allocator.borrow_mut().free_untyped(pointer.cast())) {
+    match ALLOCATOR.try_with(|allocator| {
+        if let Some(allocator) = allocator.borrow_mut().as_mut() {
+            allocator.free_untyped(pointer.cast());
+        }
+    }) {
         Ok(()) => (),
         Err(_) => log::error!("Called cxlalloc_free({pointer:?}) after TLS destroyed"),
     }
@@ -190,13 +349,13 @@ pub unsafe extern "C" fn cxlalloc_realloc(
         Some(block) => block.cast(),
     };
 
-    ALLOCATOR.with_borrow_mut(|allocator| allocator.realloc_untyped(block, size))
+    with_allocator(|allocator| allocator.realloc_untyped(block, size))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mut ffi::c_void {
     let layout = Layout::from_size_align(size, alignment).expect("Invalid size and alignment");
-    ALLOCATOR.with_borrow_mut(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
+    with_allocator(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
 }
 
 /// Try to convert a pointer into a persistent offset. Returns false if the pointer was
@@ -207,7 +366,7 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     offset: *mut u64,
 ) -> bool {
     match NonNull::new(pointer as *mut ffi::c_void)
-        .map(|pointer| ALLOCATOR.with_borrow(|allocator| allocator.pointer_to_offset(pointer)))
+        .map(|pointer| with_allocator(|allocator| allocator.pointer_to_offset(pointer)))
     {
         None => false,
         Some(_offset) => {
@@ -220,11 +379,18 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
 /// Convert a persistent offset into a pointer in this process address space.
 #[no_mangle]
 pub extern "C" fn cxlalloc_offset_to_pointer(offset: u64) -> *mut ffi::c_void {
-    ALLOCATOR.with_borrow(|allocator| allocator.offset_to_pointer(offset as usize).as_ptr())
+    with_allocator(|allocator| allocator.offset_to_pointer(offset as usize).as_ptr())
 }
 
 #[inline]
 fn raw() -> &'static raw::Raw {
-    RAW.get()
-        .expect("Uninitialized heap: was cxlalloc_init called?")
+    try_raw().expect("Uninitialized heap: was cxlalloc_init called?")
+}
+
+#[inline]
+fn try_raw() -> Option<&'static raw::Raw> {
+    let raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    let raw = raw_guard.as_ref()?.as_ref() as *const raw::Raw;
+    drop(raw_guard);
+    Some(unsafe { &*raw })
 }

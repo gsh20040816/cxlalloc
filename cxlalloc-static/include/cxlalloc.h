@@ -23,11 +23,52 @@ extern "C" {
  * `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
  */
 void cxlalloc_init_process(const char *heap_id,
-                           int8_t heap_numa,
-                           const char *heap_backend,
-                           size_t heap_size,
-                           uint16_t thread_count,
-                           uint16_t thread_id);
+	                           int8_t heap_numa,
+	                           const char *heap_backend,
+	                           size_t heap_size,
+	                           uint16_t thread_count,
+	                           uint16_t thread_id);
+
+/**
+ * Initialize the allocator at a fixed virtual address window. `fixed_base`
+ * must be page-aligned and free in every process that attaches this heap.
+ */
+void cxlalloc_init_process_fixed(const char *heap_id,
+	                               int8_t heap_numa,
+	                               const char *heap_backend,
+	                               size_t heap_size,
+	                               uint16_t thread_count,
+	                               uint16_t thread_id,
+	                               uintptr_t fixed_base);
+
+/**
+ * Initialize the allocator at a fixed virtual address window with separate
+ * small and large heap capacities.
+ */
+void cxlalloc_init_process_fixed_split(const char *heap_id,
+	                                     int8_t heap_numa,
+	                                     const char *heap_backend,
+	                                     size_t small_heap_size,
+	                                     size_t large_heap_size,
+	                                     size_t large_reserve_size,
+	                                     uint16_t thread_count,
+	                                     uint16_t thread_id,
+	                                     uintptr_t fixed_base);
+
+/**
+ * Unlink all shm objects used by this heap id. This is only supported for
+ * heap_backend="shm"; missing objects are ignored.
+ */
+bool cxlalloc_unlink_heap(const char *heap_id, const char *heap_backend);
+
+/**
+ * Drop this process's current allocator mapping. Callers must ensure no other
+ * thread is concurrently using the allocator.
+ */
+void cxlalloc_close_process(void);
+
+/** Enable or disable use of the large-allocation reserve on this thread. */
+void cxlalloc_set_large_reserve_enabled(bool enabled);
 
 /**
  * Initialize the allocator for this thread.

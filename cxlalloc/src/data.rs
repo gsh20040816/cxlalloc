@@ -13,6 +13,7 @@ use crate::slab;
 #[derive(Clone)]
 pub(crate) struct Data<'raw, B> {
     pub(crate) base: NonNull<Page>,
+    slab_capacity: u32,
     _raw: PhantomData<&'raw ()>,
     _bracket: PhantomData<B>,
 }
@@ -21,9 +22,10 @@ impl<B> Data<'_, B>
 where
     B: size::Bracket,
 {
-    pub(crate) fn new(base: NonNull<Page>) -> Self {
+    pub(crate) fn new(base: NonNull<Page>, slab_capacity: u32) -> Self {
         Self {
             base: unsafe { base.byte_sub(B::SIZE_SLAB) },
+            slab_capacity,
             _raw: PhantomData,
             _bracket: PhantomData,
         }
@@ -47,6 +49,10 @@ where
             .checked_sub(self.base.as_ptr() as u64)
             .and_then(NonZeroU64::new)
             .map(Offset::new)
+    }
+
+    pub(crate) fn slab_capacity(&self) -> u32 {
+        self.slab_capacity
     }
 }
 

@@ -1,3 +1,4 @@
+use core::any::TypeId;
 use core::ffi;
 use core::marker::PhantomData;
 use core::mem;
@@ -29,6 +30,7 @@ use crate::Slab;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
+use crate::RESERVE_LARGE_SLABS;
 
 use self::region::Region as _;
 
@@ -91,6 +93,18 @@ where
     B: size::Bracket,
     State: From<HeapState<B>>,
 {
+    fn usable_slab_capacity(&self) -> u32 {
+        let capacity = self.data.slab_capacity();
+        if TypeId::of::<B>() != TypeId::of::<size::Large>() {
+            return capacity;
+        }
+        if crate::large_reserve_enabled() {
+            return capacity;
+        }
+        let reserve = RESERVE_LARGE_SLABS.load(Ordering::Relaxed).min(capacity as usize) as u32;
+        capacity - reserve
+    }
+
     pub(crate) fn new(
         shared: &'raw Shared<B>,
         owned: L::Scope<'raw, Owned<B>>,
@@ -262,7 +276,7 @@ where
 
             self.owned.r#unsized.push(&self.slabs, index);
         } else {
-            let range = self.shared.bump(context);
+            let range = self.shared.bump(context, self.usable_slab_capacity())?;
 
             log::info!(
                 "Transfer: {}..{} from bump to unsized",
@@ -271,7 +285,7 @@ where
             );
             self.stat.record(context.id, stat::thread::Event::Bump);
 
-            let batch = BATCH_BUMP_POP.load(Ordering::Relaxed);
+            let batch = (u32::from(range.end) - u32::from(range.start)) as usize;
 
             unsafe {
                 self.slabs.link(context.id, range.clone(), None);
@@ -485,8 +499,9 @@ where
         self.bump.load(context, Ordering::Relaxed)
     }
 
-    fn bump(&self, context: &mut allocator::Context) -> Range<slab::Index<B>> {
+    fn bump(&self, context: &mut allocator::Context, limit: u32) -> Option<Range<slab::Index<B>>> {
         let batch = BATCH_BUMP_POP.load(Ordering::Relaxed) as u32;
+        let mut count = batch;
         let start = self
             .bump
             .update(
@@ -494,7 +509,12 @@ where
                 Ordering::Relaxed,
                 Ordering::Relaxed,
                 |old, version| {
-                    let new = unsafe { old.unwrap_or(slab::Index::MIN).add(batch) };
+                    let start = old.map(u32::from).unwrap_or(0);
+                    if start >= limit {
+                        return None;
+                    }
+                    count = batch.min(limit - start);
+                    let new = unsafe { old.unwrap_or(slab::Index::MIN).add(count) };
                     Some((
                         Some(new),
                         HeapState::BumpToUnsized {
@@ -504,11 +524,11 @@ where
                     ))
                 },
             )
-            .unwrap();
+            ?;
 
         let start = start.unwrap_or(slab::Index::MIN);
-        let end = unsafe { start.add(batch) };
-        start..end
+        let end = unsafe { start.add(count) };
+        Some(start..end)
     }
 
     pub(crate) fn detect_bump(

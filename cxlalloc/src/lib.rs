@@ -47,6 +47,7 @@ mod crash {
 
 use core::ops::Deref;
 use core::ops::DerefMut;
+use std::cell::Cell;
 use core::sync::atomic::AtomicUsize;
 
 pub(crate) use data::Data;
@@ -65,6 +66,19 @@ pub(crate) const COUNT_THREAD: usize = 512;
 pub(crate) static COUNT_CACHE_SLAB: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static BATCH_GLOBAL_PUSH: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static BATCH_BUMP_POP: AtomicUsize = AtomicUsize::new(1);
+pub(crate) static RESERVE_LARGE_SLABS: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    static LARGE_RESERVE_ENABLED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn set_large_reserve_enabled(enabled: bool) {
+    LARGE_RESERVE_ENABLED.set(enabled);
+}
+
+pub(crate) fn large_reserve_enabled() -> bool {
+    LARGE_RESERVE_ENABLED.get()
+}
 
 pub struct Allocator<'raw, S: 'raw = (), O: 'raw = ()>(
     allocator::Allocator<'raw, view::Focus, S, O>,
