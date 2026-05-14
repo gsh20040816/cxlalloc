@@ -402,7 +402,9 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         let (offset, index) = match self.huge.reuse(&self.small.data, self.id) {
             Some(offset) => (offset, None),
             None => {
-                let (index, block) = self.small.peek(context, huge::Descriptor::CLASS).unwrap();
+                let Some((index, block)) = self.small.peek(context, huge::Descriptor::CLASS) else {
+                    return ptr::null_mut();
+                };
                 (
                     data::Offset::from_block(huge::Descriptor::CLASS, index, block),
                     Some((index, block)),
