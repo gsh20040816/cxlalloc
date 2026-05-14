@@ -31,6 +31,7 @@ use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
 use crate::RESERVE_LARGE_SLABS;
+use crate::RESERVE_SMALL_SLABS;
 
 use self::region::Region as _;
 
@@ -95,13 +96,17 @@ where
 {
     fn usable_slab_capacity(&self) -> u32 {
         let capacity = self.data.slab_capacity();
-        if TypeId::of::<B>() != TypeId::of::<size::Large>() {
-            return capacity;
-        }
         if crate::large_reserve_enabled() {
             return capacity;
         }
-        let reserve = RESERVE_LARGE_SLABS.load(Ordering::Relaxed).min(capacity as usize) as u32;
+        let reserve = if TypeId::of::<B>() == TypeId::of::<size::Small>() {
+            RESERVE_SMALL_SLABS.load(Ordering::Relaxed)
+        } else if TypeId::of::<B>() == TypeId::of::<size::Large>() {
+            RESERVE_LARGE_SLABS.load(Ordering::Relaxed)
+        } else {
+            0
+        }
+        .min(capacity as usize) as u32;
         capacity - reserve
     }
 

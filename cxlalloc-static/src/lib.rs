@@ -13,6 +13,10 @@ use std::sync::Mutex;
 use cxlalloc::raw;
 use cxlalloc::Allocator;
 
+fn ffi_or_null(apply: impl FnOnce() -> *mut ffi::c_void) -> *mut ffi::c_void {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(apply)).unwrap_or(ptr::null_mut())
+}
+
 static RAW: Mutex<Option<Box<raw::Raw>>> = Mutex::new(None);
 
 thread_local! {
@@ -320,7 +324,9 @@ pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: u16) {
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
-    with_allocator(|allocator| allocator.allocate_untyped(size))
+    ffi_or_null(|| {
+        try_with_allocator(|allocator| allocator.allocate_untyped(size)).unwrap_or(ptr::null_mut())
+    })
 }
 
 #[no_mangle]
@@ -349,13 +355,20 @@ pub unsafe extern "C" fn cxlalloc_realloc(
         Some(block) => block.cast(),
     };
 
-    with_allocator(|allocator| allocator.realloc_untyped(block, size))
+    ffi_or_null(|| {
+        try_with_allocator(|allocator| allocator.realloc_untyped(block, size)).unwrap_or(ptr::null_mut())
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mut ffi::c_void {
-    let layout = Layout::from_size_align(size, alignment).expect("Invalid size and alignment");
-    with_allocator(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
+    ffi_or_null(|| {
+        let Ok(layout) = Layout::from_size_align(size, alignment) else {
+            return ptr::null_mut();
+        };
+        try_with_allocator(|allocator| allocator.allocate_untyped(layout.pad_to_align().size()))
+            .unwrap_or(ptr::null_mut())
+    })
 }
 
 /// Try to convert a pointer into a persistent offset. Returns false if the pointer was

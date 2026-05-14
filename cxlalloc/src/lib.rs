@@ -66,6 +66,7 @@ pub(crate) const COUNT_THREAD: usize = 512;
 pub(crate) static COUNT_CACHE_SLAB: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static BATCH_GLOBAL_PUSH: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static BATCH_BUMP_POP: AtomicUsize = AtomicUsize::new(1);
+pub(crate) static RESERVE_SMALL_SLABS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static RESERVE_LARGE_SLABS: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {

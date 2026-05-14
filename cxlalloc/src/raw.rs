@@ -39,6 +39,7 @@ use crate::Slab;
 use crate::BATCH_BUMP_POP;
 use crate::BATCH_GLOBAL_PUSH;
 use crate::COUNT_CACHE_SLAB;
+use crate::RESERVE_SMALL_SLABS;
 
 /// This type represents sole ownership of an initialized backing store
 /// for the heap.
@@ -153,6 +154,10 @@ impl Raw {
         }
         RESERVE_LARGE_SLABS.store(
             reserve_large.next_multiple_of(size::Large::SIZE_SLAB) / size::Large::SIZE_SLAB,
+            Ordering::Relaxed,
+        );
+        RESERVE_SMALL_SLABS.store(
+            reserve_large.next_multiple_of(size::Small::SIZE_SLAB) / size::Small::SIZE_SLAB,
             Ordering::Relaxed,
         );
 
