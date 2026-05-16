@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::ffi;
 use std::ffi::CStr;
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
 
 use cxlalloc::raw;
@@ -18,6 +19,7 @@ fn ffi_or_null(apply: impl FnOnce() -> *mut ffi::c_void) -> *mut ffi::c_void {
 }
 
 static RAW: Mutex<Option<Box<raw::Raw>>> = Mutex::new(None);
+static RAW_PID: AtomicI32 = AtomicI32::new(0);
 
 thread_local! {
     static THREAD_ID: Cell<cxlalloc::thread::Id> = const { Cell::new(unsafe { cxlalloc::thread::Id::new(0) }) };
@@ -53,6 +55,27 @@ fn reset_thread_allocator() {
     let _ = ALLOCATOR.try_with(|allocator| {
         *allocator.borrow_mut() = None;
     });
+}
+
+fn current_pid() -> i32 {
+    unsafe { libc::getpid() as i32 }
+}
+
+fn discard_inherited_process_state() {
+    let owner_pid = RAW_PID.load(Ordering::Acquire);
+    let pid = current_pid();
+    if owner_pid == 0 || owner_pid == pid {
+        return;
+    }
+
+    reset_thread_allocator();
+    let mut raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    let owner_pid = RAW_PID.load(Ordering::Acquire);
+    if owner_pid != 0 && owner_pid != pid {
+        *raw_guard = None;
+        RAW_PID.store(0, Ordering::Release);
+        reset_sigsegv_handler();
+    }
 }
 
 fn try_init_thread(thread_id: u16) -> bool {
@@ -147,8 +170,11 @@ unsafe fn init_process(
     thread_id: u16,
     fixed_base: Option<usize>,
 ) {
+    discard_inherited_process_state();
+
     let heap_id = parse_heap_id(heap_id);
     let heap_backend = parse_heap_backend(heap_backend);
+    let pid = current_pid();
 
     let mut raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
     if raw_guard.is_none() {
@@ -210,6 +236,7 @@ unsafe fn init_process(
             .build(heap_id)
             .expect("Failed to initialize allocator for process");
         *raw_guard = Some(Box::new(raw));
+        RAW_PID.store(pid, Ordering::Release);
     }
     drop(raw_guard);
 
@@ -302,6 +329,7 @@ pub unsafe extern "C" fn cxlalloc_init_process_fixed_split(
 
 #[no_mangle]
 pub extern "C" fn cxlalloc_set_large_reserve_enabled(enabled: bool) {
+    discard_inherited_process_state();
     cxlalloc::set_large_reserve_enabled(enabled);
 }
 
@@ -320,6 +348,7 @@ pub unsafe extern "C" fn cxlalloc_close_process() {
     reset_thread_allocator();
     let mut raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
     *raw_guard = None;
+    RAW_PID.store(0, Ordering::Release);
     reset_sigsegv_handler();
 }
 
@@ -328,11 +357,13 @@ pub unsafe extern "C" fn cxlalloc_close_process() {
 /// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_init_thread(thread_id: u16) {
+    discard_inherited_process_state();
     let _ = try_init_thread(thread_id);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
+    discard_inherited_process_state();
     ffi_or_null(|| {
         try_with_allocator(|allocator| allocator.allocate_untyped(size)).unwrap_or(ptr::null_mut())
     })
@@ -340,6 +371,7 @@ pub unsafe extern "C" fn cxlalloc_malloc(size: usize) -> *mut ffi::c_void {
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_free(pointer: *mut ffi::c_void) {
+    discard_inherited_process_state();
     let Some(pointer) = NonNull::new(pointer) else {
         return;
     };
@@ -359,18 +391,21 @@ pub unsafe extern "C" fn cxlalloc_realloc(
     pointer: *mut ffi::c_void,
     size: usize,
 ) -> *mut ffi::c_void {
+    discard_inherited_process_state();
     let block = match NonNull::new(pointer) {
         None => return cxlalloc_malloc(size),
         Some(block) => block.cast(),
     };
 
     ffi_or_null(|| {
-        try_with_allocator(|allocator| allocator.realloc_untyped(block, size)).unwrap_or(ptr::null_mut())
+        try_with_allocator(|allocator| allocator.realloc_untyped(block, size))
+            .unwrap_or(ptr::null_mut())
     })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn cxlalloc_memalign(size: usize, alignment: usize) -> *mut ffi::c_void {
+    discard_inherited_process_state();
     ffi_or_null(|| {
         let Ok(layout) = Layout::from_size_align(size, alignment) else {
             return ptr::null_mut();
@@ -387,6 +422,7 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
     pointer: *const ffi::c_void,
     offset: *mut u64,
 ) -> bool {
+    discard_inherited_process_state();
     match NonNull::new(pointer as *mut ffi::c_void)
         .map(|pointer| with_allocator(|allocator| allocator.pointer_to_offset(pointer)))
     {
@@ -401,6 +437,7 @@ pub unsafe extern "C" fn cxlalloc_pointer_to_offset(
 /// Convert a persistent offset into a pointer in this process address space.
 #[no_mangle]
 pub extern "C" fn cxlalloc_offset_to_pointer(offset: u64) -> *mut ffi::c_void {
+    discard_inherited_process_state();
     with_allocator(|allocator| allocator.offset_to_pointer(offset as usize).as_ptr())
 }
 
