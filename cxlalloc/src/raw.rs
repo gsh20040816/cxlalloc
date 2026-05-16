@@ -367,6 +367,15 @@ impl Raw {
         self.stat.report()
     }
 
+    pub fn release_thread_range(&self, first: u16, count: u16) {
+        let end = first.saturating_add(count).min(crate::COUNT_THREAD as u16);
+        let allocator = self.unfocused::<(), ()>();
+        for id in first..end {
+            let id = unsafe { thread::Id::new(id) };
+            allocator.huge.release_thread(id);
+        }
+    }
+
     pub fn map(&self, id: thread::Id, address: *mut ffi::c_void) -> bool {
         let Some(address) = NonNull::new(address) else {
             return false;

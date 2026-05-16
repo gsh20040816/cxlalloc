@@ -67,6 +67,13 @@ bool cxlalloc_unlink_heap(const char *heap_id, const char *heap_backend);
  */
 void cxlalloc_close_process(void);
 
+/**
+ * Release huge-allocation hazard records for a range of thread ids in the
+ * current process mapping. Callers must ensure those thread ids are no longer
+ * concurrently using the allocator.
+ */
+void cxlalloc_release_thread_range(uint16_t first, uint16_t count);
+
 /** Enable or disable use of the large-allocation reserve on this thread. */
 void cxlalloc_set_large_reserve_enabled(bool enabled);
 

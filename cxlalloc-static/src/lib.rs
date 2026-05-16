@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::ffi;
 use std::ffi::CStr;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU16, Ordering};
 use std::sync::Mutex;
 
 use cxlalloc::raw;
@@ -20,6 +20,8 @@ fn ffi_or_null(apply: impl FnOnce() -> *mut ffi::c_void) -> *mut ffi::c_void {
 
 static RAW: Mutex<Option<Box<raw::Raw>>> = Mutex::new(None);
 static RAW_PID: AtomicI32 = AtomicI32::new(0);
+static THREAD_ID_BASE: AtomicU16 = AtomicU16::new(0);
+static LOCAL_THREAD_COUNT: AtomicU16 = AtomicU16::new(1);
 
 thread_local! {
     static THREAD_ID: Cell<cxlalloc::thread::Id> = const { Cell::new(unsafe { cxlalloc::thread::Id::new(0) }) };
@@ -236,6 +238,8 @@ unsafe fn init_process(
             .build(heap_id)
             .expect("Failed to initialize allocator for process");
         *raw_guard = Some(Box::new(raw));
+        THREAD_ID_BASE.store(thread_id, Ordering::Release);
+        LOCAL_THREAD_COUNT.store(1, Ordering::Release);
         RAW_PID.store(pid, Ordering::Release);
     }
     drop(raw_guard);
@@ -347,9 +351,26 @@ pub unsafe extern "C" fn cxlalloc_unlink_heap(
 pub unsafe extern "C" fn cxlalloc_close_process() {
     reset_thread_allocator();
     let mut raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    if let Some(raw) = raw_guard.as_ref() {
+        raw.release_thread_range(
+            THREAD_ID_BASE.load(Ordering::Acquire),
+            LOCAL_THREAD_COUNT.load(Ordering::Acquire),
+        );
+    }
     *raw_guard = None;
     RAW_PID.store(0, Ordering::Release);
     reset_sigsegv_handler();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_release_thread_range(first: u16, count: u16) {
+    discard_inherited_process_state();
+    THREAD_ID_BASE.store(first, Ordering::Release);
+    LOCAL_THREAD_COUNT.store(count, Ordering::Release);
+    let raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    if let Some(raw) = raw_guard.as_ref() {
+        raw.release_thread_range(first, count);
+    }
 }
 
 /// Initialize the allocator for this thread.

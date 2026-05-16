@@ -64,6 +64,10 @@ impl<'raw> Huge<'raw> {
         self.stat.report(id)
     }
 
+    pub(crate) fn release_thread(&self, id: thread::Id) {
+        self.owned[id].clear_hazards();
+    }
+
     pub(crate) fn refresh(&self, data: &Data<size::Small>, id: thread::Id) {
         self.owned
             .iter()
@@ -394,6 +398,13 @@ pub(crate) struct Owned {
 }
 
 impl Owned {
+    pub(crate) fn clear_hazards(&self) {
+        let len = self.len.swap(0, Ordering::AcqRel);
+        for hazard in self.hazards.iter().take(len) {
+            hazard.store(None, Ordering::Relaxed);
+        }
+    }
+
     fn insert(&self, offset: data::Offset<size::Huge>) {
         validate!(!self.contains(offset));
 
