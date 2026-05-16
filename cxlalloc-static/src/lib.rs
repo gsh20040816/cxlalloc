@@ -56,9 +56,18 @@ fn reset_thread_allocator() {
 }
 
 fn try_init_thread(thread_id: u16) -> bool {
-    THREAD_ID
-        .try_with(|id| id.set(unsafe { cxlalloc::thread::Id::new(thread_id) }))
-        .is_ok()
+    let new_id = unsafe { cxlalloc::thread::Id::new(thread_id) };
+    let Ok(changed) = THREAD_ID.try_with(|id| {
+        let old_id = id.get();
+        id.set(new_id);
+        old_id != new_id
+    }) else {
+        return false;
+    };
+    if changed {
+        reset_thread_allocator();
+    }
+    true
 }
 
 enum BackendKind {
