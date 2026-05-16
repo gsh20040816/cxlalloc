@@ -29,6 +29,8 @@ use crate::stat;
 use crate::thread;
 use crate::Data;
 
+const HUGE_SLOT_COUNT: usize = 8192;
+
 pub(crate) struct Huge<'raw> {
     allocator: Allocator,
     backend: &'raw Backend,
@@ -328,7 +330,7 @@ impl<'raw> Huge<'raw> {
 }
 
 pub(crate) struct Shared {
-    slots: [Atomic64<Option<Claim>>; 1024],
+    slots: [Atomic64<Option<Claim>>; HUGE_SLOT_COUNT],
     hint: Atomic64<u64>,
 }
 
@@ -388,7 +390,7 @@ pub(crate) struct Owned {
     head: Atomic64<Option<data::Offset<size::Small>>>,
 
     len: AtomicUsize,
-    hazards: [Atomic64<Option<data::Offset<size::Huge>>>; 1024],
+    hazards: [Atomic64<Option<data::Offset<size::Huge>>>; HUGE_SLOT_COUNT],
 }
 
 impl Owned {
