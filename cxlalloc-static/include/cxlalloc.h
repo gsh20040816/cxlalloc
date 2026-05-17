@@ -74,6 +74,12 @@ void cxlalloc_close_process(void);
  */
 void cxlalloc_release_thread_range(uint16_t first, uint16_t count);
 
+/**
+ * Release huge-allocation hazard records for one thread id without changing the
+ * process-owned thread id range used by cxlalloc_close_process().
+ */
+void cxlalloc_release_thread(uint16_t thread_id);
+
 /** Enable or disable use of the large-allocation reserve on this thread. */
 void cxlalloc_set_large_reserve_enabled(bool enabled);
 

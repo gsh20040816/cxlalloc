@@ -373,6 +373,15 @@ pub unsafe extern "C" fn cxlalloc_release_thread_range(first: u16, count: u16) {
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn cxlalloc_release_thread(thread_id: u16) {
+    discard_inherited_process_state();
+    let raw_guard = RAW.lock().expect("cxlalloc RAW mutex poisoned");
+    if let Some(raw) = raw_guard.as_ref() {
+        raw.release_thread_range(thread_id, 1);
+    }
+}
+
 /// Initialize the allocator for this thread.
 ///
 /// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
