@@ -12,6 +12,7 @@ default = ["arch-gpf", "recover"]
 arch-gpf = ["cxlalloc/arch-gpf"]
 recover = ["cxlalloc/recover"]
 log = ["dep:env_logger"]
+small-reservation = ["cxlalloc/small-reservation"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

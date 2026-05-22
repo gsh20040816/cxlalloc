@@ -6,6 +6,9 @@ use std::io;
 use std::io::Write as _;
 
 pub(crate) use shm::Page;
+#[cfg(feature = "small-reservation")]
+const SIZE_RESERVATION: usize = 1 << 36;
+#[cfg(not(feature = "small-reservation"))]
 const SIZE_RESERVATION: usize = 1 << 40;
 
 use crate::raw::backend::Backend;

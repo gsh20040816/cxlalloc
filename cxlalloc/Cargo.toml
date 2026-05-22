@@ -32,6 +32,7 @@ stat-size = ["dep:hdrhistogram"]
 opt-memcpy = []
 
 validate = []
+small-reservation = []
 
 [dependencies]
 bon.workspace = true
