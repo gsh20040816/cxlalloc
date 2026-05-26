@@ -10,7 +10,7 @@ use std::ffi::CStr;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, AtomicU16, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 
 use cxlalloc::raw;
 use cxlalloc::Allocator;
@@ -21,6 +21,8 @@ fn ffi_or_null(apply: impl FnOnce() -> *mut ffi::c_void) -> *mut ffi::c_void {
 
 static RAW: Mutex<Option<Box<raw::Raw>>> = Mutex::new(None);
 static RAW_PID: AtomicI32 = AtomicI32::new(0);
+static CACHED_PID: AtomicI32 = AtomicI32::new(0);
+static ATFORK_ONCE: Once = Once::new();
 static THREAD_ID_BASE: AtomicU16 = AtomicU16::new(0);
 static LOCAL_THREAD_COUNT: AtomicU16 = AtomicU16::new(1);
 
@@ -60,14 +62,33 @@ fn reset_thread_allocator() {
     });
 }
 
+unsafe extern "C" fn reset_cached_pid_after_fork() {
+    CACHED_PID.store(0, Ordering::Release);
+}
+
 fn current_pid() -> i32 {
-    unsafe { libc::getpid() as i32 }
+    ATFORK_ONCE.call_once(|| unsafe {
+        let _ = libc::pthread_atfork(None, None, Some(reset_cached_pid_after_fork));
+    });
+
+    let pid = CACHED_PID.load(Ordering::Acquire);
+    if pid != 0 {
+        return pid;
+    }
+
+    let pid = unsafe { libc::getpid() as i32 };
+    CACHED_PID.store(pid, Ordering::Release);
+    pid
 }
 
 fn discard_inherited_process_state() {
     let owner_pid = RAW_PID.load(Ordering::Acquire);
+    if owner_pid == 0 {
+        return;
+    }
+
     let pid = current_pid();
-    if owner_pid == 0 || owner_pid == pid {
+    if owner_pid == pid {
         return;
     }
 
