@@ -7,6 +7,7 @@ use std::alloc::Layout;
 use std::cell::RefCell;
 use std::ffi;
 use std::ffi::CStr;
+use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, AtomicU16, Ordering};
 use std::sync::Mutex;
@@ -99,6 +100,11 @@ enum BackendKind {
     Mmap,
     Shm,
     Ivshmem,
+    IvshmemPlain {
+        path: PathBuf,
+        base_offset: u64,
+        capacity: u64,
+    },
 }
 
 fn parse_heap_id(heap_id: *const ffi::c_char) -> &'static str {
@@ -110,16 +116,34 @@ fn parse_heap_id(heap_id: *const ffi::c_char) -> &'static str {
 }
 
 fn parse_heap_backend(heap_backend: *const ffi::c_char) -> BackendKind {
-    unsafe { CStr::from_ptr(heap_backend) }
+    let backend = unsafe { CStr::from_ptr(heap_backend) }
         .to_str()
-        .ok()
-        .and_then(|backend| match backend {
-            "mmap" => Some(BackendKind::Mmap),
-            "shm" => Some(BackendKind::Shm),
-            "ivshmem" => Some(BackendKind::Ivshmem),
-            _ => None,
-        })
-        .expect("Heap backend one of [mmap, shm, ivshmem]")
+        .expect("Heap backend must be valid UTF-8");
+    match backend {
+        "mmap" => BackendKind::Mmap,
+        "shm" => BackendKind::Shm,
+        "ivshmem" => BackendKind::Ivshmem,
+        _ => {
+            let payload = backend
+                .strip_prefix("ivshmem-plain:")
+                .expect("Heap backend one of [mmap, shm, ivshmem, ivshmem-plain:<path>:<offset>:<capacity>]");
+            let (path_and_offset, capacity) = payload
+                .rsplit_once(':')
+                .expect("ivshmem-plain backend must include capacity");
+            let (path, base_offset) = path_and_offset
+                .rsplit_once(':')
+                .expect("ivshmem-plain backend must include base offset");
+            BackendKind::IvshmemPlain {
+                path: PathBuf::from(path),
+                base_offset: base_offset
+                    .parse()
+                    .expect("ivshmem-plain base offset must be decimal u64"),
+                capacity: capacity
+                    .parse()
+                    .expect("ivshmem-plain capacity must be decimal u64"),
+            }
+        }
+    }
 }
 
 fn make_backend(kind: BackendKind, heap_numa: i8) -> raw::Backend {
@@ -131,7 +155,19 @@ fn make_backend(kind: BackendKind, heap_numa: i8) -> raw::Backend {
         BackendKind::Mmap => builder.backend(raw::backend::Mmap).build(),
         BackendKind::Shm => builder.backend(raw::backend::Shm).build(),
         BackendKind::Ivshmem => builder
-            .backend(shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"))
+            .backend(::shm::backend::Backend::from(
+                shm::backend::Ivshmem::new().expect("Failed to open ivshmem device"),
+            ))
+            .build(),
+        BackendKind::IvshmemPlain {
+            path,
+            base_offset,
+            capacity,
+        } => builder
+            .backend(
+                raw::backend::PlainIvshmem::open_resource(&path, base_offset, capacity)
+                    .expect("Failed to open ivshmem plain resource"),
+            )
             .build(),
     }
 }
@@ -257,7 +293,8 @@ unsafe fn init_process(
 ///
 /// `heap_id` is an application-defined string used to correlate heaps between processes.
 /// `heap_numa` is -1 or else a NUMA node to bind heap memory to.
-/// `heap_backend` must be one of [mmap, shm, ivshmem].
+/// `heap_backend` must be one of [mmap, shm, ivshmem,
+/// ivshmem-plain:<path>:<offset>:<capacity>].
 /// `heap_size` is the initial heap size in bytes.
 /// `thread_count` is the total number of threads that will call the allocator.
 /// `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.

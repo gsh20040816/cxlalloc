@@ -163,10 +163,7 @@ impl Fixed {
         let file = backend.open(id.as_str(), size)?;
         let create = file.is_create();
         let address = unsafe {
-            file.map()
-                .maybe_numa(backend.numa().cloned())
-                .maybe_populate(backend.populate())
-                .call()?
+            file.map(None, backend.numa().cloned(), backend.populate())?
         };
 
         log::debug!(
@@ -194,11 +191,7 @@ impl Fixed {
         let file = backend.open(id.as_str(), size)?;
         let create = file.is_create();
         let mapped = unsafe {
-            file.map()
-                .address(address)
-                .maybe_numa(backend.numa().cloned())
-                .maybe_populate(backend.populate())
-                .call()?
+            file.map(Some(address), backend.numa().cloned(), backend.populate())?
         };
         assert_eq!(mapped, address);
 
@@ -274,11 +267,11 @@ impl Sequential {
                 let file = backend.open(id.with_suffix(0).as_str(), size)?;
                 let create = file.is_create();
                 unsafe {
-                    file.map()
-                        .address(reservation.start())
-                        .maybe_numa(backend.numa().cloned())
-                        .maybe_populate(backend.populate())
-                        .call()?
+                    file.map(
+                        Some(reservation.start()),
+                        backend.numa().cloned(),
+                        backend.populate(),
+                    )?
                 };
                 create
             }
@@ -356,11 +349,11 @@ impl Sequential {
             } => unsafe {
                 backend
                     .open(id.with_suffix(index).as_str(), *size)?
-                    .map()
-                    .address(reservation.start().byte_add(self.size().get() * index))
-                    .maybe_numa(backend.numa().cloned())
-                    .maybe_populate(backend.populate())
-                    .call()?;
+                    .map(
+                        Some(reservation.start().byte_add(self.size().get() * index)),
+                        backend.numa().cloned(),
+                        backend.populate(),
+                    )?;
             },
 
             Sequential::Mcas { .. } => unreachable!(),
@@ -434,11 +427,11 @@ impl Random {
                     self.id.with_suffix(format_args!("{offset:#x}")).as_str(),
                     size,
                 )?
-                .map()
-                .address(self.address().byte_add(offset))
-                .maybe_numa(backend.numa().cloned())
-                .maybe_populate(backend.populate())
-                .call()?;
+                .map(
+                    Some(self.address().byte_add(offset)),
+                    backend.numa().cloned(),
+                    backend.populate(),
+                )?;
         }
 
         Ok(())

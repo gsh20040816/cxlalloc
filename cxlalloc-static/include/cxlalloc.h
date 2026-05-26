@@ -17,7 +17,8 @@ extern "C" {
  *
  * `heap_id` is an application-defined string used to correlate heaps between processes.
  * `heap_numa` is -1 or else a NUMA node to bind heap memory to.
- * `heap_backend` must be one of [mmap, shm, ivshmem].
+ * `heap_backend` must be one of [mmap, shm, ivshmem,
+ * ivshmem-plain:<path>:<offset>:<capacity>].
  * `heap_size` is the initial heap size in bytes.
  * `thread_count` is the total number of threads that will call the allocator.
  * `thread_id` must be (1) unique for each thread and (2) less than `thread_count`.
