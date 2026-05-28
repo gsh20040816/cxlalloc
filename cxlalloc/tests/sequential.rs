@@ -54,6 +54,28 @@ fn huge() {
     })
 }
 
+#[test]
+fn recover_after_large_free_clean_path() {
+    let _ = env_logger::try_init();
+    let raw = raw::Raw::builder()
+        .size_small(1 << 20)
+        .size_large(1 << 20)
+        .build("")
+        .unwrap();
+    let id = unsafe { cxlalloc::thread::Id::new(0) };
+
+    {
+        let mut allocator = raw.allocator::<(), ()>(id);
+        let pointer = NonNull::new(allocator.allocate_untyped(4096)).unwrap();
+
+        unsafe {
+            allocator.free_untyped(pointer);
+        }
+    }
+
+    let _ = raw.allocator::<(), ()>(id);
+}
+
 proptest! {
     #[test]
     fn single(size in 1usize..(1 << 8usize)) {

@@ -384,6 +384,7 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
         };
 
         let p = self.large.pop(context, class, index, block);
+        self.owned.state.store(None, Ordering::Relaxed);
         log::trace!("allocate large {:#x} {:#x?}", size, p);
         p
     }
@@ -444,7 +445,8 @@ impl<S, O> Allocator<'_, view::Focus, S, O> {
             owned: self.owned,
         };
 
-        self.large.free(context, offset)
+        self.large.free(context, offset);
+        self.owned.state.store(None, Ordering::Relaxed);
     }
 
     #[cold]
