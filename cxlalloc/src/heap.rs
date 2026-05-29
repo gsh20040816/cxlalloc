@@ -670,10 +670,11 @@ where
 
         let next = slabs.local(index).next.load(Ordering::Relaxed);
 
-        let mut walk = self.r#sized[class].peek().unwrap();
+        let head = self.r#sized[class].peek().unwrap();
+        let count = self.r#sized[class].len();
+        let mut walk = head;
 
         if walk == index {
-            let count = self.r#sized[class].len();
             self.r#sized[class].set(next, count - 1);
         } else {
             let prev = loop {
@@ -687,6 +688,7 @@ where
 
             prev.next.store(next, Ordering::Relaxed);
             cache::flush(prev, cache::Invalidate::No);
+            self.r#sized[class].set(Some(head), count - 1);
         };
 
         self.r#unsized.push(slabs, index);
