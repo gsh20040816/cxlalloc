@@ -35,6 +35,16 @@ use crate::RESERVE_SMALL_SLABS;
 
 use self::region::Region as _;
 
+fn free_diag_enabled() -> bool {
+    std::env::var("CXLALLOC_FREE_DIAG")
+        .map(|value| !value.is_empty() && value != "0")
+        .unwrap_or(false)
+}
+
+fn current_linux_tid() -> libc::pid_t {
+    unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t }
+}
+
 pub struct Heap<'raw, L: view::Lens, B: size::Bracket> {
     /// Multiple-reader, multiple-writer metadata
     pub(crate) shared: &'raw Shared<B>,
@@ -359,10 +369,29 @@ where
         let class = local.class.load(Ordering::Relaxed);
         let block = offset.into_block(class);
         let free = unsafe { &mut *local.free.get() };
+        let diag_enabled = free_diag_enabled();
+        let count_before = free.len();
+        let block_was_free = diag_enabled && free.contains(block);
+        let free_before = if diag_enabled { Some(*free) } else { None };
 
         self.stat
             .record(context.id, stat::thread::Event::Free { size: class.size() });
         context.log(HeapState::ApplicationToSized { index, block });
+
+        if block_was_free {
+            self.log_free_diag(
+                "block_already_free_before_set",
+                context,
+                class,
+                index,
+                block,
+                owner,
+                count_before,
+                count_before,
+                true,
+                free_before,
+            );
+        }
 
         free.set(block);
         let count = free.len();
@@ -377,6 +406,25 @@ where
             return;
         }
 
+        if diag_enabled {
+            let (sized_contains, _, _, _, _) =
+                self.owned.stack_contains(&self.slabs, &self.owned.r#sized[class], index);
+            if !sized_contains {
+                self.log_free_diag(
+                    "full_slab_missing_from_sized",
+                    context,
+                    class,
+                    index,
+                    block,
+                    owner,
+                    count_before,
+                    count,
+                    block_was_free,
+                    free_before,
+                );
+            }
+        }
+
         self.owned.sized_to_unsized(&self.slabs, class, index);
         validate!(self.owned.is_valid(context, &self.slabs));
 
@@ -384,6 +432,57 @@ where
             .record(context.id, stat::thread::Event::SizedToUnsized { class });
 
         self.unsized_to_global(context);
+    }
+
+    #[cold]
+    fn log_free_diag(
+        &self,
+        reason: &str,
+        context: &allocator::Context,
+        class: B,
+        index: slab::Index<B>,
+        block: Bit,
+        owner: Option<thread::Id>,
+        count_before: u64,
+        count_after: u64,
+        block_was_free: bool,
+        free_before: Option<B::BitSet>,
+    ) {
+        let local = self.slabs.local(index);
+        let local_next = local.next.load(Ordering::Relaxed);
+        let (sized_contains, sized_head, sized_len, sized_steps, sized_stop) =
+            self.owned
+                .stack_contains(&self.slabs, &self.owned.r#sized[class], index);
+        let (unsized_contains, unsized_head, unsized_len, unsized_steps, unsized_stop) =
+            self.owned
+                .stack_contains(&self.slabs, &self.owned.r#unsized, index);
+        let free_now = unsafe { *local.free.get() };
+
+        eprintln!(
+            "[cxlalloc-free-diag pid={} tid={}] reason={} context_id={} owner={owner:?} \
+             class={class:?} slab={index} block={} count_before={} count_after={} \
+             class_count={} block_was_free={} local_next={local_next:?} \
+             sized_contains={} sized_head={sized_head:?} sized_len={} \
+             sized_steps={} sized_stop={sized_stop:?} \
+             unsized_contains={} unsized_head={unsized_head:?} unsized_len={} \
+             unsized_steps={} unsized_stop={unsized_stop:?} \
+             free_before={free_before:?} free_now={free_now:?}",
+            std::process::id(),
+            current_linux_tid(),
+            reason,
+            context.id,
+            u64::from(block),
+            count_before,
+            count_after,
+            class.count(),
+            block_was_free,
+            sized_contains,
+            sized_len,
+            sized_steps,
+            unsized_contains,
+            unsized_len,
+            unsized_steps,
+        );
     }
 
     #[cold]
@@ -623,6 +722,29 @@ where
                     && local.owner() == Some(context.id)
             })
         })
+    }
+
+    fn stack_contains(
+        &self,
+        slabs: &Slab<B>,
+        stack: &slab::stack::Local<B>,
+        index: slab::Index<B>,
+    ) -> (bool, Option<slab::Index<B>>, usize, usize, Option<slab::Index<B>>) {
+        let head = stack.peek();
+        let len = stack.len();
+        let mut current = head;
+        let mut steps = 0;
+        while let Some(walk) = current {
+            if walk == index {
+                return (true, head, len, steps, current);
+            }
+            steps += 1;
+            if steps > len.saturating_add(1) {
+                break;
+            }
+            current = slabs.local(walk).next.load(Ordering::Relaxed);
+        }
+        (false, head, len, steps, current)
     }
 
     pub(crate) fn unsized_to_sized(

@@ -20,6 +20,7 @@ pub(crate) trait Interface: Copy + Debug + Sized {
     // Caller must guarantee that this bitset is non-empty.
     unsafe fn peek_unchecked(&self) -> Bit;
 
+    fn contains(&self, bit: Bit) -> bool;
     fn set(&mut self, bit: Bit);
     fn unset(&mut self, bit: Bit);
     fn len(&self) -> u64;
@@ -132,6 +133,14 @@ impl<const SIZE: usize> Interface for BitSet<SIZE> {
             row: u6::new(row),
             col: u6::new(col),
         }
+    }
+
+    #[inline]
+    fn contains(&self, bit: Bit) -> bool {
+        let row = bit.row.value() as usize;
+        let col = bit.col.value() as usize;
+        let cols = unsafe { self.dense.get_unchecked(row) };
+        (*cols & (1 << col)) != 0
     }
 
     #[inline]
